@@ -94,6 +94,22 @@ loop. It also writes `pubtools.loudnessSnd0` as `-28.00` when `param.json` is
 present. The 15-second, approximately 360 KB profile is intentionally
 conservative to avoid Shell presentation-audio size rejection.
 
+The 15-second value is a template policy, not a Shell duration limit. Offline
+inspection of the Shell audio validator established these file-level limits:
+
+- ATRAC9 in a RIFF/WAVE container at exactly 48 kHz.
+- Mono at no more than 96 kb/s, or stereo at no more than 192 kb/s.
+- A total RIFF file length no greater than 2,097,152 bytes (2 MiB).
+
+The validator has no separate duration comparison. Duration follows from the
+chosen channel count, bitrate, and ATRAC9 frame/container overhead. With the
+template's 48 kHz stereo, 192 kb/s, whole-loop encoding, the largest complete
+file below the ceiling is 2,096,808 bytes: 4,193,024 samples, or
+87.354666667 seconds. One additional sample requires another 512-byte frame,
+producing a 2,097,320-byte file that the Shell rejects. The template continues
+to recommend and validate 15-second clips because they are quicker to prepare,
+smaller to distribute, and already hardware-proven.
+
 If you already have a correctly encoded AT9 file, no encoder or FFmpeg is
 needed:
 

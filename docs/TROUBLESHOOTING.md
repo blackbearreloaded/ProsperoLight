@@ -79,8 +79,11 @@ compatibility patch deliberately. Do not silence unresolved symbols.
   home-screen music but the replacement remains silent, inspect the chunk list;
   this is the observed signature of an acknowledged but non-playing track.
 - `Base.BgmController: Invalid file size` indicates Shell rejection before
-  playback; shorten and re-encode the track rather than debugging application
-  AudioOut.
+  playback. The exact accepted total-file maximum is 2,097,152 bytes (2 MiB),
+  not 15 seconds; shorten and re-encode the track rather than debugging
+  application AudioOut. For stereo 192 kb/s output from the documented encoder,
+  keep the source at or below 4,193,024 samples (87.354666667 seconds) so frame
+  padding does not cross the file ceiling.
 - Presentation metadata may be cached for an already registered title. Follow
   the loader's documented refresh or unregister procedure after changing the
   presentation structure.

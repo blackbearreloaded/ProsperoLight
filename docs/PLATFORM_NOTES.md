@@ -44,6 +44,14 @@ environment.
 - Selection audio uses a 48 kHz stereo ATRAC9 RIFF file named `snd0.at9` with
   one `smpl` loop. The asset tool enforces a conservative 15-second,
   approximately 360 KB profile.
+- The Shell's file-size ceiling for selection audio is exactly 2,097,152 bytes
+  (2 MiB); it rejects files starting at 2,097,153 bytes. It has no independent
+  duration limit. At the template's stereo 192 kb/s profile, ATRAC9 frame
+  granularity makes 87.354666667 seconds (2,096,808 bytes) the largest
+  constructible whole-loop file below that ceiling.
+- The same validator accepts 48 kHz mono up to 96 kb/s and 48 kHz stereo up to
+  192 kb/s. These are documented platform observations, not additional output
+  profiles promised by the asset-preparation script.
 - Presentation metadata may be cached by the shell or loader. Follow the
   loader's refresh procedure after structural asset changes.
 
