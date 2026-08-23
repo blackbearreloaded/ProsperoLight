@@ -276,6 +276,10 @@ foreach ($assetName in @("pic0.dds", "pic1.dds", "snd0.at9")) {
         [IO.File]::Copy($assetPath, (Join-Path $app "sce_sys/$assetName"), $true)
     }
 }
+$assetDirectory = Join-Path $ProjectDirectory "assets"
+if (Test-Path -LiteralPath $assetDirectory -PathType Container) {
+    Copy-Item -LiteralPath $assetDirectory -Destination (Join-Path $app "assets") -Recurse -Force
+}
 
 foreach ($runtimeModule in @($project.runtimeModules)) {
     $runtimeSource = [IO.Path]::GetFullPath((Join-Path $here $runtimeModule.source))

@@ -25,6 +25,7 @@
 #define COLOR_CYAN UINT32_C(0xffffff00)
 #define COLOR_MAGENTA UINT32_C(0xffff00ff)
 #define COLOR_YELLOW UINT32_C(0xff00ffff)
+#define ASSET_MESSAGE_CAPACITY 48u
 
 typedef struct video_buffer {
     void *data;
@@ -58,6 +59,9 @@ int sceKernelSendNotificationRequest(uint32_t device, void *request,
                                      size_t size, int blocking);
 int sceKernelUsleep(uint32_t microseconds);
 int sceSystemServiceHideSplashScreen(void);
+int open(const char *path, int flags, ...);
+long read(int descriptor, void *buffer, size_t size);
+int close(int descriptor);
 int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index,
                     const void *param);
 int sceVideoOutSetFlipRate(int32_t handle, int32_t rate);
@@ -77,6 +81,7 @@ int sceVideoOutSubmitFlip(int32_t handle, int32_t buffer_index,
 int sceVideoOutWaitVblank(int32_t handle);
 
 static notification_request_t notification;
+static char asset_message[ASSET_MESSAGE_CAPACITY] = "APP0 ASSET FAILED";
 
 static const glyph_t glyphs[] = {
     {' ', {0, 0, 0, 0, 0, 0, 0}},
@@ -137,6 +142,29 @@ static void notify(const char *message)
     copy_message(notification.message, sizeof(notification.message), message);
     sceKernelSendNotificationRequest(0, &notification,
                                      sizeof(notification), 0);
+}
+
+static void load_asset_message(void)
+{
+    int descriptor = open("/app0/assets/banner.txt", 0);
+    if (descriptor < 0)
+        return;
+
+    long count = read(descriptor, asset_message,
+                      sizeof(asset_message) - 1);
+    close(descriptor);
+    if (count <= 0) {
+        copy_message(asset_message, sizeof(asset_message),
+                     "APP0 ASSET FAILED");
+        return;
+    }
+
+    size_t length = (size_t)count;
+    while (length > 0 &&
+           (asset_message[length - 1] == '\r' ||
+            asset_message[length - 1] == '\n'))
+        --length;
+    asset_message[length] = '\0';
 }
 
 static _Noreturn void halt(const char *message)
@@ -252,6 +280,7 @@ static void render_frame(uint32_t *pixels)
 
     draw_text(pixels, 120, 90, "HELLO WORLD", 14, COLOR_WHITE);
     draw_text(pixels, 120, 245, "NATIVE PS5 CPU VIDEOOUT", 6, COLOR_WHITE);
+    draw_text(pixels, 120, 315, asset_message, 5, COLOR_CYAN);
 
     fill_circle(pixels, 370, 665, 130, COLOR_CYAN);
     fill_rect(pixels, 840, 535, 240, 240, COLOR_YELLOW);
@@ -264,6 +293,7 @@ static void render_frame(uint32_t *pixels)
 
 int main(void)
 {
+    load_asset_message();
     sceSystemServiceHideSplashScreen();
 
     int video = sceVideoOutOpen(0xff, 0, 0, NULL);
@@ -311,7 +341,7 @@ int main(void)
         halt("Hello World: initial flip failed");
 
     sceVideoOutWaitVblank(video);
-    notify("Hello World: CPU frame submitted");
+    notify(asset_message);
 
     /* Returning from main or calling exit crashes this launch context. */
     for (;;)

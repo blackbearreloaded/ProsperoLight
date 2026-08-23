@@ -25,6 +25,7 @@ compatibility patch. No SharpProspero source is vendored here.
 - A small local C# frontend for the on-demand SharpProspero linker and FSELF
   writer.
 - A source-reproducible clean-room `libc.prx` loader shim.
+- Automatic recursive packaging of read-only application assets.
 - Static ELF/FSELF validation before an artifact is accepted.
 - A ready-to-stage output directory under `dist/<TITLE_ID>/`.
 - Documentation for setup, configuration, C# tooling, deployment, and known
@@ -78,11 +79,27 @@ only `eboot.bin`.
 
 Read [Getting started](docs/GETTING_STARTED.md) before the first build.
 
+## Read-only application assets
+
+Put application data such as fonts, images, configuration defaults, or shader
+files under `assets/`. The build copies the directory recursively without
+conversion:
+
+```text
+assets/fonts/ui.bin  ->  /app0/assets/fonts/ui.bin
+```
+
+Open packaged files through their absolute `/app0/assets/...` paths. `/app0`
+is the application's read-only mounted image, so writable state belongs under
+`/download0` instead. The [Hello World example](examples/hello-world/README.md)
+loads `assets/banner.txt` at runtime and renders its contents.
+
 ## Repository layout
 
 ```text
 project.json                App identity, sources, and build inputs
 src/main.c                  Minimal native application
+assets/                     Optional read-only files mounted at /app0/assets/
 sce_sys/                    Param, icon, BC7 selection art, and optional snd0.at9
 examples/hello-world/       Complete native CPU-rendered graphical example
 build.ps1                   Complete Windows/WSL build
