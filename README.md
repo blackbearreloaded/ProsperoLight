@@ -11,12 +11,6 @@ a pinned [SharpProspero](https://github.com/SvenGDK/SharpProspero) revision into
 the ignored `.deps/` cache and applies this repository's focused native-app
 compatibility patch. No SharpProspero source is vendored here.
 
-> [!IMPORTANT]
-> This is experimental homebrew software for consoles you own and control.
-> Never change PS5 system settings, never initiate a system update, and use only
-> your already-approved LAN homebrew services. This repository does not contain
-> an exploit, kstuff, Sony SDK files, keys, or proprietary runtime modules.
-
 ## What you get
 
 - A minimal native application that displays a notification and stays alive.
