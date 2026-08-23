@@ -116,6 +116,40 @@ dist/                       Generated title directory; ignored
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Contributing](CONTRIBUTING.md)
 
+## External projects and tools
+
+This repository builds on or interoperates with the following projects. Their
+source and licenses remain with their respective maintainers; see
+[NOTICE.md](NOTICE.md) for pinned dependency details.
+
+- [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) provides the
+  public PS5 headers, sysroot, and Clang target support.
+- [SvenGDK/SharpProspero](https://github.com/SvenGDK/SharpProspero) provides
+  the linker, import catalog, ELF inspection, and development FSELF writer. A
+  pinned revision is fetched into `.deps/` and patched at build time.
+- [LLVM/Clang](https://github.com/llvm/llvm-project),
+  [.NET SDK](https://github.com/dotnet/sdk),
+  [WSL](https://github.com/microsoft/WSL), and
+  [Git for Windows](https://github.com/git-for-windows/git) provide the host
+  compiler and build environment.
+- [SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) creates and checks
+  optional uncompressed UFS2 `.ffpkg` images.
+- [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS), running on
+  [Python](https://github.com/python/cpython), creates and verifies optional
+  compressed `.ffpfsc` images.
+- [sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG) documents the public
+  `.ffpkg` packaging procedure used as a format reference; its source is not
+  fetched or copied.
+- [Microsoft DirectXTex](https://github.com/microsoft/DirectXTex) supplies
+  `texconv` for launcher and BC7 background preparation.
+- [FFmpeg](https://ffmpeg.org/) prepares developer-supplied selection audio
+  before ATRAC9 encoding.
+- [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) is the
+  directory-style loader used for deployment and hardware validation.
+- GitHub's [checkout](https://github.com/actions/checkout) and
+  [setup-dotnet](https://github.com/actions/setup-dotnet) actions run the host
+  tooling build check.
+
 ## Scope
 
 This template produces a directory-style homebrew application and, optionally,
