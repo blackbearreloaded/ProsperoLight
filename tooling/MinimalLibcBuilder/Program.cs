@@ -184,6 +184,7 @@ internal static class Program
         PutString(metadata, 0x06D, "libSceSysmodule");
         PutString(metadata, 0x07D, "libc.prx");
         PutString(metadata, 0x086, "libc");
+        PutString(metadata, 0x08B, "BlackBearReloaded");
         PutString(metadata, 0x0D7, "libc_setjmp");
 
         string markerNid = ComputeNid("Need_sceLibc");
@@ -329,6 +330,7 @@ internal static class Program
         Require(file.AsSpan(TextFileOffset + 0x10, 3).SequenceEqual(new byte[] { 0x31, 0xC0, 0xC3 }), "init stub");
 
         string ascii = Encoding.ASCII.GetString(file);
+        Require(ascii.Contains("BlackBearReloaded", StringComparison.Ordinal), "attribution marker");
         foreach (string forbidden in new[] { "W:/Build", "J013", "Prospero_Release", "sys/internal" })
             Require(!ascii.Contains(forbidden, StringComparison.Ordinal), $"forbidden reference text: {forbidden}");
 

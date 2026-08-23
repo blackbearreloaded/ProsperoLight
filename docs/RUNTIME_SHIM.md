@@ -23,10 +23,10 @@ system modules selected by the pinned build-time linker.
 
 ```text
 Raw ELF SHA-256:
-202c41c485cace159d354216818eb69af9843698d695d4fb611d6bb13a4c85fb
+1f176192c7e55cdd6477d11b2290d05fad63e803dab057216f6f92f4b4b37867
 
 Bundled FSELF SHA-256:
-247a8bad5764d3134fb8470653ae8bd72bd200170bd132f6881c73a375d5533a
+cd961ee6ed3d08117459b0fe70d86fe322672ebe0103678ee7c3f15af7e00504
 ```
 
 The FSELF digest is tracked in
@@ -56,5 +56,5 @@ repository under its license. No Sony runtime implementation, proprietary SDK
 binary, key, or game file is present.
 
 The implementation is authored by BlackBearReloaded. Attribution is retained in
-[`runtime/README.md`](../runtime/README.md) and in the emitter's source
-headers.
+[`runtime/README.md`](../runtime/README.md), in the emitter's source headers,
+and as a non-exported `BlackBearReloaded` metadata string in the binary.
