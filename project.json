@@ -1,0 +1,23 @@
+{
+  "titleName": "PS5 Native App",
+  "titleId": "PPSA99999",
+  "conceptId": "99999",
+  "contentId": "UP9000-PPSA99999_00-NATIVEAPP0000001",
+  "moduleSdkVersion": "0x02000009",
+  "companionSdkVersion": "0x08050001",
+  "fselfMagic": "0x1D3D154F",
+  "downloadDataSize": 256,
+  "sources": [
+    "src/main.c"
+  ],
+  "compileDefinitions": [],
+  "includePaths": [],
+  "staticArchives": [],
+  "runtimeModules": [
+    {
+      "source": "runtime/libc.prx",
+      "name": "libc.prx",
+      "sha256": "247A8BAD5764D3134FB8470653AE8BD72BD200170BD132F6881C73A375D5533A"
+    }
+  ]
+}

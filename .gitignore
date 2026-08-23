@@ -1,0 +1,17 @@
+.local/
+.deps/
+build/
+dist/
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.log
+*.elf
+*.self
+*.sprx
+*.prx
+*.pkg
+!runtime/libc.prx

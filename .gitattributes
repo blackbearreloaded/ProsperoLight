@@ -1,0 +1,9 @@
+* text=auto
+*.sh text eol=lf
+tooling/prospero-clang18 text eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.dds binary
+*.at9 binary
+*.prx binary
+*.bin binary

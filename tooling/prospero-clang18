@@ -1,0 +1,14 @@
+#!/bin/sh
+# ps5-native-app-boilerplate - PS5 Clang target wrapper.
+# Copyright (C) 2026 BlackBearReloaded
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Applies the repository's proven compiler target and SDK paths.
+
+exec /usr/bin/clang-18 \
+    -target x86_64-sie-ps5 \
+    -fvisibility-nodllstorageclass=default \
+    -isysroot /opt/ps5-payload-sdk \
+    -isystem /opt/ps5-payload-sdk/target/include \
+    -fno-stack-protector -fno-plt -femulated-tls \
+    "$@"

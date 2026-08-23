@@ -1,0 +1,424 @@
+From: BlackBearReloaded
+Subject: [PATCH] Add native-app compatibility to pinned SharpProspero
+Copyright (C) 2026 BlackBearReloaded
+SPDX-License-Identifier: GPL-3.0-or-later
+
+This delta contains the app metadata, FSELF layout, and import-catalog behavior
+required by ps5-native-app-boilerplate. The upstream source is fetched rather
+than redistributed.
+
+---
+diff --git a/tools/SharpProspero.Link/DynamicWriter.cs b/tools/SharpProspero.Link/DynamicWriter.cs
+index 125daac..e2686fb 100644
+--- a/tools/SharpProspero.Link/DynamicWriter.cs
++++ b/tools/SharpProspero.Link/DynamicWriter.cs
+@@ -127,10 +127,10 @@ public static class DynamicWriter
+     private const string TailNoteName = "SIE\0";
+     // The revision the modules an application links against are built at. Reported back by the system
+     // as the process starts, and recorded again in the version segment; the two must not drift.
+-    private const uint ModuleSdkVersion = 0x02000009;
++    public const uint DefaultModuleSdkVersion = 0x02000009;
+     // The version that travels with the one above. The pair is fixed: every module measured that
+     // carries one carries this alongside it, and neither is chosen without the other.
+-    private const uint CompanionSdkVersion = 0x08050001;
++    public const uint DefaultCompanionSdkVersion = 0x08050001;
+     // The record a library carries in place of an executable's process parameters, and its marker.
+     private const uint ModuleParamMagic = 0x3C13F4BF;
+     private const int ModuleParamSize = 0x20;
+@@ -199,9 +199,15 @@ public static class DynamicWriter
+     /// The two are separate because a module publishing more than one library names each apart from
+     /// itself, which is how every module on the console is arranged.
+     /// </param>
++    /// <param name="moduleSdkVersion">SDK revision written to the process and version records.</param>
++    /// <param name="companionSdkVersion">Companion revision paired with the SDK revision.</param>
++    /// <param name="versionComponents">Optional exact component names for the version records.</param>
+     public static byte[] Write(LinkResolution resolution, string? entrySymbol, ModuleKind kind = ModuleKind.Executable,
+         IReadOnlyList<string>? exportSymbols = null, string? moduleFileName = null,
+-        string? moduleName = null, string? exportLibraryName = null)
++        string? moduleName = null, string? exportLibraryName = null,
++        uint moduleSdkVersion = DefaultModuleSdkVersion,
++        uint companionSdkVersion = DefaultCompanionSdkVersion,
++        IReadOnlyList<string>? versionComponents = null)
+     {
+         ArgumentNullException.ThrowIfNull(resolution);
+         if (resolution.Unresolved.Count > 0)
+@@ -705,14 +711,17 @@ public static class DynamicWriter
+         byte[] relaDynBytes = new byte[(gotDataRelocCount + abs64Count + paramBlockPointers + tlsPairCount) * 24];
+         byte[] pltBytes = new byte[16 + boundImports.Count * 16 + InitFiniSize];
+         byte[] gotBytes = new byte[24 + boundImports.Count * 8 + gotDataOrder.Count * 8 + tlsPairCount * 16];
+-        byte[] procParam = kind == ModuleKind.Library ? BuildModuleParam() : BuildProcParam();
++        byte[] procParam = kind == ModuleKind.Library
++            ? BuildModuleParam(moduleSdkVersion, companionSdkVersion)
++            : BuildProcParam(moduleSdkVersion, companionSdkVersion);
+         byte[] paramBlocks = BuildParamBlocks();
+         byte[] note = BuildNote();
+         byte[] comment = BuildComment(fileName);
+         // One record per component the link consumed: the start object this linker writes, then each
+         // module the result binds against. A built module names its own start files and every library it
+         // was given, in that order.
+-        byte[] versionBlob = BuildVersion([CrtEmitter.StartComponentName, .. moduleIndex.Keys]);
++        byte[] versionBlob = BuildVersion(
++            versionComponents ?? [CrtEmitter.StartComponentName, .. moduleIndex.Keys], moduleSdkVersion);
+ 
+         // Assign segment base addresses and file offsets on the grid; the header occupies the first page.
+         // The code group ends after the procedure-linkage table, which is aligned past the code, so the
+@@ -2034,19 +2043,19 @@ public static class DynamicWriter
+     // this block verbatim, which is where its contents come from rather than from inference.
+     //
+     // The version words are the same pair the process parameters carry, and mean the same thing.
+-    private static byte[] BuildModuleParam()
++    private static byte[] BuildModuleParam(uint moduleSdkVersion, uint companionSdkVersion)
+     {
+         byte[] p = new byte[ModuleParamSize];
+         BinaryPrimitives.WriteUInt64LittleEndian(p, ModuleParamSize);
+         BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x08), ModuleParamMagic);
+         BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x0C), 3);
+-        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x10), CompanionSdkVersion);
+-        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x14), ModuleSdkVersion);
++        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x10), companionSdkVersion);
++        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x14), moduleSdkVersion);
+         BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x18), 1);
+         return p;
+     }
+ 
+-    private static byte[] BuildProcParam()
++    private static byte[] BuildProcParam(uint moduleSdkVersion, uint companionSdkVersion)
+     {
+         byte[] p = new byte[ProcParamSize];
+         BinaryPrimitives.WriteUInt64LittleEndian(p, ProcParamDeclaredSize);
+@@ -2058,8 +2067,8 @@ public static class DynamicWriter
+         // no release carries describes a module that could not exist. The first is the companion
+         // version that goes with it: the two travel as a pair and are not chosen independently, so
+         // changing one without the other describes a combination no module has.
+-        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x10), CompanionSdkVersion);
+-        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x14), ModuleSdkVersion);
++        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x10), companionSdkVersion);
++        BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x14), moduleSdkVersion);
+         BinaryPrimitives.WriteUInt32LittleEndian(p.AsSpan(0x58), 1);
+         return p;
+     }
+@@ -2094,7 +2103,7 @@ public static class DynamicWriter
+     // The version segment is a run of records and nothing else. A reader takes each record's declared
+     // body length and steps to the next, so the segment has to end exactly where the last record does:
+     // padding past it reads as a further record declaring no body, which is not a record at all.
+-    private static byte[] BuildVersion(IReadOnlyList<string> components)
++    private static byte[] BuildVersion(IReadOnlyList<string> components, uint moduleSdkVersion)
+     {
+         var blob = new List<byte>();
+         foreach (string component in components)
+@@ -2107,7 +2116,7 @@ public static class DynamicWriter
+             name.CopyTo(record, 5);
+             for (int i = 0, at = 5 + name.Length; i < 2; i++, at += VersionWordSize)
+             {
+-                BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(at), ModuleSdkVersion);
++                BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(at), moduleSdkVersion);
+                 BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(at + 4), 1);
+             }
+             blob.AddRange(record);
+diff --git a/tools/SharpProspero.Prx/SelfContainer.cs b/tools/SharpProspero.Prx/SelfContainer.cs
+index b7b8b5f..4013073 100644
+--- a/tools/SharpProspero.Prx/SelfContainer.cs
++++ b/tools/SharpProspero.Prx/SelfContainer.cs
+@@ -83,6 +83,12 @@ public readonly record struct SelfIntegrity(bool HasDigest, bool Matches, byte[]
+ /// <summary>Options for <see cref="SelfContainer.Sign"/>.</summary>
+ public sealed class SelfSignOptions
+ {
++    /// <summary>Container magic and its associated signature-area layout.</summary>
++    public uint ContainerMagic { get; init; } = SelfContainer.Magic;
++
++    /// <summary>Whether the process-parameter program header is stored as a SELF data segment.</summary>
++    public bool IncludeProcParamSegment { get; init; }
++
+     /// <summary>Application version written to the extended info.</summary>
+     public ulong AppVersion { get; init; }
+ 
+@@ -95,6 +101,12 @@ public sealed class SelfSignOptions
+     /// </summary>
+     public ulong? AuthorityId { get; init; }
+ 
++    /// <summary>
++    /// Optional 0x88-byte authentication record embedded in the signature area. When present, its
++    /// authority word is replaced with <see cref="AuthorityId"/> so the two container fields agree.
++    /// </summary>
++    public byte[]? AuthInfo { get; init; }
++
+     /// <summary>
+     /// Normalizes the ELF header before wrapping (machine to x86-64, a System V or GNU OS/ABI to
+     /// FreeBSD, an unset type to executable) so a plain ELF is accepted as a module. Only the
+@@ -124,16 +136,15 @@ public sealed class SelfSignOptions
+ public static class SelfContainer
+ {
+     /// <summary>
+-    /// The container header magic this type writes, at file offset 0x00. Two magics appear on modules,
+-    /// and each goes together with a particular signature-area size in the metadata region. Modules
+-    /// carrying either pairing run; one magic with the other's size matches no module measured, so the
+-    /// two are written together and never separately. This magic pairs with <see cref="SignatureSize"/>.
++    /// Default container header magic, at file offset 0x00. Two magics appear on modules, and each
++    /// goes together with a particular signature-area size in the metadata region. This magic pairs
++    /// with <see cref="SignatureSize"/>.
+     /// </summary>
+     public const uint Magic = 0xEEF51454;
+ 
+     /// <summary>
+-    /// The other container header magic a reader accepts. It pairs with a signature area 0x100 bytes
+-    /// smaller than <see cref="SignatureSize"/>, so this type reads it but does not write it.
++    /// The other accepted container header magic. It pairs with a signature area 0x100 bytes smaller
++    /// than <see cref="SignatureSize"/>.
+     /// </summary>
+     public const uint AlternateMagic = 0x1D3D154F;
+ 
+@@ -152,10 +163,12 @@ public static class SelfContainer
+     // than with the segment count, and it stays zero-filled: nothing reads what occupies it, but the
+     // region still has to reach its full length, because the segment data starts where it ends.
+     internal const int SignatureSize = 0x200;
++    internal const int AlternateSignatureSize = 0x100;
+ 
+     /// <summary>The metadata region size for <paramref name="segmentCount"/> segment-table entries.</summary>
+-    internal static int MetaSize(int segmentCount) =>
+-        segmentCount * MetaBlockSize + MetaFooterSize + SignatureSize;
++    internal static int MetaSize(int segmentCount, uint magic) =>
++        segmentCount * MetaBlockSize + MetaFooterSize
++        + (magic == AlternateMagic ? AlternateSignatureSize : SignatureSize);
+ 
+     // A data segment is stored in fixed-size blocks and its paired segment holds one digest slot per
+     // block, so the pair's size follows from the data size rather than being fixed. The block size is
+@@ -192,7 +205,8 @@ public static class SelfContainer
+ 
+     // Program-header types whose file content becomes a container data segment.
+     private const uint PtLoad = 0x00000001;
+-    private const uint PtModuleData = 0x61000000;
++    private const uint PtSceDynlibData = 0x61000000;
++    private const uint PtSceProcParam = 0x61000001;
+     private const uint PtRelro = 0x61000010;
+     private const uint PtComment = 0x6FFFFF00;
+     // The record segment that holds the component version entries. It is never mapped, so the container
+@@ -463,6 +477,10 @@ public static class SelfContainer
+             throw new PrxFormatException("Input is not an ELF file.");
+         if (elf[4] != 2)
+             throw new PrxFormatException("Only 64-bit ELF modules are supported.");
++        if (options.AuthInfo is { Length: not 0x88 })
++            throw new PrxFormatException("Embedded authentication info must be exactly 0x88 bytes.");
++        if (options.ContainerMagic is not (Magic or AlternateMagic))
++            throw new PrxFormatException("Unsupported signed-container magic.");
+ 
+         // Normalize on a private copy so the caller's buffer is never mutated; the container embeds
+         // and digests this normalized ELF.
+@@ -485,7 +503,7 @@ public static class SelfContainer
+             throw new PrxFormatException(
+                 $"The ELF program-header table must follow the ELF header at 0x{ElfHeaderSize:X} (e_phoff is 0x{phoff:X}).");
+ 
+-        var selected = SelectSegments(elf, phoff, phnum);
++        var selected = SelectSegments(elf, phoff, phnum, options.IncludeProcParamSegment);
+         if (selected.Count == 0)
+             throw new PrxFormatException("The ELF has no loadable segment content.");
+ 
+@@ -494,7 +512,7 @@ public static class SelfContainer
+         int elfHdrLen = ElfHeaderSize + phnum * ElfPhdrSize;
+         int extInfoStart = AlignUp(afterSeg + elfHdrLen, 0x10);
+         int headerSize = extInfoStart + ExtInfoSize + ControlRegionSize;
+-        int metaSize = MetaSize(segCount);
++        int metaSize = MetaSize(segCount, options.ContainerMagic);
+         int dataStart = headerSize + metaSize;
+ 
+         // The header stores headerSize and metaSize as u16 fields; an ELF with enough program headers
+@@ -530,7 +548,7 @@ public static class SelfContainer
+         var buffer = new byte[Math.Max(fileSize, versionStart + versionLength)];
+         Span<byte> span = buffer.AsSpan();
+ 
+-        BinaryPrimitives.WriteUInt32LittleEndian(span, Magic);
++        BinaryPrimitives.WriteUInt32LittleEndian(span, options.ContainerMagic);
+         span[0x04] = 0;    // version
+         span[0x05] = 1;    // mode
+         span[0x06] = 1;    // endian
+@@ -572,6 +590,14 @@ public static class SelfContainer
+         int footerStart = headerSize + segCount * MetaBlockSize;
+         BinaryPrimitives.WriteUInt32LittleEndian(span[(footerStart + FooterMarkerOffset)..], 0x00010000);
+ 
++        if (options.AuthInfo is byte[] authInfo)
++        {
++            int signatureStart = footerStart + MetaFooterSize;
++            BinaryPrimitives.WriteUInt64LittleEndian(span[signatureStart..], 0x88);
++            BinaryPrimitives.WriteUInt64LittleEndian(span[(signatureStart + 0x08)..], authorityId);
++            authInfo.AsSpan(0x08).CopyTo(span[(signatureStart + 0x10)..]);
++        }
++
+         for (int k = 0; k < selected.Count; k++)
+             elf.AsSpan(selected[k].FileOffset, selected[k].FileSize).CopyTo(span[segOffsets[k * 2 + 1]..]);
+ 
+@@ -615,7 +641,8 @@ public static class SelfContainer
+ 
+     private readonly record struct SelectedSegment(int PhdrIndex, int FileOffset, int FileSize);
+ 
+-    private static List<SelectedSegment> SelectSegments(byte[] elf, int phoff, int phnum)
++    private static List<SelectedSegment> SelectSegments(
++        byte[] elf, int phoff, int phnum, bool includeProcParamSegment)
+     {
+         var result = new List<SelectedSegment>();
+         for (int i = 0; i < phnum; i++)
+@@ -637,7 +664,9 @@ public static class SelfContainer
+                         "zero-length entry, and a module carrying one does not start.");
+                 continue;
+             }
+-            if (pType != PtLoad && pType != PtModuleData && pType != PtRelro && pType != PtComment)
++            if (pType != PtLoad && pType != PtSceDynlibData
++                && (pType != PtSceProcParam || !includeProcParamSegment)
++                && pType != PtRelro && pType != PtComment)
+                 continue;
+             // A segment the container has to carry, whose bytes are not in the module. Passing over it
+             // writes a container missing a segment the loader needs and says nothing, so what comes out
+diff --git a/tools/SharpProspero.Prx/StubCatalog.cs b/tools/SharpProspero.Prx/StubCatalog.cs
+index 4dbf70c..4c10252 100644
+--- a/tools/SharpProspero.Prx/StubCatalog.cs
++++ b/tools/SharpProspero.Prx/StubCatalog.cs
+@@ -48,7 +48,7 @@ public static class StubCatalog
+         // A third library out of the same file. The console identifier is published under this name and
+         // not under the kernel's own, so asking the kernel for it asks for something nothing publishes.
+         new Entry("libSceOpenPsId", OpenPsId, ModuleName: "libkernel", Soname: "libkernel.prx"),
+-        new Entry("libc", C),
++        new Entry("libSceLibcInternal", C),
+         new Entry("libSceVideoOut", VideoOut),
+         new Entry("libScePad", Pad),
+         new Entry("libSceUserService", UserService),
+@@ -107,6 +107,7 @@ public static class StubCatalog
+         // The save-data module names its file with a dot but its module and library with an
+         // underscore, so the file name is given explicitly and the two names default from the library.
+         new Entry("libSceSaveData_native", SaveData, Soname: "libSceSaveData.native.prx"),
++        new Entry("libSceIpmi", Ipmi),
+         new Entry("libSceKeyboard", Keyboard),
+         new Entry("libSceMouse", Mouse),
+         new Entry("libSceCommonDialog", CommonDialog),
+@@ -175,10 +176,15 @@ public static class StubCatalog
+     private static readonly string[] Kernel =
+     [
+         "__error", "__stack_chk_fail", "__tls_get_addr", "sceKernelAllocateDirectMemory",
++        "sceKernelAllocateMainDirectMemory", "sceKernelCreateEqueue", "sceKernelDeleteEqueue",
++        "sceKernelCreateSema", "sceKernelDeleteSema",
++        "sceKernelWaitEqueue",
+         // Three the console publishes that the link-time archives leave out. They are here because the
+         // console is what an application binds against; without them the calls that read the system
+         // version and the settings could never be reached at all.
+-        "sceKernelGetProsperoSystemSwVersion", "sceKernelGetAllowedSdkVersionOnSystem", "sysctlbyname",
++        "sceKernelGetProsperoSystemSwVersion", "sceKernelGetAllowedSdkVersionOnSystem",
++        "sceKernelGetCompiledSdkVersion", "sceKernelGetProsperoCompiledSdkVersion",
++        "sceKernelIsPs4Process", "sysctl", "sysctlbyname",
+         "sceKernelAvailableDirectMemorySize", "sceKernelAvailableFlexibleMemorySize", "sceKernelCheckReachability", "sceKernelClockGettime",
+         "sceKernelClose", "sceKernelDlsym", "sceKernelGetCurrentCpu", "sceKernelGetDirectMemorySize",
+         "sceKernelGetProcessTime",
+@@ -212,7 +218,8 @@ public static class StubCatalog
+     [
+         "chmod", "clock_gettime", "close", "fchmod",
+         "fcntl", "flock", "fstat", "fsync",
+-        "ftruncate", "getdents", "getpid", "getsockopt", "gettimeofday",
++        "_exit", "execve", "ftruncate", "getdents", "getegid", "geteuid", "getgroups",
++        "getpid", "getpriority", "getsid", "getsockopt", "gettimeofday",
+         "lseek", "madvise", "mkdir", "mlock",
+         "mprotect", "msync", "munlock", "munmap",
+         "nanosleep", "open", "pread", "preadv",
+@@ -223,12 +230,17 @@ public static class StubCatalog
+         // The older pair of timestamp routines, which the finer pair the runtime asks for stands on.
+         "utimes", "futimes",
+         "pthread_condattr_init", "pthread_condattr_setclock", "pthread_create", "pthread_key_create",
+-        "pthread_mutex_destroy", "pthread_mutex_init", "pthread_mutex_lock", "pthread_mutex_unlock",
++        "pthread_detach", "pthread_getschedparam", "pthread_getspecific", "pthread_join",
++        "pthread_key_delete", "pthread_mutex_destroy", "pthread_mutex_init", "pthread_mutex_lock",
++        "pthread_mutex_trylock", "pthread_mutex_unlock",
+         "pthread_mutexattr_destroy", "pthread_mutexattr_init", "pthread_mutexattr_settype", "pthread_rwlock_rdlock",
+         "pthread_rwlock_unlock", "pthread_rwlock_wrlock", "pthread_self", "pthread_setcancelstate",
+-        "pthread_setspecific", "pthread_sigmask", "pwrite", "pwritev",
+-        "read", "rename", "rmdir", "sched_yield",
+-        "stat", "sync", "unlink", "write",
++        "pthread_setcanceltype", "pthread_set_name_np", "pthread_setschedparam", "pthread_setspecific",
++        "pthread_sigmask", "pwrite", "pwritev",
++        "read", "rename", "rmdir", "sched_yield", "seteuid", "setgroups", "setpriority", "setuid",
++        "sched_get_priority_max", "sched_get_priority_min",
++        "sem_destroy", "sem_getvalue", "sem_init", "sem_post", "sem_timedwait", "sem_trywait", "sem_wait",
++        "stat", "sync", "tcgetattr", "tcsetattr", "unlink", "write",
+         // Naming a thread. The compat object forwards to this one rather than to the kernel library's
+         // own, because this one answers a plain error number and the other wraps it into a code.
+         "pthread_rename_np",
+@@ -258,29 +270,33 @@ public static class StubCatalog
+         "sinh", "sinhf", "tanh", "tanhf",
+         "_Unwind_Resume", "__cxa_allocate_exception", "__cxa_atexit", "__cxa_begin_catch",
+         "__cxa_end_catch", "__cxa_finalize", "__cxa_free_exception", "__cxa_guard_acquire",
+-        "__cxa_guard_release", "__cxa_rethrow", "__cxa_throw", "abort",
+-        "aligned_alloc", "asprintf", "atan2", "atan2f",
++        "__cxa_guard_release", "__cxa_rethrow", "__cxa_throw", "__isthreaded", "__stderrp", "__stdinp", "abort",
++        "aligned_alloc", "asprintf", "atan2", "atan2f", "atof", "atoi",
+         "atexit", "bcmp", "bsearch", "calloc",
+         "catchReturnFromMain", "Need_sceLibc",
+         "ceil", "ceilf", "cos", "cosf",
+-        "exit", "exp", "expf", "fabs",
+-        "fabsf", "fclose", "fflush", "fileno", "floor",
+-        "floorf", "fmod", "fmodf", "fopen",
+-        "fprintf", "fputs", "free", "fwrite",
++        "exit", "_Exit", "exp", "expf", "fabs",
++        "fabsf", "fclose", "ferror", "fflush", "fgets", "fileno", "floor",
++        "floorf", "fmod", "fmodf", "fopen", "fread", "fseeko", "ftello",
++        "fprintf", "fputs", "free", "fwrite", "getcwd",
++        "isalnum", "isalpha", "isblank", "iscntrl", "isgraph", "islower", "isprint",
++        "ispunct", "isspace", "isupper", "isxdigit",
+         "log", "logf", "longjmp", "lrand48",
++        "lround", "lroundf",
+         "malloc", "malloc_usable_size", "memchr", "memcmp",
+         "memcpy", "memmove", "memset", "posix_memalign",
+         "pow", "powf", "qsort", "realloc",
+-        "round", "roundf", "setjmp", "sin",
+-        "sinf", "snprintf", "sqrt", "sqrtf",
++        "round", "roundf", "setenv", "setjmp", "sin",
++        "sinf", "snprintf", "sprintf", "sqrt", "sqrtf",
+         "srand48", "sscanf", "strcasecmp", "strcat",
+         "strchr", "strcmp", "strcpy", "strdup",
+         "strerror", "strerror_r", "strlen", "strncat",
+         "vfprintf",
+-        "strncmp", "strncpy", "strrchr", "strstr",
++        "strlcat", "strlcpy", "strncasecmp", "strncmp", "strncpy", "strrchr", "strstr", "strtod",
+         "strtok_r", "strtol", "strtoll", "strtoul",
+-        "strtoull", "tan", "tanf", "time",
+-        "trunc", "truncf", "vsnprintf",
++        "strtoull", "syslog", "tan", "tanf", "time", "tolower", "toupper",
++        "trunc", "truncf", "vsnprintf", "vsscanf",
++        "wcscmp", "wcslen", "wcsncmp", "wcsstr", "wcstombs",
+         "_Stderr", "_Stdout",
+         "_init_env",
+     ];
+@@ -294,6 +310,8 @@ public static class StubCatalog
+         "sceVideoOutUnregisterBuffers",
+         "sceVideoOutSetFlipRate",
+         "sceVideoOutSubmitFlip",
++        "sceVideoOutAddFlipEvent",
++        "sceVideoOutDeleteFlipEvent",
+         "sceVideoOutIsFlipPending",
+         "sceVideoOutGetFlipStatus",
+         "sceVideoOutWaitVblank",
+@@ -326,6 +344,7 @@ public static class StubCatalog
+         "sceUserServiceInitialize",
+         "sceUserServiceTerminate",
+         "sceUserServiceGetInitialUser",
++        "sceUserServiceGetForegroundUser",
+         "sceUserServiceGetLoginUserIdList",
+         "sceUserServiceGetUserName",
+         "sceUserServiceGetUserNumber",
+@@ -346,6 +365,7 @@ public static class StubCatalog
+         "sceSystemServiceParamGetString",
+         "sceSystemServiceLaunchApp",
+         "sceSystemServiceLoadExec",
++        "sceSystemServiceNavigateToGoHome",
+         "sceSystemServicePowerTick",
+         "sceSystemServiceReceiveEvent",
+         "sceSystemServiceGetStatus",
+@@ -857,6 +877,15 @@ public static class StubCatalog
+         "sceSaveDataSetParam",
+     ];
+ 
++    // IPC client primitives used to isolate service-connection failures from SaveData itself.
++    private static readonly string[] Ipmi =
++    [
++        "_ZN4IPMI6Client6Config14MsgQueueConfig20estimateMsgQueueSizeEmj",
++        "_ZN4IPMI6Client6Config24estimateClientMemorySizeEv",
++        "_ZN4IPMI6Client6ConfigC1Ev",
++        "_ZN4IPMI6Client6createEPPS0_PKNS0_6ConfigEPvS6_",
++    ];
++
+     // Install and download progress.
+     private static readonly string[] PlayGo =
+     [

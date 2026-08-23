@@ -1,0 +1,23 @@
+# ps5-native-app-boilerplate - Host-tooling build check.
+# Copyright (C) 2026 BlackBearReloaded
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Host tooling
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Fetch pinned SharpProspero tooling
+        shell: pwsh
+        run: ./tools/setup-tooling.ps1
+      - name: Build NativeAppBuilder
+        run: dotnet build tooling/NativeAppBuilder/NativeAppBuilder.csproj -c Release
