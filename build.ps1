@@ -220,7 +220,7 @@ foreach ($source in @($project.sources)) {
     }
     $definitionFlags = ($compileDefinitions | ForEach-Object { "-D$_" }) -join " "
     $includeFlags = ($includePaths | ForEach-Object { "-I$_" }) -join " "
-    $compile = "cd '$wslRoot' && sh tooling/prospero-clang18 $languageFlags -O2 -g -Wall -Wextra -ffunction-sections -fdata-sections $definitionFlags $includeFlags -c '$sourceFromRepo' -o '$wslObject'"
+    $compile = "cd '$wslRoot' && sh tooling/prospero-clang18 $languageFlags -O2 -Wall -Wextra -ffunction-sections -fdata-sections $definitionFlags $includeFlags -c '$sourceFromRepo' -o '$wslObject'"
     & wsl.exe --exec bash -lc $compile
     if ($LASTEXITCODE -ne 0) {
         Fail "PS5 compilation failed for $source."
