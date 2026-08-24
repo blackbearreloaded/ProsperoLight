@@ -12,6 +12,7 @@ The supported application layout includes a loader-visible file named
 - `Need_sceLibc=1` under libc export library ID 3/module ID 0;
 - inert `_setjmp` and `_longjmp` exports under library ID 4;
 - the required module, segment, version, and dynamic-table geometry;
+- a nonempty GNU EH header that validly describes an empty FDE table;
 - empty import and relocation tables.
 
 It contains four independently written `xor eax,eax; ret` stubs and semantic
@@ -23,10 +24,10 @@ system modules selected by the pinned build-time linker.
 
 ```text
 Raw ELF SHA-256:
-1f176192c7e55cdd6477d11b2290d05fad63e803dab057216f6f92f4b4b37867
+a71cdfb56c76545f6ecef6bd2bb4f6e670046fc5a654ca8212c8e599cdb16728
 
 Bundled FSELF SHA-256:
-cd961ee6ed3d08117459b0fe70d86fe322672ebe0103678ee7c3f15af7e00504
+af5dbb1c778135f63daf07f225f84fb948b07034d6d0cd2e393528510f2236b4
 ```
 
 The FSELF digest is tracked in
@@ -34,6 +35,10 @@ The FSELF digest is tracked in
 directory, verify it with `sha256sum -c libc.prx.sha256`.
 
 Compatibility depends on the target firmware and loader.
+
+The release artifact passed the firmware 6.02 direct-entry control with all 26
+diagnostic checkpoints and no EH corruption warning. Cross-firmware validation
+is tracked separately; this result does not claim universal firmware support.
 
 ## Reproduce it
 

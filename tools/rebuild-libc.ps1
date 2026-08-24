@@ -24,8 +24,8 @@ $signedA = Join-Path $work "libc-a.prx"
 $signedB = Join-Path $work "libc-b.prx"
 $output = Join-Path $root "runtime/libc.prx"
 $manifest = Join-Path $root "runtime/libc.prx.sha256"
-$expectedRaw = "1F176192C7E55CDD6477D11B2290D05FAD63E803DAB057216F6F92F4B4B37867"
-$expectedSigned = "CD961EE6ED3D08117459B0FE70D86FE322672EBE0103678EE7C3F15AF7E00504"
+$expectedRaw = "A71CDFB56C76545F6ECEF6BD2BB4F6E670046FC5A654CA8212C8E599CDB16728"
+$expectedSigned = "AF5DBB1C778135F63DAF07F225F84FB948B07034D6D0CD2E393528510F2236B4"
 
 function Fail([string]$Message) {
     throw "ps5-native-app-boilerplate: $Message"

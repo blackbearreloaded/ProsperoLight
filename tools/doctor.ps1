@@ -57,7 +57,7 @@ $git = Get-Command git -ErrorAction SilentlyContinue
 Report "Git" ($null -ne $git) $(if ($git) { $git.Source } else { "Git for Windows is required for the on-demand SharpProspero checkout" })
 
 $libc = Join-Path $root "runtime/libc.prx"
-$expectedLibcHash = "CD961EE6ED3D08117459B0FE70D86FE322672EBE0103678EE7C3F15AF7E00504"
+$expectedLibcHash = "AF5DBB1C778135F63DAF07F225F84FB948B07034D6D0CD2E393528510F2236B4"
 $libcReady = Test-Path -LiteralPath $libc -PathType Leaf
 if ($libcReady) {
     $libcReady = (Get-FileHash -LiteralPath $libc -Algorithm SHA256).Hash -eq $expectedLibcHash

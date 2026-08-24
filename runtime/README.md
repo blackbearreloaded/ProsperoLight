@@ -7,7 +7,7 @@ contains no Sony runtime implementation, proprietary SDK binary, or game file.
 The release artifact has SHA-256:
 
 ```text
-cd961ee6ed3d08117459b0fe70d86fe322672ebe0103678ee7c3f15af7e00504
+af5dbb1c778135f63daf07f225f84fb948b07034d6d0cd2e393528510f2236b4
 ```
 
 Verify it from this directory with:

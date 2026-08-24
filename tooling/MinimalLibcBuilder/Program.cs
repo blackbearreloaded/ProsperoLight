@@ -24,6 +24,9 @@ internal static class Program
     private const int TextFileOffset = 0x4000;
     private const ulong MarkerAddress = 0xCC000;
     private const int MarkerFileOffset = 0xD0000;
+    private const int EhFrameHeaderFileOffset = MarkerFileOffset + 0x08;
+    private const ulong EhFrameHeaderAddress = MarkerAddress + 0x08;
+    private const int EhFrameHeaderSize = 0x0C;
     private const int ModuleParamFileOffset = 0x110000;
     private const int MetadataFileOffset = 0x11B810;
     private const ulong MetadataAddress = 0x117810;
@@ -112,6 +115,7 @@ internal static class Program
             returnZero.CopyTo(file, TextFileOffset + offset);
 
         WriteU32(file, MarkerFileOffset, 1); // Need_sceLibc
+        BuildEhFrameHeader(file);
         BuildModuleParam(file);
         BuildMetadata(file);
         BuildComment(file);
@@ -150,7 +154,8 @@ internal static class Program
         WriteProgramHeader(file, 5, 0x61000002, 0x4, 0x110000, 0x10C000, 0x020, 0x020, 0x8);
         WriteProgramHeader(file, 6, 0x00000002, 0x6, 0x11B9D8, 0x1179D8, 0x2C0, 0x2C0, 0x8);
         WriteProgramHeader(file, 7, 0x00000007, 0x4, 0x113D20, 0x10FD20, 0x000, 0x000, 0x10);
-        WriteProgramHeader(file, 8, 0x6474E550, 0x4, 0x10811C, 0x10411C, 0x000, 0x000, 0x4);
+        WriteProgramHeader(file, 8, 0x6474E550, 0x4, EhFrameHeaderFileOffset,
+            EhFrameHeaderAddress, EhFrameHeaderSize, EhFrameHeaderSize, 0x4);
         WriteProgramHeader(file, 9, 0x00000001, 0x0, 0x11B810, 0x117810, MetadataSize, MetadataSize, 0x4000);
         WriteProgramHeader(file, 10, 0x6FFFFF00, 0x0, 0x146240, 0x000000, 0x018, 0x000, 0x10);
         WriteProgramHeader(file, 11, 0x6FFFFF01, 0x0, 0x1462B0, 0x000000, 0x01A, 0x020, 0x10);
@@ -167,6 +172,18 @@ internal static class Program
         WriteU32(file, at + 0x10, 0x08540001);
         WriteU32(file, at + 0x14, 0x03000027);
         WriteU32(file, at + 0x18, 0x00000211);
+    }
+
+    private static void BuildEhFrameHeader(byte[] file)
+    {
+        Span<byte> header = file.AsSpan(EhFrameHeaderFileOffset, EhFrameHeaderSize);
+        header[0] = 1;    // version
+        header[1] = 0x1B; // pcrel | sdata4 pointer to .eh_frame
+        header[2] = 0x03; // udata4 FDE count
+        header[3] = 0x3B; // datarel | sdata4 table entries
+        WriteU32(header, 4, 8); // field address -> four-byte .eh_frame terminator
+        WriteU32(header, 8, 0); // no FDEs; therefore no search-table entries
+        // The zero-filled word immediately after the header terminates the empty .eh_frame stream.
     }
 
     private static void BuildMetadata(byte[] file)
@@ -327,6 +344,11 @@ internal static class Program
         Require(ReadU16(file, 0x38) == ProgramHeaderCount, "program header count");
         Require(ReadU64(file, 0x28) == 0, "section headers absent");
         Require(ReadU32(file, MarkerFileOffset) == 1, "Need_sceLibc marker");
+        Require(file.AsSpan(EhFrameHeaderFileOffset, EhFrameHeaderSize).SequenceEqual(
+            new byte[] { 1, 0x1B, 3, 0x3B, 8, 0, 0, 0, 0, 0, 0, 0 }),
+            "valid empty GNU EH header");
+        Require(ReadU32(file, EhFrameHeaderFileOffset + EhFrameHeaderSize) == 0,
+            "empty .eh_frame terminator");
         Require(file.AsSpan(TextFileOffset + 0x10, 3).SequenceEqual(new byte[] { 0x31, 0xC0, 0xC3 }), "init stub");
 
         string ascii = Encoding.ASCII.GetString(file);
