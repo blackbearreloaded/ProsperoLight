@@ -4,6 +4,20 @@ This repository includes [`runtime/libc.prx`](../runtime/libc.prx), an
 independently authored 4,898-byte loader companion. It is not copied from a
 game, application, console firmware, or SDK.
 
+## Provenance and clean-room method
+
+BlackBearReloaded designed and implemented the shim specifically for this
+repository. Its complete source is the tracked
+[`tooling/MinimalLibcBuilder/Program.cs`](../tooling/MinimalLibcBuilder/Program.cs)
+emitter, which constructs the module from project-owned semantic constants.
+
+The emitter does not read, import, transform, embed, or link any Sony
+`libc.prx`, firmware module, proprietary SDK file, or game file. No proprietary
+code or data was copied into the source or generated artifact. Loader-visible
+interfaces and ELF/FSELF structure informed the compatibility requirements;
+the implementation of those requirements was written independently from
+scratch.
+
 ## What it does
 
 The supported application layout includes a loader-visible file named
