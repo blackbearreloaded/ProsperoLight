@@ -13,6 +13,10 @@ environment.
 - The supported title layout includes `sce_module/libc.prx`. The bundled
   clean-room shim supplies its minimal loader contract and contains no Sony
   implementation code.
+- The bundled shim is hardware-verified on firmware 6.02 with ShadowMountPlus.
+  In the tested firmware 12.70 loader environment it failed before `main` and
+  caused a probable console reboot; that environment is not supported by the
+  current release.
 - The shim is not a C library. Application imports bind to platform modules
   selected by the linker.
 - The examples keep `main` alive and rely on the host application lifecycle

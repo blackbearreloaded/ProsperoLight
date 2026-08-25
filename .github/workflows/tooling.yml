@@ -8,6 +8,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
@@ -21,3 +24,9 @@ jobs:
         run: ./tools/setup-tooling.ps1
       - name: Build NativeAppBuilder
         run: dotnet build tooling/NativeAppBuilder/NativeAppBuilder.csproj -c Release
+      - name: Reproduce clean-room runtime shim
+        shell: pwsh
+        run: ./tools/rebuild-libc.ps1
+      - name: Verify generated artifact is unchanged
+        shell: pwsh
+        run: git diff --exit-code -- runtime/libc.prx runtime/libc.prx.sha256

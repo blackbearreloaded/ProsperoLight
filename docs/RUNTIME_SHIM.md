@@ -37,8 +37,10 @@ directory, verify it with `sha256sum -c libc.prx.sha256`.
 Compatibility depends on the target firmware and loader.
 
 The release artifact passed the firmware 6.02 direct-entry control with all 26
-diagnostic checkpoints and no EH corruption warning. Cross-firmware validation
-is tracked separately; this result does not claim universal firmware support.
+diagnostic checkpoints and no EH corruption warning. The byte-identical shim
+did not reach `main` in the tested firmware 12.70 loader environment and caused
+a probable console reboot. It is therefore not compatible with that environment
+and must not be described as universally firmware-compatible.
 
 ## Reproduce it
 
