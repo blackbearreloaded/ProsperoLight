@@ -12,6 +12,8 @@ Requirements:
 - The bundled clean-room `libc.prx`; its independent emitter is in
   `MinimalLibcBuilder` and its reproduction command is
   `../tools/rebuild-libc.ps1`.
+- The later compact-layout clean-room experiment is preserved separately in
+  `CompactLibcBuilder`; it is not the bundled release shim.
 
 The bootstrapper pins
 [SharpProspero](https://github.com/SvenGDK/SharpProspero) commit

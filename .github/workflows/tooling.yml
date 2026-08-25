@@ -103,6 +103,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "NativeAppBuilder formatting failed." }
           dotnet format tooling/MinimalLibcBuilder/MinimalLibcBuilder.csproj --verify-no-changes --verbosity minimal
           if ($LASTEXITCODE -ne 0) { throw "MinimalLibcBuilder formatting failed." }
+          dotnet format tooling/CompactLibcBuilder/CompactLibcBuilder.csproj --verify-no-changes --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "CompactLibcBuilder formatting failed." }
 
           wsl.exe --exec sh tooling/prospero-clang18 -std=c11 -Wall -Wextra -Werror -fsyntax-only src/main.c
           if ($LASTEXITCODE -ne 0) { throw "Template source lint failed." }

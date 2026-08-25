@@ -56,6 +56,11 @@ did not reach `main` in the tested firmware 12.70 loader environment and caused
 a probable console reboot. It is therefore not compatible with that environment
 and must not be described as universally firmware-compatible.
 
+The separately tracked
+[`tooling/CompactLibcBuilder`](../tooling/CompactLibcBuilder) preserves the
+exact source and reproduction hashes for the later compact-layout experiment.
+It is retained for research provenance and is not the bundled release shim.
+
 ## Reproduce it
 
 The complete emitter is in `tooling/MinimalLibcBuilder`. It accepts only an
