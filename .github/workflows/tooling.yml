@@ -1,32 +1,195 @@
-# ps5-native-app-boilerplate - Host-tooling build check.
+# ps5-native-app-boilerplate - Lint, build, and release validation.
 # Copyright (C) 2026 BlackBearReloaded
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-name: Host tooling
+name: Build
 
 on:
   push:
+    branches:
+      - main
+    tags:
+      - "v*"
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: windows-latest
+    name: Lint, build, and package
+    runs-on: windows-2025
+    timeout-minutes: 45
+
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up WSL toolchain
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: "1"
+          additional-packages: >-
+            ca-certificates clang-18 lld-18 llvm-18 unzip wget
+
+      - name: Install pinned PS5 Payload SDK
+        shell: pwsh
+        run: |
+          $url = "https://github.com/ps5-payload-dev/sdk/releases/download/v0.42/ps5-payload-sdk.zip"
+          $hash = "8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da"
+          wsl.exe --user root --exec bash -lc "wget -q '$url' -O /tmp/ps5-payload-sdk.zip"
+          if ($LASTEXITCODE -ne 0) { throw "PS5 Payload SDK download failed." }
+          wsl.exe --user root --exec bash -lc "echo '$hash  /tmp/ps5-payload-sdk.zip' | sha256sum --check --strict"
+          if ($LASTEXITCODE -ne 0) { throw "PS5 Payload SDK checksum failed." }
+          wsl.exe --user root --exec bash -lc "unzip -q /tmp/ps5-payload-sdk.zip -d /opt && test -d /opt/ps5-payload-sdk/target/include"
+          if ($LASTEXITCODE -ne 0) { throw "PS5 Payload SDK installation failed." }
+
       - name: Fetch pinned SharpProspero tooling
         shell: pwsh
         run: ./tools/setup-tooling.ps1
-      - name: Build NativeAppBuilder
-        run: dotnet build tooling/NativeAppBuilder/NativeAppBuilder.csproj -c Release
+
+      - name: Verify prerequisites
+        shell: pwsh
+        run: |
+          ./tools/doctor.ps1
+          $titleId = (Get-Content project.json -Raw | ConvertFrom-Json).titleId
+          if ($titleId -notmatch '^PPSA[0-9]{5}$') { throw "Invalid release title ID: $titleId" }
+          "TITLE_ID=$titleId" >> $env:GITHUB_ENV
+
+      - name: Lint source and metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { throw "Whitespace validation failed." }
+
+          $parseFailed = $false
+          foreach ($file in (git ls-files "*.ps1")) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path -LiteralPath $file).Path,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            foreach ($error in $errors) {
+              Write-Host "::error file=${file}::$($error.Message)"
+              $parseFailed = $true
+            }
+          }
+          if ($parseFailed) { throw "PowerShell parsing failed." }
+
+          foreach ($file in (git ls-files "*.json")) {
+            Get-Content -LiteralPath $file -Raw | ConvertFrom-Json | Out-Null
+          }
+
+          dotnet format tooling/NativeAppBuilder/NativeAppBuilder.csproj --verify-no-changes --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "NativeAppBuilder formatting failed." }
+          dotnet format tooling/MinimalLibcBuilder/MinimalLibcBuilder.csproj --verify-no-changes --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "MinimalLibcBuilder formatting failed." }
+
+          wsl.exe --exec sh tooling/prospero-clang18 -std=c11 -Wall -Wextra -Werror -fsyntax-only src/main.c
+          if ($LASTEXITCODE -ne 0) { throw "Template source lint failed." }
+          wsl.exe --exec sh tooling/prospero-clang18 -std=c11 -Wall -Wextra -Werror -fsyntax-only examples/hello-world/src/main.c
+          if ($LASTEXITCODE -ne 0) { throw "Hello World source lint failed." }
+
       - name: Reproduce clean-room runtime shim
         shell: pwsh
         run: ./tools/rebuild-libc.ps1
-      - name: Verify generated artifact is unchanged
+
+      - name: Verify generated runtime is unchanged
         shell: pwsh
         run: git diff --exit-code -- runtime/libc.prx runtime/libc.prx.sha256
+
+      - name: Build folder and FFPFSC image
+        shell: pwsh
+        run: ./build.ps1 -OutputFormat Ffpfsc
+
+      - name: Build Hello World example
+        shell: pwsh
+        run: ./examples/hello-world/build.ps1
+
+      - name: Upload build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ps5-native-app-boilerplate-${{ github.sha }}
+          path: |
+            dist/${{ env.TITLE_ID }}/
+            dist/${{ env.TITLE_ID }}.ffpfsc
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download verified build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh run download "$GITHUB_RUN_ID"
+          --repo "$GITHUB_REPOSITORY"
+          --name "ps5-native-app-boilerplate-$GITHUB_SHA"
+          --dir release
+
+      - name: Prepare release assets
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+          shopt -s nullglob
+          images=(PPSA*.ffpfsc)
+          app_dirs=(PPSA*/)
+          if (( ${#images[@]} != 1 || ${#app_dirs[@]} != 1 )); then
+            echo "Expected one FFPFSC image and one app folder." >&2
+            exit 1
+          fi
+          title_id="${app_dirs[0]%/}"
+          folder_archive="${title_id}-folder.zip"
+          python3 -m zipfile -c "$folder_archive" "$title_id"
+          sha256sum "${images[0]}" "$folder_archive" > SHA256SUMS
+          echo "image=${images[0]}" >> "$GITHUB_OUTPUT"
+          echo "folder=$folder_archive" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.package.outputs.image }}
+          FOLDER: ${{ steps.package.outputs.folder }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=("release/$IMAGE" "release/$FOLDER" "release/SHA256SUMS")
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "PS5 Native App Boilerplate $GITHUB_REF_NAME"
+          fi

@@ -1,6 +1,7 @@
 # PS5 Native App Boilerplate
 
-[![Host tooling](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
+[![Build](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
+[![Release](https://img.shields.io/github/v/release/blackbearreloaded/ps5-native-app-boilerplate)](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 Build native C and C++ homebrew applications for PlayStation 5 from Windows.
