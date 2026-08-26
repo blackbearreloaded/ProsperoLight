@@ -221,8 +221,8 @@ Repository-authored code is licensed under GPL-3.0-or-later. Optional fetched
 tools remain under their upstream licenses. See [LICENSE](LICENSE) and
 [NOTICE.md](NOTICE.md).
 
-This project was developed with assistance from OpenAI Codex. Project
-maintainers reviewed and validated the resulting code and documentation.
-
 PlayStation and PS5 are trademarks of Sony Interactive Entertainment. This
 project is independent and is not affiliated with or endorsed by Sony.
+
+This project was developed with assistance from OpenAI Codex. Project
+maintainers reviewed and validated the resulting code and documentation.
