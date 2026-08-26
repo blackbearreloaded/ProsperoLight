@@ -43,6 +43,16 @@ for name in subprocess.check_output(["git", "ls-files", "*.json"], text=True).sp
     if Path(name).is_file():
         with open(name, encoding="utf-8") as source:
             json.load(source)
+
+with open("project.json", encoding="utf-8") as source:
+    project = json.load(source)
+if project.get("applicationCategory") not in {"game", "media"}:
+    raise SystemExit("project.json applicationCategory must be game or media")
+import re
+if not re.fullmatch(r"\d{2}\.\d{3}\.\d{3}", project.get("contentVersion", "")):
+    raise SystemExit("project.json contentVersion must use NN.NNN.NNN")
+if not re.fullmatch(r"\d{2}\.\d{2}", project.get("masterVersion", "")):
+    raise SystemExit("project.json masterVersion must use NN.NN")
 PY
 
 if git grep -n -E 'C:\\Users\\|/home/denis|/mnt/c/Users/denis|\bDenis\b' -- . \

@@ -13,14 +13,16 @@ param(
     [switch]$ValidateOnly,
     [string]$Icon = "",
     [string]$Background = "",
+    [string]$SelectionBackground = "",
+    [string]$LaunchBackground = "",
     [string]$Audio = "",
     [string]$Texconv = "",
     [string]$Ffmpeg = "",
     [string]$At9Tool = "",
     [ValidateRange(0, 86400)]
     [double]$AudioStart = 0,
-    [ValidateRange(1, 15)]
-    [int]$AudioDuration = 15,
+    [ValidateRange(0.1, 87.3)]
+    [double]$AudioDuration = 15,
     [string]$OutputDirectory = ""
 )
 
@@ -100,6 +102,37 @@ function Invoke-Checked([string]$Executable, [string[]]$Arguments, [string]$Labe
     }
 }
 
+function Convert-BackgroundAsset(
+    [string]$Source,
+    [string]$Label,
+    [string]$Stem,
+    [string]$WorkDirectory,
+    [string]$Destination,
+    [string]$TexconvPath
+) {
+    $resolvedSource = Resolve-Input $Source $Label
+    $assetWork = Join-Path $WorkDirectory $Stem
+    New-Item -ItemType Directory -Path $assetWork | Out-Null
+    Invoke-Checked $TexconvPath @("-nologo", "-y", "-w", "3840", "-h", "2160", "-m", "1",
+        "-f", "R8G8B8A8_UNORM", "-ft", "png", "-o", $assetWork, $resolvedSource) `
+        "$Label preview conversion"
+    $preview = Get-ChildItem -LiteralPath $assetWork -File |
+        Where-Object { $_.Extension -ieq ".png" } | Select-Object -First 1
+    if (-not $preview) {
+        Fail "texconv did not produce the $Label preview."
+    }
+    Invoke-Checked $TexconvPath @("-nologo", "-y", "-w", "3840", "-h", "2160", "-m", "1",
+        "-f", "BC7_UNORM", "-dx10", "-o", $assetWork, $preview.FullName) "$Label DDS conversion"
+    $dds = Get-ChildItem -LiteralPath $assetWork -File |
+        Where-Object { $_.Extension -ieq ".dds" } | Select-Object -First 1
+    if (-not $dds) {
+        Fail "texconv did not produce the $Label BC7 DDS."
+    }
+    [IO.File]::Copy($preview.FullName, (Join-Path $Destination "$Stem.png"), $true)
+    [IO.File]::Copy($dds.FullName, (Join-Path $Destination "$Stem.dds"), $true)
+    return [PSCustomObject]@{ Preview = $preview.FullName; Dds = $dds.FullName }
+}
+
 function Test-Png([string]$Path, [int]$ExpectedWidth, [int]$ExpectedHeight) {
     $bytes = [IO.File]::ReadAllBytes($Path)
     $signature = [byte[]](137, 80, 78, 71, 13, 10, 26, 10)
@@ -165,17 +198,20 @@ function Test-At9([string]$Path) {
     }
 
     $fmt = [int]$chunks["fmt "][0]
-    $fact = [int]$chunks["fact"][0]
     $smpl = [int]$chunks["smpl"][0]
+    if ([int]$chunks["fmt "][1] -lt 40 -or [int]$chunks["smpl"][1] -lt 32) {
+        Fail "$Path contains undersized ATRAC9 format or loop metadata."
+    }
     $formatGuid = "D242E147BA368D4D88FC61654F8C836C"
     $actualGuid = -join ($bytes[($fmt + 24)..($fmt + 39)] | ForEach-Object { $_.ToString("X2") })
-    $samples = Read-U32 $bytes $fact
+    $channels = Read-U16 $bytes ($fmt + 2)
+    $byteRate = Read-U32 $bytes ($fmt + 8)
     $loops = Read-U32 $bytes ($smpl + 28)
-    if ((Read-U16 $bytes $fmt) -ne 0xFFFE -or (Read-U16 $bytes ($fmt + 2)) -ne 2 -or
-        (Read-U32 $bytes ($fmt + 4)) -ne 48000 -or (Read-U32 $bytes ($fmt + 8)) -ne 24000 -or
-        $actualGuid -ne $formatGuid -or $samples -gt 720000 -or $loops -lt 1 -or
-        $bytes.Length -gt 360616) {
-        Fail "$Path must be 48 kHz stereo ATRAC9 at 192 kb/s, no longer than 15 seconds, with a loop."
+    if ((Read-U16 $bytes $fmt) -ne 0xFFFE -or $channels -notin @(1, 2) -or
+        (Read-U32 $bytes ($fmt + 4)) -ne 48000 -or $byteRate -le 0 -or
+        $byteRate -gt ($channels * 12000) -or $actualGuid -ne $formatGuid -or
+        $loops -lt 1 -or $bytes.Length -gt 2097152) {
+        Fail "$Path must be looped 48 kHz ATRAC9 at no more than 96 kb/s mono or 192 kb/s stereo, and no larger than 2 MiB."
     }
 }
 
@@ -209,8 +245,12 @@ if ($ValidateOnly) {
     Test-AssetSet $OutputDirectory
     return
 }
-if (-not $Icon -and -not $Background -and -not $Audio) {
-    Fail "Supply -Icon, -Background, or -Audio, or use -ValidateOnly."
+if ($Background -and ($SelectionBackground -or $LaunchBackground)) {
+    Fail "Use -Background by itself, or use -SelectionBackground and -LaunchBackground for distinct artwork."
+}
+if (-not $Icon -and -not $Background -and -not $SelectionBackground -and
+    -not $LaunchBackground -and -not $Audio) {
+    Fail "Supply an icon, background, or audio input, or use -ValidateOnly."
 }
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     Fail "Conversion uses Windows texconv and an optional Windows ATRAC9 encoder; run this command from Windows PowerShell."
@@ -225,7 +265,7 @@ $work = Join-Path ([IO.Path]::GetTempPath()) ("ps5-native-assets-" + [Guid]::New
 New-Item -ItemType Directory -Path $work | Out-Null
 
 try {
-    if ($Icon -or $Background) {
+    if ($Icon -or $Background -or $SelectionBackground -or $LaunchBackground) {
         $texconvPath = Resolve-Executable $Texconv @("texconv.exe", "texconv") `
             "texconv was not found. Install it with: winget install Microsoft.DirectXTex.Texconv"
     }
@@ -245,29 +285,20 @@ try {
     }
 
     if ($Background) {
-        $backgroundSource = Resolve-Input $Background "Background"
-        $backgroundWork = Join-Path $work "background"
-        New-Item -ItemType Directory -Path $backgroundWork | Out-Null
-        Invoke-Checked $texconvPath @("-nologo", "-y", "-w", "3840", "-h", "2160", "-m", "1",
-            "-f", "R8G8B8A8_UNORM", "-ft", "png", "-o", $backgroundWork, $backgroundSource) `
-            "Background preview conversion"
-        $preview = Get-ChildItem -LiteralPath $backgroundWork -File |
-            Where-Object { $_.Extension -ieq ".png" } | Select-Object -First 1
-        if (-not $preview) {
-            Fail "texconv did not produce the background preview."
+        $convertedBackground = Convert-BackgroundAsset $Background "Background" "pic0" $work `
+            $OutputDirectory $texconvPath
+        [IO.File]::Copy($convertedBackground.Preview, (Join-Path $OutputDirectory "pic1.png"), $true)
+        [IO.File]::Copy($convertedBackground.Dds, (Join-Path $OutputDirectory "pic1.dds"), $true)
+        [IO.File]::Copy($convertedBackground.Preview,
+            (Join-Path $OutputDirectory "background-source.png"), $true)
+    } else {
+        if ($SelectionBackground) {
+            Convert-BackgroundAsset $SelectionBackground "Selection background" "pic0" $work `
+                $OutputDirectory $texconvPath | Out-Null
         }
-        Invoke-Checked $texconvPath @("-nologo", "-y", "-w", "3840", "-h", "2160", "-m", "1",
-            "-f", "BC7_UNORM", "-dx10", "-o", $backgroundWork, $preview.FullName) "DDS conversion"
-        $dds = Get-ChildItem -LiteralPath $backgroundWork -File |
-            Where-Object { $_.Extension -ieq ".dds" } | Select-Object -First 1
-        if (-not $dds) {
-            Fail "texconv did not produce the BC7 DDS."
-        }
-        foreach ($name in @("background-source.png", "pic0.png", "pic1.png")) {
-            [IO.File]::Copy($preview.FullName, (Join-Path $OutputDirectory $name), $true)
-        }
-        foreach ($name in @("pic0.dds", "pic1.dds")) {
-            [IO.File]::Copy($dds.FullName, (Join-Path $OutputDirectory $name), $true)
+        if ($LaunchBackground) {
+            Convert-BackgroundAsset $LaunchBackground "Launch background" "pic1" $work `
+                $OutputDirectory $texconvPath | Out-Null
         }
     }
 
@@ -283,8 +314,9 @@ try {
                 "A compatible ATRAC9 encoder was not found. Supply your legally obtained ps4_at9tool.exe with -At9Tool."
             $wav = Join-Path $work "selection.wav"
             $startText = $AudioStart.ToString([Globalization.CultureInfo]::InvariantCulture)
+            $durationText = $AudioDuration.ToString([Globalization.CultureInfo]::InvariantCulture)
             $ffmpegArgs = @("-hide_banner", "-loglevel", "error", "-y", "-ss", $startText, "-i", $audioSource,
-                "-t", $AudioDuration.ToString(), "-map_metadata", "-1", "-af", "loudnorm=I=-28:LRA=11:TP=-2",
+                "-t", $durationText, "-map_metadata", "-1", "-af", "loudnorm=I=-28:LRA=11:TP=-2",
                 "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", $wav)
             $ffmpegCommand = if ($Ffmpeg) {
                 Resolve-Executable $Ffmpeg @() "FFmpeg was not found."
@@ -316,15 +348,15 @@ try {
             Invoke-Checked $at9ToolPath @("-e", "-br", "192", "-wholeloop", $wav, $encoded) `
                 "ATRAC9 encoding"
             [IO.File]::Copy($encoded, $soundOutput, $true)
+        }
 
-            $paramPath = Join-Path $OutputDirectory "param.json"
-            if (Test-Path -LiteralPath $paramPath -PathType Leaf) {
-                $param = Get-Content -LiteralPath $paramPath -Raw | ConvertFrom-Json
-                $param.pubtools | Add-Member -NotePropertyName loudnessSnd0 -NotePropertyValue "-28.00" -Force
-                $json = $param | ConvertTo-Json -Depth 16
-                [IO.File]::WriteAllText($paramPath, $json + [Environment]::NewLine,
-                    [Text.UTF8Encoding]::new($false))
-            }
+        $paramPath = Join-Path $OutputDirectory "param.json"
+        if (Test-Path -LiteralPath $paramPath -PathType Leaf) {
+            $param = Get-Content -LiteralPath $paramPath -Raw | ConvertFrom-Json
+            $param.pubtools | Add-Member -NotePropertyName loudnessSnd0 -NotePropertyValue "-28.00" -Force
+            $json = $param | ConvertTo-Json -Depth 16
+            [IO.File]::WriteAllText($paramPath, $json + [Environment]::NewLine,
+                [Text.UTF8Encoding]::new($false))
         }
     }
 

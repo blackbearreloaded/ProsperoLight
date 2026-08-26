@@ -8,9 +8,12 @@ file and `src/main.cpp`, and list additional source files explicitly below.
 | Field | Purpose |
 | --- | --- |
 | `titleName` | Name displayed on the home screen. |
+| `applicationCategory` | `game` for the Games area or `media` for the Media area. |
 | `titleId` | Unique `PPSA` plus five-digit application identifier. |
 | `conceptId` | Five numeric characters; normally the numeric title-ID portion. |
 | `contentId` | Package identity containing the title ID and a 16-character suffix. |
+| `contentVersion` | Release version in `NN.NNN.NNN` form. |
+| `masterVersion` | Release baseline in `NN.NN` form. |
 | `moduleSdkVersion` | Loader-visible SDK value. Keep the release default unless the target requires another value. |
 | `companionSdkVersion` | Companion SDK value paired with the module SDK. |
 | `fselfMagic` | Loader-compatible FSELF magic. Keep the release default `0x1D3D154F`. |
@@ -20,6 +23,46 @@ file and `src/main.cpp`, and list additional source files explicitly below.
 | `includePaths` | Optional repository-relative header directories. |
 | `staticArchives` | Optional repository-relative `.a` libraries. |
 | `runtimeModules` | Generated or optional local PRXs copied into the app; the default pins the clean-room shim hash. |
+
+## Generated `param.json`
+
+[`sce_sys/param.json`](../sce_sys/param.json) is the base metadata template.
+Every build copies it into `dist/<TITLE_ID>/sce_sys/param.json`, then replaces
+the identity, category, release-version, writable-data reservation, and English
+title fields from `project.json`. Edit `project.json` for those fields; editing
+the generated file under `dist/` is temporary and will be overwritten.
+
+Other advanced properties remain in the base template. Change them only when
+you understand the corresponding platform behavior. In particular,
+`moduleSdkVersion` and `companionSdkVersion` describe loader compatibility;
+they are not the app's public release version.
+
+## Game and media categories
+
+The build translates the friendly category into the matching native metadata:
+
+| `applicationCategory` | `applicationCategoryType` | `contentBadgeType` | Intent handling |
+| --- | ---: | ---: | --- |
+| `game` | `0` | `1` | Writes the `launchActivity` game intent. |
+| `media` | `65536` | `2` | Removes the game-only `gameIntent`. |
+
+Use `media` when the application should be classified in the PS5 Media area;
+use `game` for the Games area. The category does not grant codec, filesystem,
+network, background-execution, or other entitlements. Loader behavior and
+cached Shell metadata can also affect when a category change becomes visible,
+so test the finished title on the target environment.
+
+## Release versioning
+
+`contentVersion` uses exactly two digits, three digits, and three digits, such
+as `01.002.003`. `masterVersion` uses two digits and two digits, such as
+`01.00`. The build validates both formats and writes them into `param.json`; it
+does not auto-increment them.
+
+For ordinary development, retain `masterVersion` as `01.00` and increment
+`contentVersion` for releases. Keep `titleId`, `conceptId`, and `contentId`
+stable when producing an update for the same application. Use a new identity
+when you intentionally want a separate installed title.
 
 ## Adding code
 

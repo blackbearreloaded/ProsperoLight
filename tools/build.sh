@@ -47,9 +47,12 @@ PY
 }
 
 title_name=$(json_scalar titleName)
+application_category=$(json_scalar applicationCategory)
 title_id=$(json_scalar titleId)
 concept_id=$(json_scalar conceptId)
 content_id=$(json_scalar contentId)
+content_version=$(json_scalar contentVersion)
+master_version=$(json_scalar masterVersion)
 module_sdk=$(json_scalar moduleSdkVersion)
 companion_sdk=$(json_scalar companionSdkVersion)
 fself_magic=$(json_scalar fselfMagic)
@@ -58,6 +61,15 @@ download_size=$(json_scalar downloadDataSize)
 [[ $concept_id =~ ^[0-9]{5}$ ]] || { echo "invalid conceptId" >&2; exit 2; }
 [[ $content_id =~ ^[A-Z]{2}[0-9]{4}-PPSA[0-9]{5}_00-[A-Z0-9]{16}$ && $content_id == *"$title_id"* ]] || {
     echo "invalid contentId" >&2; exit 2;
+}
+[[ $application_category == game || $application_category == media ]] || {
+    echo "applicationCategory must be game or media" >&2; exit 2;
+}
+[[ $content_version =~ ^[0-9]{2}\.[0-9]{3}\.[0-9]{3}$ ]] || {
+    echo "invalid contentVersion" >&2; exit 2;
+}
+[[ $master_version =~ ^[0-9]{2}\.[0-9]{2}$ ]] || {
+    echo "invalid masterVersion" >&2; exit 2;
 }
 [[ $module_sdk =~ ^0x[0-9A-Fa-f]{8}$ && $companion_sdk =~ ^0x[0-9A-Fa-f]{8}$ ]] || {
     echo "invalid SDK version" >&2; exit 2;
@@ -94,8 +106,33 @@ for path in pics if pics[0].exists() else []:
 sound = root / "snd0.at9"
 if sound.exists():
     data = sound.read_bytes()
-    if len(data) < 128 or data[:4] != b"RIFF" or data[8:12] != b"WAVE" or struct.unpack_from("<I", data, 4)[0] + 8 != len(data) or len(data) > 360616:
+    if len(data) < 128 or data[:4] != b"RIFF" or data[8:12] != b"WAVE" or struct.unpack_from("<I", data, 4)[0] + 8 != len(data) or len(data) > 2097152:
         raise SystemExit("sce_sys/snd0.at9 is not the supported selection-audio profile")
+    chunks = {}
+    position = 12
+    while position + 8 <= len(data):
+        chunk_id = data[position:position + 4]
+        size = struct.unpack_from("<I", data, position + 4)[0]
+        payload = position + 8
+        if payload + size > len(data):
+            raise SystemExit("sce_sys/snd0.at9 contains a truncated RIFF chunk")
+        chunks[chunk_id] = (payload, size)
+        position = payload + size + size % 2
+    if not all(chunk in chunks for chunk in (b"fmt ", b"fact", b"smpl", b"data")):
+        raise SystemExit("sce_sys/snd0.at9 is missing required ATRAC9 RIFF chunks")
+    fmt = chunks[b"fmt "][0]
+    smpl = chunks[b"smpl"][0]
+    if chunks[b"fmt "][1] < 40 or chunks[b"smpl"][1] < 32:
+        raise SystemExit("sce_sys/snd0.at9 contains undersized format or loop metadata")
+    channels = struct.unpack_from("<H", data, fmt + 2)[0]
+    byte_rate = struct.unpack_from("<I", data, fmt + 8)[0]
+    atrac9_guid = bytes.fromhex("D242E147BA368D4D88FC61654F8C836C")
+    if (struct.unpack_from("<H", data, fmt)[0] != 0xFFFE or
+            channels not in (1, 2) or
+            struct.unpack_from("<I", data, fmt + 4)[0] != 48000 or
+            not 0 < byte_rate <= channels * 12000 or data[fmt + 24:fmt + 40] != atrac9_guid or
+            struct.unpack_from("<I", data, smpl + 28)[0] < 1):
+        raise SystemExit("sce_sys/snd0.at9 is not 48 kHz looped ATRAC9 within the supported bitrate")
 PY
 
 sdk_root="$root/.deps/native/ps5-payload-sdk"
@@ -181,16 +218,27 @@ mkdir -p "$app/sce_sys" "$app/sce_module"
     --magic "$fself_magic"
 
 python3 - "$root/sce_sys/param.json" "$app/sce_sys/param.json" \
-    "$title_name" "$title_id" "$concept_id" "$content_id" "$download_size" <<'PY'
+    "$title_name" "$application_category" "$title_id" "$concept_id" "$content_id" \
+    "$content_version" "$master_version" "$download_size" <<'PY'
 import json, sys
-source, output, title, title_id, concept_id, content_id, size = sys.argv[1:]
+source, output, title, category, title_id, concept_id, content_id, content_version, master_version, size = sys.argv[1:]
 with open(source, encoding="utf-8") as stream:
     value = json.load(stream)
 value["titleId"] = title_id
 value["conceptId"] = concept_id
 value["contentId"] = content_id
+value["contentVersion"] = content_version
+value["masterVersion"] = master_version
 value["downloadDataSize"] = int(size)
 value["localizedParameters"]["en-US"]["titleName"] = title
+if category == "game":
+    value["applicationCategoryType"] = 0
+    value["contentBadgeType"] = 1
+    value["gameIntent"] = {"permittedIntents": [{"intentType": "launchActivity"}]}
+else:
+    value["applicationCategoryType"] = 65536
+    value["contentBadgeType"] = 2
+    value.pop("gameIntent", None)
 with open(output, "w", encoding="utf-8", newline="\n") as stream:
     json.dump(value, stream, indent=2)
     stream.write("\n")

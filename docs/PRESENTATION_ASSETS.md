@@ -9,7 +9,8 @@ repository's `sce_sys` files; it does not connect to or configure a console.
 | Experience | Source to provide | Generated console file |
 | --- | --- | --- |
 | Launcher tile | Square PNG, JPEG, or other texconv-readable image | `sce_sys/icon0.png`, 512x512 PNG |
-| Selection background | 16:9 image, preferably 3840x2160 | `sce_sys/pic0.dds` and `pic1.dds`, 4K BC7 DX10 DDS |
+| Selection background | 16:9 image, preferably 3840x2160 | `sce_sys/pic0.dds`, 4K BC7 DX10 DDS |
+| Launch/loading background | 16:9 image, preferably 3840x2160 | `sce_sys/pic1.dds`, 4K BC7 DX10 DDS |
 | Selection music | MP3, M4A, AAC, WAV, FLAC, or a ready AT9 file | `sce_sys/snd0.at9`, 48 kHz stereo ATRAC9 |
 | Displayed app name | `titleName` in `project.json` | Shell-rendered text |
 
@@ -37,7 +38,7 @@ winget install Microsoft.DirectXTex.Texconv
 Open a new PowerShell window after installation. Alternatively, pass the full
 executable path with `-Texconv`.
 
-## Prepare the icon and background
+## Prepare the icon and backgrounds
 
 From the repository root:
 
@@ -49,12 +50,28 @@ From the repository root:
 
 The command normalizes the icon to 512x512 and the background to 3840x2160,
 then produces the single-surface `DXGI_FORMAT_BC7_UNORM` (98), DX10 DDS
-profile required by the template. It deliberately creates no
-mipmaps. Supply artwork with the correct 1:1 and 16:9 aspect ratios; resizing
-does not invent a good crop.
+profile required by the template. `-Background` is a shorthand that uses the
+same image for both `pic0.dds` and `pic1.dds`.
 
-Editable background previews are kept as `background-source.png`, `pic0.png`,
-and `pic1.png`. Only `icon0.png`, `pic0.dds`, and `pic1.dds` are deployed.
+Use separate artwork when the selected-app view and launch transition should
+look different:
+
+```powershell
+./tools/prepare-assets.ps1 `
+    -SelectionBackground C:\art\selected-app.png `
+    -LaunchBackground C:\art\launching.png
+```
+
+Hardware traces from the validated launcher path show `pic0.dds` in the
+selected-app presentation and `pic1.dds` during the launching-game transition.
+Shell and loader caching can delay visible changes, so refresh the title using
+the loader's normal procedure after replacement.
+
+The converter deliberately creates no mipmaps. Supply artwork with the correct
+1:1 and 16:9 aspect ratios; resizing does not invent a good crop. Editable
+previews are kept as `pic0.png` and `pic1.png`; the legacy `-Background`
+shorthand also keeps `background-source.png`. Only `icon0.png`, `pic0.dds`, and
+`pic1.dds` are deployed.
 
 ## Prepare selection music
 
@@ -91,8 +108,8 @@ Choose a different excerpt with `-AudioStart`:
 The script strips metadata, normalizes toward -28 LUFS, creates 48 kHz stereo
 16-bit PCM, encodes ATRAC9 at 192 kb/s, and adds a whole-track RIFF `smpl`
 loop. It also writes `pubtools.loudnessSnd0` as `-28.00` when `param.json` is
-present. The 15-second, approximately 360 KB profile is intentionally
-conservative to avoid Shell presentation-audio size rejection.
+present. The default 15-second, approximately 360 KB profile is intentionally
+conservative, but `-AudioDuration` accepts values through 87.3 seconds.
 
 The 15-second value is a template policy, not a Shell duration limit. Offline
 inspection of the Shell audio validator established these file-level limits:
@@ -106,9 +123,9 @@ chosen channel count, bitrate, and ATRAC9 frame/container overhead. With the
 template's 48 kHz stereo, 192 kb/s, whole-loop encoding, the largest complete
 file below the ceiling is 2,096,808 bytes: 4,193,024 samples, or
 87.354666667 seconds. One additional sample requires another 512-byte frame,
-producing a 2,097,320-byte file that the Shell rejects. The template continues
-to recommend and validate 15-second clips because they are quicker to prepare,
-smaller to distribute, and already hardware-proven.
+producing a 2,097,320-byte file that the Shell rejects. The converter caps
+requested excerpts at 87.3 seconds to remain below that boundary. Short clips
+remain quicker to prepare and smaller to distribute.
 
 If you already have a correctly encoded AT9 file, no encoder or FFmpeg is
 needed:
@@ -135,4 +152,4 @@ make
 
 The validator rejects renamed PNG-as-DDS files, mipmapped or non-BC7 DDS
 images, wrong dimensions, non-ATRAC9 audio, missing loop metadata, and audio
-outside the supported duration/bitrate/size profile.
+outside the supported sample-rate/channel/bitrate/size profile.

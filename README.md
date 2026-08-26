@@ -58,9 +58,11 @@ sudo apt install git make python3 python3-pip python3-venv wget unzip \
   clang-18 clang-format-18 clang-tidy-18 lld-18
 ```
 
-The optional presentation-asset converter also uses FFmpeg. Packaging tools
-are fetched into `.deps/` automatically when their corresponding Make targets
-are requested.
+The optional presentation-asset converter uses Windows PowerShell, DirectXTex
+`texconv`, and FFmpeg on Windows or inside WSL. ATRAC9 output additionally
+requires a compatible `ps4_at9tool.exe` that you are legally permitted to use;
+the repository neither bundles nor downloads that encoder. Packaging tools are
+fetched into `.deps/` automatically when their Make targets are requested.
 
 The first build fetches the pinned public PS5 payload SDK and native zlib
 archive into the ignored `.deps/native/` cache, then generates the clean-room
@@ -96,8 +98,9 @@ Read [Getting started](docs/GETTING_STARTED.md) before the first build.
 
 ### Source and metadata
 
-Edit `project.json` to define the app identity, sources, compiler definitions,
-include paths, static archives, and runtime modules. The hardware-proven
+Edit `project.json` to define the app identity, Games/Media category, release
+versions, sources, compiler definitions, include paths, static archives, and
+runtime modules. The hardware-proven
 graphical skeleton is [`src/main.cpp`](src/main.cpp); replace or extend it directly
 after forking the repository.
 
@@ -133,7 +136,21 @@ Replace the icon and background with one command:
 ```
 
 The asset tool validates the required dimensions and prepares the PS5-facing
-formats. Audio conversion and the verified Shell limits are documented in
+formats. Use `-SelectionBackground` and `-LaunchBackground` when the selected
+app and launch/loading screens should differ.
+
+Prepare a 15-second selection-audio excerpt from MP3, M4A, AAC, WAV, or FLAC:
+
+```powershell
+./tools/prepare-assets.ps1 `
+    -Audio C:\music\selection.mp3 `
+    -AudioDuration 15 `
+    -At9Tool C:\tools\ps4_at9tool.exe
+```
+
+The default is 15 seconds; the tool and validator support the documented
+2 MiB Shell envelope up to a safe 87.3-second stereo excerpt. Exact audio
+constraints and ready-made `.at9` handling are documented in
 [Presentation assets](docs/PRESENTATION_ASSETS.md).
 
 ## Build outputs
@@ -175,8 +192,8 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 | Document | Purpose |
 | --- | --- |
 | [Getting started](docs/GETTING_STARTED.md) | Host setup, first configuration, build, and output inspection |
-| [Project configuration](docs/CONFIGURATION.md) | `project.json`, sources, compiler inputs, archives, and runtime modules |
-| [Presentation assets](docs/PRESENTATION_ASSETS.md) | Icons, backgrounds, ATRAC9 audio, and format limits |
+| [Project configuration](docs/CONFIGURATION.md) | `project.json`, `param.json`, Games/Media category, versions, sources, and libraries |
+| [Presentation assets](docs/PRESENTATION_ASSETS.md) | Icon, selection/launch images, ATRAC9 conversion, and format limits |
 | [Build output formats](docs/FFPKG.md) | Folder, `.ffpkg`, and `.ffpfsc` generation |
 | [Native build tooling](docs/NATIVE_TOOLING.md) | LLVM boundary and C++ converter/FSELF commands |
 | [Clean-room runtime shim](docs/RUNTIME_SHIM.md) | Design, hashes, compatibility, and deterministic reproduction |

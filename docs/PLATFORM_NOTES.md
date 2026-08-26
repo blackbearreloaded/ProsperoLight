@@ -37,16 +37,16 @@ environment.
 ## Home-screen presentation
 
 - `icon0.png` is a 512x512 launcher icon.
-- `pic0.dds` and `pic1.dds` are 3840x2160, single-surface,
+- `pic0.dds` is the selected-app background and `pic1.dds` is the observed
+  launch-transition background. Both are 3840x2160, single-surface,
   `DXGI_FORMAT_BC7_UNORM` DX10 DDS images.
-- The package controls `titleName`, the launcher icon, selection backgrounds,
-  and optional selection audio.
+- The package controls `titleName`, the launcher icon, selection/launch
+  backgrounds, and optional selection audio.
 - Retail-style custom logos and descriptions are online catalog metadata and
   cannot be defined by the supported package-local fields for a synthetic
   homebrew concept.
-- Selection audio uses a 48 kHz stereo ATRAC9 RIFF file named `snd0.at9` with
-  one `smpl` loop. The asset tool enforces a conservative 15-second,
-  approximately 360 KB profile.
+- Selection audio uses a looped 48 kHz ATRAC9 RIFF file named `snd0.at9`. The
+  converter emits stereo 192 kb/s and defaults to 15 seconds.
 - The Shell's file-size ceiling for selection audio is exactly 2,097,152 bytes
   (2 MiB); it rejects files starting at 2,097,153 bytes. It has no independent
   duration limit. At the template's stereo 192 kb/s profile, ATRAC9 frame
@@ -57,6 +57,9 @@ environment.
   profiles promised by the asset-preparation script.
 - Presentation metadata may be cached by the shell or loader. Follow the
   loader's refresh procedure after structural asset changes.
+- `applicationCategory=game` maps to native-game category `0` and badge `1`;
+  `media` maps to native-media category `65536` and badge `2`. Classification
+  does not grant capabilities or entitlements.
 
 ## Application capabilities
 

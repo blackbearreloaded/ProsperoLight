@@ -108,6 +108,15 @@ if ($project.fselfMagic -notin @("0x1D3D154F", "0xEEF51454")) {
 if ([string]::IsNullOrWhiteSpace($project.titleName)) {
     Fail "project.json titleName cannot be empty."
 }
+if ($project.applicationCategory -notin @("game", "media")) {
+    Fail "project.json applicationCategory must be game or media."
+}
+if ($project.contentVersion -notmatch '^[0-9]{2}\.[0-9]{3}\.[0-9]{3}$') {
+    Fail "project.json contentVersion must use NN.NNN.NNN."
+}
+if ($project.masterVersion -notmatch '^[0-9]{2}\.[0-9]{2}$') {
+    Fail "project.json masterVersion must use NN.NN."
+}
 if ([long]$project.downloadDataSize -lt 0) {
     Fail "project.json downloadDataSize cannot be negative."
 }
@@ -311,8 +320,22 @@ $param = Get-Content -LiteralPath $baseParamPath -Raw | ConvertFrom-Json
 $param.titleId = $project.titleId
 $param.conceptId = $project.conceptId
 $param.contentId = $project.contentId
+$param.contentVersion = $project.contentVersion
+$param.masterVersion = $project.masterVersion
 $param.localizedParameters.'en-US'.titleName = $project.titleName
 $param.downloadDataSize = [long]$project.downloadDataSize
+if ($project.applicationCategory -eq "game") {
+    $param.applicationCategoryType = 0
+    $param.contentBadgeType = 1
+    $gameIntent = [PSCustomObject]@{
+        permittedIntents = @([PSCustomObject]@{ intentType = "launchActivity" })
+    }
+    $param | Add-Member -NotePropertyName gameIntent -NotePropertyValue $gameIntent -Force
+} else {
+    $param.applicationCategoryType = 65536
+    $param.contentBadgeType = 2
+    $param.PSObject.Properties.Remove("gameIntent")
+}
 $param | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath (Join-Path $app "sce_sys/param.json") -Encoding utf8
 [IO.File]::Copy($iconPath, (Join-Path $app "sce_sys/icon0.png"), $true)
 foreach ($assetName in @("pic0.dds", "pic1.dds", "snd0.at9")) {

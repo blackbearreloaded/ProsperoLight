@@ -86,7 +86,7 @@ Nothing is installed globally by these optional bootstrappers.
   presentation assets before compiling.
 - Confirm `icon0.png`, `pic0.dds`, and `pic1.dds` reached
   `dist/<TITLE_ID>/sce_sys/`.
-- Selection pictures must be 3840x2160 DX10 DDS files using BC7 UNORM. A PNG
+- Selection and launch pictures must be 3840x2160 DX10 DDS files using BC7 UNORM. A PNG
   renamed to `.dds` is not sufficient.
 - Audio must be ATRAC9 in a RIFF container named exactly `snd0.at9`; renaming
   MP3 or AAC input does not convert it.

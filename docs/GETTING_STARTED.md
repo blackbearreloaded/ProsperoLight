@@ -73,9 +73,12 @@ Edit [`project.json`](../project.json). Change these fields together:
 ```json
 {
   "titleName": "My Native App",
+  "applicationCategory": "game",
   "titleId": "PPSA99999",
   "conceptId": "99999",
-  "contentId": "UP9000-PPSA99999_00-MYNATIVEAPP00001"
+  "contentId": "UP9000-PPSA99999_00-MYNATIVEAPP00001",
+  "contentVersion": "01.000.000",
+  "masterVersion": "01.00"
 }
 ```
 
@@ -96,11 +99,12 @@ The generated console files are:
 
 - `sce_sys/icon0.png`: 512x512 launcher icon.
 - `sce_sys/pic0.dds`: 3840x2160 BC7 selection background.
-- `sce_sys/pic1.dds`: 3840x2160 BC7 selection-background fallback.
+- `sce_sys/pic1.dds`: 3840x2160 BC7 launch/loading background.
 
-`sce_sys/background-source.png`, `pic0.png`, and `pic1.png` are editable
-previews; the build deploys only the DDS files. A PNG renamed to `.dds` is not
-sufficient.
+`-Background` intentionally generates both images from one source. To provide
+different artwork, use `-SelectionBackground` and `-LaunchBackground` instead.
+`sce_sys/pic0.png` and `pic1.png` are editable previews; the build deploys only
+the DDS files. A PNG renamed to `.dds` is not sufficient.
 
 The normal directory-promotion path displays `titleName` as Shell-rendered text
 over this artwork. Retail custom-font Game Hub logos and descriptions are
@@ -116,6 +120,12 @@ or downloaded. The script also accepts an already encoded `.at9` file.
 See [Presentation assets](PRESENTATION_ASSETS.md) for source recommendations,
 conversion commands, the supported format profile, licensing guidance,
 and the catalog-owned logo/description limitation.
+
+Set `applicationCategory` to `game` for the Games area or `media` for the Media
+area. The build writes the matching category, badge, and intent fields into the
+generated `param.json`. It does not grant media entitlements or other runtime
+capabilities. See [Project configuration](CONFIGURATION.md) before changing
+category or release versions.
 
 ## 6. Check and build
 
