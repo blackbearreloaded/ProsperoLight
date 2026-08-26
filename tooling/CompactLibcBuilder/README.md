@@ -1,9 +1,9 @@
 # Compact clean-room runtime-shim emitter
 
 This project preserves the exact source for the independently authored compact
-`libc.prx` experiment. It is separate from the release emitter in
-[`../MinimalLibcBuilder`](../MinimalLibcBuilder) and does not replace the
-default [`runtime/libc.prx`](../../runtime/libc.prx).
+`libc.prx` experiment. It is separate from the V7 release emitter in
+[`../ConventionalLibcBuilder`](../ConventionalLibcBuilder) and does not replace
+the default [`runtime/libc.prx`](../../runtime/libc.prx).
 
 ## Provenance
 

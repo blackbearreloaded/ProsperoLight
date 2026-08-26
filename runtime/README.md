@@ -7,7 +7,7 @@ contains no Sony runtime implementation, proprietary SDK binary, or game file.
 The release artifact has SHA-256:
 
 ```text
-af5dbb1c778135f63daf07f225f84fb948b07034d6d0cd2e393528510f2236b4
+e2292d285565937f1dac09ef5ab742b6027c28d38ba775ad56465aa5594e2a10
 ```
 
 Verify it from this directory with:
@@ -17,5 +17,5 @@ sha256sum -c libc.prx.sha256
 ```
 
 The complete source, reproduction procedure, and compatibility scope are in
-[`tooling/MinimalLibcBuilder`](../tooling/MinimalLibcBuilder) and
+[`tooling/ConventionalLibcBuilder`](../tooling/ConventionalLibcBuilder) and
 [`docs/RUNTIME_SHIM.md`](../docs/RUNTIME_SHIM.md).

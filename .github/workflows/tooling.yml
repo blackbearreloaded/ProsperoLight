@@ -64,6 +64,10 @@ jobs:
         shell: pwsh
         run: ./tools/setup-tooling.ps1
 
+      - name: Test patched SharpProspero tooling
+        shell: pwsh
+        run: dotnet test .deps/SharpProspero/SharpProspero.slnx -c Release --nologo
+
       - name: Verify prerequisites
         shell: pwsh
         run: |
@@ -105,6 +109,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "MinimalLibcBuilder formatting failed." }
           dotnet format tooling/CompactLibcBuilder/CompactLibcBuilder.csproj --verify-no-changes --verbosity minimal
           if ($LASTEXITCODE -ne 0) { throw "CompactLibcBuilder formatting failed." }
+          dotnet format tooling/ConventionalLibcBuilder/ConventionalLibcBuilder.csproj --verify-no-changes --verbosity minimal
+          if ($LASTEXITCODE -ne 0) { throw "ConventionalLibcBuilder formatting failed." }
 
           wsl.exe --exec sh tooling/prospero-clang18 -std=c11 -Wall -Wextra -Werror -fsyntax-only src/main.c
           if ($LASTEXITCODE -ne 0) { throw "Template source lint failed." }

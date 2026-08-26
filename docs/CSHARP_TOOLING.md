@@ -6,8 +6,11 @@ turn Clang objects into the PS5-specific ELF and FSELF layout.
 ## Components
 
 - `NativeAppBuilder`: small command-line frontend.
-- `MinimalLibcBuilder`: independent deterministic emitter for the bundled
-  loader shim; it has no reference-binary input.
+- `ConventionalLibcBuilder`: independent deterministic emitter for the bundled
+  V7 loader shim; it consumes only the tracked API and import manifests and has
+  no reference-binary input.
+- `MinimalLibcBuilder`: preserved historical emitter for the original minimal
+  experiment; it is not the bundled release runtime.
 - fetched `SharpProspero.Link`: ELF object/archive reader, symbol resolution,
   relocations, startup generation, and PS5 dynamic-module writer.
 - fetched `SharpProspero.Prx`: import/NID catalog, PRX helpers, ELF inspection, and

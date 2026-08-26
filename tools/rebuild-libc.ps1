@@ -14,18 +14,24 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$emitter = Join-Path $root "tooling/MinimalLibcBuilder/MinimalLibcBuilder.csproj"
+$emitter = Join-Path $root "tooling/ConventionalLibcBuilder/ConventionalLibcBuilder.csproj"
+$apiManifest = Join-Path $root "tooling/ConventionalLibcBuilder/api-surface-v2.txt"
+$importManifest = Join-Path $root "tooling/ConventionalLibcBuilder/startup-imports-v7.txt"
 $signer = Join-Path $root "tooling/NativeAppBuilder/NativeAppBuilder.csproj"
 $setupTooling = Join-Path $root "tools/setup-tooling.ps1"
 $work = Join-Path $root "build/runtime-shim"
-$rawA = Join-Path $work "libc-a.raw.prx"
-$rawB = Join-Path $work "libc-b.raw.prx"
+$rawA = Join-Path $work "libc-a.raw.elf"
+$rawB = Join-Path $work "libc-b.raw.elf"
 $signedA = Join-Path $work "libc-a.prx"
 $signedB = Join-Path $work "libc-b.prx"
+$emitterOutput = Join-Path $work "dotnet/emitter"
+$signerOutput = Join-Path $work "dotnet/signer"
+$emitterDll = Join-Path $emitterOutput "ConventionalLibcBuilder.dll"
+$signerDll = Join-Path $signerOutput "NativeAppBuilder.dll"
 $output = Join-Path $root "runtime/libc.prx"
 $manifest = Join-Path $root "runtime/libc.prx.sha256"
-$expectedRaw = "A71CDFB56C76545F6ECEF6BD2BB4F6E670046FC5A654CA8212C8E599CDB16728"
-$expectedSigned = "AF5DBB1C778135F63DAF07F225F84FB948B07034D6D0CD2E393528510F2236B4"
+$expectedRaw = "FD18A0C7C18BC62144890294DC1BB85C780757D2ED425B1D7FE0BD58AED1ACE2"
+$expectedSigned = "E2292D285565937F1DAC09EF5AB742B6027C28D38BA775AD56465AA5594E2A10"
 
 function Fail([string]$Message) {
     throw "ps5-native-app-boilerplate: $Message"
@@ -49,7 +55,7 @@ if (-not $Dotnet -or -not (Test-Path -LiteralPath $Dotnet -PathType Leaf)) {
 }
 $Dotnet = (Resolve-Path -LiteralPath $Dotnet).Path
 
-foreach ($required in @($emitter, $signer, $setupTooling)) {
+foreach ($required in @($emitter, $apiManifest, $importManifest, $signer, $setupTooling)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         Fail "Required source project not found: $required"
     }
@@ -62,29 +68,36 @@ $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 $env:DOTNET_NOLOGO = "1"
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 
-Invoke-Dotnet @("run", "--project", $emitter, "-c", $Configuration, "--", $rawA)
-Invoke-Dotnet @("run", "--project", $emitter, "-c", $Configuration, "--", $rawB)
+Invoke-Dotnet @("build", $emitter, "-c", $Configuration, "-o", $emitterOutput)
+Invoke-Dotnet @("build", $signer, "-c", $Configuration, "-o", $signerOutput)
+Invoke-Dotnet @($emitterDll,
+    "--startup-v7", $apiManifest, $importManifest, $rawA)
+Invoke-Dotnet @($emitterDll,
+    "--startup-v7", $apiManifest, $importManifest, $rawB)
 $rawHashA = (Get-FileHash -LiteralPath $rawA -Algorithm SHA256).Hash
 $rawHashB = (Get-FileHash -LiteralPath $rawB -Algorithm SHA256).Hash
 if ($rawHashA -ne $rawHashB -or $rawHashA -ne $expectedRaw) {
     Fail "The clean-room raw module does not match the deterministic release artifact."
 }
 
-Invoke-Dotnet @("run", "--project", $signer, "-c", $Configuration, "--",
+Invoke-Dotnet @($signerDll,
     "self", "--sign", "--in", $rawA, "--out", $signedA)
-Invoke-Dotnet @("run", "--project", $signer, "-c", $Configuration, "--",
+Invoke-Dotnet @($signerDll,
     "self", "--sign", "--in", $rawB, "--out", $signedB)
 $signedHashA = (Get-FileHash -LiteralPath $signedA -Algorithm SHA256).Hash
 $signedHashB = (Get-FileHash -LiteralPath $signedB -Algorithm SHA256).Hash
 if ($signedHashA -ne $signedHashB -or $signedHashA -ne $expectedSigned) {
     Fail "The signed module does not match the deterministic release artifact."
 }
-if ((Get-Item -LiteralPath $signedA).Length -ne 4898) {
-    Fail "The signed module is not 4,898 bytes."
+if ((Get-Item -LiteralPath $signedA).Length -ne 1284674) {
+    Fail "The signed module is not 1,284,674 bytes."
 }
 
 foreach ($artifact in @($rawA, $signedA)) {
     $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($artifact))
+    if (-not $text.Contains("BlackBearReloaded")) {
+        Fail "Generated output is missing the BlackBearReloaded attribution marker."
+    }
     foreach ($forbidden in @("W:/Build", "J013", "Prospero_Release", "sys/internal")) {
         if ($text.Contains($forbidden)) {
             Fail "Generated output contains forbidden historical path text: $forbidden"

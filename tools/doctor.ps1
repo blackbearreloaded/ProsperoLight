@@ -57,14 +57,14 @@ $git = Get-Command git -ErrorAction SilentlyContinue
 Report "Git" ($null -ne $git) $(if ($git) { $git.Source } else { "Git for Windows is required for the on-demand SharpProspero checkout" })
 
 $libc = Join-Path $root "runtime/libc.prx"
-$expectedLibcHash = "AF5DBB1C778135F63DAF07F225F84FB948B07034D6D0CD2E393528510F2236B4"
+$expectedLibcHash = "E2292D285565937F1DAC09EF5AB742B6027C28D38BA775AD56465AA5594E2A10"
 $libcReady = Test-Path -LiteralPath $libc -PathType Leaf
 if ($libcReady) {
     $libcReady = (Get-FileHash -LiteralPath $libc -Algorithm SHA256).Hash -eq $expectedLibcHash
 }
 Report "Bundled clean-room libc.prx" $libcReady $libc
 
-$libcBuilder = Join-Path $root "tooling/MinimalLibcBuilder/MinimalLibcBuilder.csproj"
+$libcBuilder = Join-Path $root "tooling/ConventionalLibcBuilder/ConventionalLibcBuilder.csproj"
 Report "Clean-room libc source" (Test-Path -LiteralPath $libcBuilder -PathType Leaf) $libcBuilder
 
 if ($failed) {

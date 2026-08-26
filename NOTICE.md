@@ -37,10 +37,12 @@ licenses.
 
 ## Independently authored runtime shim
 
-`runtime/libc.prx` and `tooling/MinimalLibcBuilder` are independently authored
-for this project and licensed under GPL-3.0-or-later. The module contains only
-minimal loader-compatibility stubs and semantic metadata. It contains no Sony
-runtime implementation.
+`runtime/libc.prx`, `tooling/ConventionalLibcBuilder`, and its tracked manifests
+are independently authored for this project and licensed under
+GPL-3.0-or-later. The module contains project-authored compatibility stubs,
+startup code, and semantic loader metadata. It contains no Sony runtime
+implementation. `MinimalLibcBuilder` and `CompactLibcBuilder` remain as
+historical clean-room experiments.
 
 Original ps5-native-app-boilerplate code is Copyright (C) 2026
 BlackBearReloaded and licensed under GPL-3.0-or-later. Source and script files

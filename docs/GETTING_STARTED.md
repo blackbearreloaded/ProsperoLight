@@ -61,8 +61,9 @@ selected.
 
 ## 4. Use the bundled clean-room loader shim
 
-No proprietary runtime module is required. The repository includes a
-4,898-byte `runtime/libc.prx` artifact plus its complete clean-room emitter.
+No proprietary runtime module is required. The repository includes the
+1,284,674-byte V7 `runtime/libc.prx` artifact plus its complete clean-room
+emitter and input manifests.
 `tools/doctor.ps1` verifies its SHA-256 before a build. See
 [Clean-room runtime shim](RUNTIME_SHIM.md) for its scope and reproduction
 procedure.

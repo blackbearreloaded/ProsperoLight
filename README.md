@@ -19,14 +19,15 @@ are included.
 | Area | Status |
 | --- | --- |
 | Host build | Verified on Windows with PowerShell, WSL, Clang 18, and .NET 10 |
-| PS5 hardware | Verified on firmware 6.02 with ShadowMountPlus |
-| Firmware 12.70 | Not compatible with the current clean-room runtime shim; the tested loader path failed before `main` and caused a probable console reboot |
+| PS5 hardware | Exact V7 runtime verified on firmware 6.02 and 12.70 with ShadowMountPlus |
+| Runtime shim | Project-authored, reproducible V7 artifact with no proprietary implementation code |
 | Output formats | Title folder, UFS2 `.ffpkg`, and compressed `.ffpfsc` |
 | CI | Builds the host tooling and reproduces the bundled runtime shim |
 
-Firmware and homebrew-loader behavior vary. Treat 6.02 as the current verified
-baseline and validate the exact artifact on its target environment before
-distribution. Do not present this template as firmware-independent.
+Firmware and homebrew-loader behavior vary. The bundled V7 artifact is verified
+on 6.02 and 12.70; validate the exact artifact on other target environments
+before distribution. Do not present two tested versions as universal firmware
+compatibility.
 
 ## What is included
 
@@ -150,10 +151,11 @@ tools/doctor.ps1              Read-only prerequisite check
 tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
 tooling/NativeAppBuilder/     Host-side link and FSELF frontend
-tooling/MinimalLibcBuilder/   Clean-room runtime-shim emitter
+tooling/ConventionalLibcBuilder/ Clean-room V7 runtime emitter and manifests
+tooling/MinimalLibcBuilder/   Historical minimal-shim emitter
 tooling/CompactLibcBuilder/   Compact clean-room experiment emitter
 tooling/patches/              SharpProspero compatibility delta
-runtime/libc.prx              Bundled clean-room loader shim
+runtime/libc.prx              Bundled cross-firmware-tested V7 loader shim
 tools/rebuild-libc.ps1        Deterministic shim reproduction check
 ```
 
