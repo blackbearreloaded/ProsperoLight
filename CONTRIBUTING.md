@@ -12,6 +12,8 @@ Before opening a change:
    binaries, generated `runtime/libc.prx`, console dumps, keys, or credentials.
 5. Include the firmware and loader context for platform-specific behavioral
    claims.
+6. Name release tags with the exact `sce_sys/param.json` `contentVersion`
+   (`NN.NNN.NNN`, without a `v` prefix).
 
 Every comment-capable code, script, workflow, tooling configuration, and
 manifest must retain the project copyright and

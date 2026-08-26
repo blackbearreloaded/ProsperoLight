@@ -1,139 +1,122 @@
-# Project configuration
+# Application configuration and versioning
 
-[`project.json`](../project.json) is the only normal build configuration file.
+[`sce_sys/param.json`](../sce_sys/param.json) is the single source of truth for
+application identity, Shell metadata, and release versioning. The build
+validates it and copies it unchanged into `dist/<TITLE_ID>/sce_sys/param.json`.
+There is no second project manifest to keep synchronized.
 
-The repository root is the application skeleton. Fork the project, edit this
-file and `src/main.cpp`, and list additional source files explicitly below.
+## Identity and metadata
 
-| Field | Purpose |
+Change these fields together when creating a new application:
+
+| `param.json` field | Purpose |
 | --- | --- |
-| `titleName` | Name displayed on the home screen. |
-| `applicationCategory` | `game` for the Games area or `media` for the Media area. |
+| `localizedParameters.<language>.titleName` | Name displayed by the Shell. |
 | `titleId` | Unique `PPSA` plus five-digit application identifier. |
 | `conceptId` | Five numeric characters; normally the numeric title-ID portion. |
 | `contentId` | Package identity containing the title ID and a 16-character suffix. |
-| `contentVersion` | Release version in `NN.NNN.NNN` form. |
-| `masterVersion` | Release baseline in `NN.NN` form. |
-| `moduleSdkVersion` | Loader-visible SDK value. Keep the release default unless the target requires another value. |
-| `companionSdkVersion` | Companion SDK value paired with the module SDK. |
-| `fselfMagic` | Loader-compatible FSELF magic. Keep the release default `0x1D3D154F`. |
-| `downloadDataSize` | Reservation that makes `/download0` available for writable persistent app data. |
-| `sources` | C, `.cc`, or `.cpp` files under `src/`. |
-| `compileDefinitions` | Optional preprocessor definitions such as `FEATURE_AUDIO=1`. |
-| `includePaths` | Optional repository-relative header directories. |
-| `staticArchives` | Optional repository-relative `.a` libraries. |
-| `pacbrewPackages` | Optional PacBrew `pkg-config` modules with automatic static dependencies. |
-| `pacbrewIncludePaths` | PacBrew include directories for ports without `pkg-config`. |
-| `pacbrewStaticArchives` | PacBrew `.a` paths for ports without `pkg-config`. |
-| `runtimeModules` | Generated or optional local PRXs copied into the app; the default pins the clean-room shim hash. |
+| `contentVersion` | Application and repository release version in `NN.NNN.NNN` form. |
+| `masterVersion` | Compatible release baseline in `NN.NN` form. |
+| `downloadDataSize` | Reservation that makes `/download0` available. |
 
-## Generated `param.json`
+Keep `titleId`, `conceptId`, and `contentId` stable for updates to one installed
+application. Use a new identity only when the result should be a separate title.
 
-[`sce_sys/param.json`](../sce_sys/param.json) is the base metadata template.
-Every build copies it into `dist/<TITLE_ID>/sce_sys/param.json`, then replaces
-the identity, category, release-version, writable-data reservation, and English
-title fields from `project.json`. Edit `project.json` for those fields; editing
-the generated file under `dist/` is temporary and will be overwritten.
+## One version everywhere
 
-Other advanced properties remain in the base template. Change them only when
-you understand the corresponding platform behavior. In particular,
-`moduleSdkVersion` and `companionSdkVersion` describe loader compatibility;
-they are not the app's public release version.
+This project does not use Semantic Versioning. `contentVersion` is the only
+release number and must use the PS5 `NN.NNN.NNN` format, for example
+`01.002.003`. Use that exact value for the Git tag and GitHub Release name—do
+not add a `v` prefix:
+
+```bash
+git tag 01.002.003
+git push origin 01.002.003
+```
+
+The release workflow rejects a tag that differs from
+`sce_sys/param.json`'s `contentVersion`. For ordinary development, keep
+`masterVersion` at `01.00` and increment `contentVersion` for each release.
+Change `masterVersion` only when intentionally changing the compatible release
+baseline.
+
+The loader-visible SDK and FSELF constants are internal build-format values,
+not application versions. They remain fixed to the cross-firmware-validated
+profile in `tools/build.sh`.
 
 ## Game and media categories
 
-The build translates the friendly category into the matching native metadata:
+Category is represented directly by standard `param.json` fields:
 
-| `applicationCategory` | `applicationCategoryType` | `contentBadgeType` | Intent handling |
+| Area | `applicationCategoryType` | `contentBadgeType` | `gameIntent` |
 | --- | ---: | ---: | --- |
-| `game` | `0` | `1` | Writes the `launchActivity` game intent. |
-| `media` | `65536` | `2` | Removes the game-only `gameIntent`. |
+| Games | `0` | `1` | Permit `launchActivity`. |
+| Media | `65536` | `2` | Remove the field. |
 
-Use `media` when the application should be classified in the PS5 Media area;
-use `game` for the Games area. The category does not grant codec, filesystem,
-network, background-execution, or other entitlements. Loader behavior and
-cached Shell metadata can also affect when a category change becomes visible,
-so test the finished title on the target environment.
+The build validates these combinations but does not rewrite them. Category does
+not grant codec, filesystem, network, background-execution, or other
+entitlements.
 
-## Release versioning
+## Source and runtime conventions
 
-`contentVersion` uses exactly two digits, three digits, and three digits, such
-as `01.002.003`. `masterVersion` uses two digits and two digits, such as
-`01.00`. The build validates both formats and writes them into `param.json`; it
-does not auto-increment them.
+Every `.c`, `.cc`, and `.cpp` file below `src/` is compiled automatically.
+Move experiments outside `src/` when they should not enter the build. C++20 is
+the default; C files use C11. Exceptions and RTTI remain disabled.
 
-For ordinary development, retain `masterVersion` as `01.00` and increment
-`contentVersion` for releases. Keep `titleId`, `conceptId`, and `contentId`
-stable when producing an update for the same application. Use a new identity
-when you intentionally want a separate installed title.
+The generated `runtime/libc.prx` is always included and verified against
+`runtime/libc.prx.sha256`. Additional local PRXs may be placed under the ignored
+`.local/runtime/` directory and selected with `APP_RUNTIME_MODULES`; the build
+copies pre-signed modules and wraps raw ELF modules. Duplicate filenames are
+rejected.
 
-## Adding code
+Packaged read-only data belongs under `assets/` and appears at `/app0/assets/`.
 
-Add files under `src/`, then list each file explicitly:
+## Optional build inputs
 
-```json
-"sources": [
-  "src/main.cpp",
-  "src/network.cpp",
-  "src/ui.cpp"
-]
+Build-only choices use Make variables rather than application metadata:
+
+| Variable | Space-separated values |
+| --- | --- |
+| `APP_DEFINITIONS` | Preprocessor definitions such as `FEATURE_AUDIO=1`. |
+| `APP_INCLUDE_PATHS` | Repository-relative include directories. |
+| `APP_STATIC_ARCHIVES` | Repository-relative `.a` files in linker order. |
+| `APP_RUNTIME_MODULES` | PRX paths below the ignored `.local/runtime/` directory. |
+| `PACBREW_PACKAGES` | PacBrew `pkg-config` module names. |
+| `PACBREW_INCLUDE_PATHS` | Paths below PacBrew's `/user/homebrew`. |
+| `PACBREW_STATIC_ARCHIVES` | PacBrew `.a` paths below `/user/homebrew`. |
+
+For example:
+
+```bash
+make PACBREW_PACKAGES="sdl2 openssl" \
+  APP_DEFINITIONS="FEATURE_AUDIO=1" \
+  APP_INCLUDE_PATHS="include"
 ```
 
-Source paths are explicit so stale or experimental files cannot enter a build
-accidentally.
+Set the same environment variables before `./build.ps1` on Windows. Paths in
+these lists cannot contain spaces. See [PacBrew dependencies](PACBREW.md) for
+manual archive examples.
 
-C++20 is the application baseline, with exceptions and RTTI disabled. The
-public SDK supplies libc++ headers; the template exposes allocation-free
-facilities and supplies project-owned `new`/`delete` operators for
-`std::unique_ptr`. It does not link the complete libc++ or libc++abi archives.
+Deployment uses a separate set of Make variables:
 
-Prefer stack values, RAII, `std::array`, `std::span`, `std::string_view`, and
-`std::unique_ptr`. Treat raw pointers as non-owning. Throwing allocation traps
-on exhaustion because exceptions are disabled; use a temporary
-`std::nothrow_t{}` when allocation failure must be handled locally. C11 sources
-remain supported for C libraries and narrow platform ABI code. Declare C and
-platform entry points with `extern "C"` from C++.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PS5_HOST` | required | Console IPv4 address or hostname. |
+| `FTP_PORT` | `2121` | FTP service port. |
+| `DEPLOY_FORMAT` | `folder` | `folder`, `ffpfsc`, or `ffpkg` output. |
+| `PS5_FTP_USER` | `anonymous` | FTP username. |
+| `PS5_FTP_PASSWORD` | `codex` | FTP password. |
+| `DEPLOY_DRY_RUN` | `0` | Build without networking when set to `1`. |
 
-## Adding headers or static libraries
-
-Repository-local include paths and archives are passed through the build:
-
-```json
-"includePaths": ["include", "vendor/example/include"],
-"staticArchives": ["lib/example.a"]
-```
-
-Do not put proprietary Sony headers or libraries in a public repository.
-
-## PacBrew ports
-
-Use `pacbrewPackages` for libraries from the PacBrew ports collection:
-
-```json
-"pacbrewPackages": ["sdl2", "SDL2_image"]
-```
-
-Run `make pacbrew-list` to see the exact module names. `make` downloads the
-pinned prebuilt ports image only when one of the three PacBrew fields is used.
-For a port without `pkg-config`, provide paths beneath `/user/homebrew` through
-`pacbrewIncludePaths` and `pacbrewStaticArchives`. See
-[PacBrew dependencies](PACBREW.md) for examples, caching, licensing, and
-runtime-compatibility boundaries.
+These values affect only `make deploy`; they are not application metadata and
+are never copied into the built title. See [Deployment](DEPLOYMENT.md).
 
 ## Persistent configuration
 
 Use `/download0` for configuration, pairing state, caches, and logs. Write a
-temporary file and rename it into place to avoid partial configuration writes.
-Provide an application-level export/import mechanism for important data because
-retention after title deletion or cache-management actions is not guaranteed.
+temporary file and rename it into place to avoid partial writes. Provide an
+application-level export/import mechanism for important data because retention
+after title deletion or cache-management actions is not guaranteed.
 
 Native SaveData initialization is not part of this baseline; see
 [Platform findings](PLATFORM_NOTES.md).
-
-## Runtime modules
-
-The default entry points at the generated `runtime/libc.prx` FSELF and pins its
-release SHA-256. `make` creates it automatically when needed. Keep that entry
-unchanged for the baseline. A pre-signed module is copied byte-for-byte; an
-optional raw module under ignored `.local/runtime/` is wrapped by the build.
-Never move an extracted proprietary module into the repository.

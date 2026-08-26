@@ -5,12 +5,29 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := app
 
+APP_DEFINITIONS ?=
+APP_INCLUDE_PATHS ?=
+APP_STATIC_ARCHIVES ?=
+APP_RUNTIME_MODULES ?=
+PACBREW_PACKAGES ?=
+PACBREW_INCLUDE_PATHS ?=
+PACBREW_STATIC_ARCHIVES ?=
+PS5_HOST ?=
+FTP_PORT ?= 2121
+DEPLOY_FORMAT ?= folder
+PS5_FTP_USER ?= anonymous
+PS5_FTP_PASSWORD ?= codex
+DEPLOY_DRY_RUN ?= 0
+export APP_DEFINITIONS APP_INCLUDE_PATHS APP_STATIC_ARCHIVES APP_RUNTIME_MODULES
+export PACBREW_PACKAGES PACBREW_INCLUDE_PATHS PACBREW_STATIC_ARCHIVES
+export PS5_HOST FTP_PORT DEPLOY_FORMAT PS5_FTP_USER PS5_FTP_PASSWORD DEPLOY_DRY_RUN
+
 RUNTIME := runtime/libc.prx
 RUNTIME_INPUTS := tools/rebuild-libc.sh \
 	$(wildcard tooling/native/*.cpp tooling/native/*.hpp) \
 	$(wildcard tooling/native/runtime/*.txt)
 
-.PHONY: all app build libc deps pacbrew pacbrew-list format format-check tidy lint check ffpkg ffpfsc packages clean distclean help
+.PHONY: all app build libc deps pacbrew pacbrew-list format format-check tidy lint check ffpkg ffpfsc packages deploy clean distclean help
 
 all: app
 build: app
@@ -18,7 +35,7 @@ build: app
 deps:
 	@printf '%s\n' '==> [deps] Fetching declared native dependencies'
 	@bash tools/setup-native-dependencies.sh
-	@bash tools/setup-pacbrew-dependencies.sh --project
+	@bash tools/setup-pacbrew-dependencies.sh --environment
 
 pacbrew:
 	@printf '%s\n' '==> [pacbrew] Fetching the pinned prebuilt ports sysroot'
@@ -51,6 +68,10 @@ ffpfsc: $(RUNTIME)
 packages: $(RUNTIME)
 	@printf '%s\n' '==> [packages] Building the app folder and both package formats'
 	@bash tools/build.sh All
+
+deploy:
+	@printf '%s\n' '==> [deploy] Building and publishing the selected app output over FTP'
+	@bash tools/deploy.sh
 
 format:
 	@printf '%s\n' '==> [format] Formatting C and C++ sources'
@@ -94,5 +115,9 @@ help:
 	  'make ffpkg           Build the folder and UFS2 .ffpkg image' \
 	  'make ffpfsc          Build the folder and compressed .ffpfsc image' \
 	  'make packages        Build folder, .ffpkg, and .ffpfsc outputs' \
+	  'make deploy PS5_HOST=<address>  Build and FTP-deploy the app folder' \
+	  'Build variables:     APP_DEFINITIONS, APP_INCLUDE_PATHS, APP_STATIC_ARCHIVES, APP_RUNTIME_MODULES' \
+	  'PacBrew variables:   PACBREW_PACKAGES, PACBREW_INCLUDE_PATHS, PACBREW_STATIC_ARCHIVES' \
+	  'Deploy variables:    FTP_PORT=2121, DEPLOY_FORMAT=folder|ffpfsc|ffpkg, DEPLOY_DRY_RUN=0|1' \
 	  'make clean           Remove build/, dist/, and generated libc.prx' \
 	  'make distclean       Also remove the ignored .deps/ cache'

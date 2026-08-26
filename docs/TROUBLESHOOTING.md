@@ -20,6 +20,7 @@ On Linux or inside WSL, confirm the native toolchain:
 ```bash
 test -x /usr/bin/clang-18
 test -x /usr/bin/clang++
+test -x /usr/bin/curl
 test -x /usr/bin/wget
 test -x /usr/bin/unzip
 test -x /usr/bin/apt-get
@@ -29,7 +30,7 @@ test -x /usr/bin/dpkg-deb
 On Ubuntu, install missing host packages with:
 
 ```bash
-sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip python3-venv unzip wget
+sudo apt install clang-18 clang-format-18 clang-tidy-18 curl lld-18 make python3 python3-pip python3-venv unzip wget
 ```
 
 ## The generated `libc.prx` is missing or has the wrong hash
@@ -46,8 +47,9 @@ module extracted from a game or firmware.
 ## The linker reports unresolved symbols
 
 Check spelling, C versus C++ linkage, and whether the needed static archive is
-listed in `project.json`. Platform imports must exist in the public SDK stubs
-under `.deps/native/ps5-payload-sdk/target/lib`. Do not silence unresolved symbols;
+listed in `APP_STATIC_ARCHIVES` or the relevant `PACBREW_*` variable. Platform
+imports must exist in the public SDK stubs under
+`.deps/native/ps5-payload-sdk/target/lib`. Do not silence unresolved symbols;
 update the SDK or provide a legitimate native implementation.
 
 ## Native dependency bootstrap fails
@@ -71,6 +73,24 @@ The script writes only to `.deps/native/` and never installs packages globally.
   packaging from compilation.
 
 Nothing is installed globally by these optional bootstrappers.
+
+## FTP deployment fails
+
+- Confirm `PS5_HOST` identifies the intended console and its FTP service is
+  already running on `FTP_PORT` (default `2121`).
+- Run `make deploy PS5_HOST=192.0.2.1 DEPLOY_DRY_RUN=1` to validate the local
+  build and destination without sending a network request.
+- Fully close the previous title and any crash dialog before replacing its
+  files. Never launch while deployment is still running.
+- A remaining hidden `.upload` file indicates that a transfer or rename did
+  not finish. Rerunning deployment safely overwrites that temporary file.
+- Folder deployment intentionally does not delete remote files absent from the
+  new build. Manually clean the title directory if a removed asset or module
+  must disappear.
+- Do not leave both a title folder and an image with the same title ID under
+  active scan paths. ShadowMountPlus may prefer its existing mounted source.
+- Wait for the mount service to report the title ready before launching. The
+  Make target uploads only; it does not launch the app.
 
 ## The title does not appear
 
@@ -112,5 +132,5 @@ Nothing is installed globally by these optional bootstrappers.
 
 ## `/download0` is missing
 
-Keep a positive `downloadDataSize` in `project.json`, rebuild, and stage the
+Keep a positive `downloadDataSize` in `sce_sys/param.json`, rebuild, and stage the
 new generated directory. Do not attempt to write to `/app0`.

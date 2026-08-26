@@ -18,11 +18,11 @@ function Report([string]$Name, [bool]$Passed, [string]$Detail) {
 }
 
 try {
-    Get-Content -LiteralPath (Join-Path $root "project.json") -Raw |
-        ConvertFrom-Json | Out-Null
-    Report "project.json" $true "valid JSON"
+    $param = Get-Content -LiteralPath (Join-Path $root "sce_sys/param.json") -Raw |
+        ConvertFrom-Json
+    Report "sce_sys/param.json" $true "version $($param.contentVersion)"
 } catch {
-    Report "project.json" $false $_.Exception.Message
+    Report "sce_sys/param.json" $false $_.Exception.Message
 }
 
 $wslExists = $null -ne (Get-Command wsl.exe -ErrorAction SilentlyContinue)

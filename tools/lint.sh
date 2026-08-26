@@ -44,24 +44,38 @@ for name in subprocess.check_output(["git", "ls-files", "*.json"], text=True).sp
         with open(name, encoding="utf-8") as source:
             json.load(source)
 
-with open("project.json", encoding="utf-8") as source:
-    project = json.load(source)
-if project.get("applicationCategory") not in {"game", "media"}:
-    raise SystemExit("project.json applicationCategory must be game or media")
-if not re.fullmatch(r"\d{2}\.\d{3}\.\d{3}", project.get("contentVersion", "")):
-    raise SystemExit("project.json contentVersion must use NN.NNN.NNN")
-if not re.fullmatch(r"\d{2}\.\d{2}", project.get("masterVersion", "")):
-    raise SystemExit("project.json masterVersion must use NN.NN")
-patterns = {
-    "pacbrewPackages": r"[A-Za-z0-9_.+-]+",
-    "pacbrewIncludePaths": r"[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)*",
-    "pacbrewStaticArchives": r"[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)*\.a",
-}
-for field, pattern in patterns.items():
-    values = project.get(field)
-    if not isinstance(values, list) or not all(
-            isinstance(value, str) and re.fullmatch(pattern, value) for value in values):
-        raise SystemExit(f"project.json {field} contains an invalid value")
+with open("sce_sys/param.json", encoding="utf-8") as source:
+    param = json.load(source)
+title_id = param.get("titleId", "")
+content_id = param.get("contentId", "")
+if not re.fullmatch(r"PPSA\d{5}", title_id):
+    raise SystemExit("param.json titleId must use PPSA followed by five digits")
+if not re.fullmatch(r"\d{5}", param.get("conceptId", "")):
+    raise SystemExit("param.json conceptId must contain five digits")
+if (not re.fullmatch(r"[A-Z]{2}\d{4}-PPSA\d{5}_00-[A-Z0-9]{16}", content_id)
+        or title_id not in content_id):
+    raise SystemExit("param.json contentId must be valid and contain titleId")
+if not re.fullmatch(r"\d{2}\.\d{3}\.\d{3}", param.get("contentVersion", "")):
+    raise SystemExit("param.json contentVersion must use NN.NNN.NNN")
+if not re.fullmatch(r"\d{2}\.\d{2}", param.get("masterVersion", "")):
+    raise SystemExit("param.json masterVersion must use NN.NN")
+size = param.get("downloadDataSize")
+if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+    raise SystemExit("param.json downloadDataSize must be a non-negative integer")
+category = param.get("applicationCategoryType")
+if (category, param.get("contentBadgeType")) not in {(0, 1), (65536, 2)}:
+    raise SystemExit("param.json category and badge must describe a game or media app")
+if category == 0:
+    intents = param.get("gameIntent", {}).get("permittedIntents", [])
+    if not any(item.get("intentType") == "launchActivity" for item in intents):
+        raise SystemExit("game param.json must permit the launchActivity intent")
+elif "gameIntent" in param:
+    raise SystemExit("media param.json must not contain gameIntent")
+localized = param.get("localizedParameters", {})
+language = localized.get("defaultLanguage", "")
+title = localized.get(language, {}).get("titleName", "")
+if not isinstance(title, str) or not title.strip():
+    raise SystemExit("param.json default-language titleName cannot be empty")
 PY
 
 if git grep -n -E 'C:\\Users\\|/home/denis|/mnt/c/Users/denis|\bDenis\b' -- . \

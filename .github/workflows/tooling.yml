@@ -9,7 +9,7 @@ on:
     branches:
       - main
     tags:
-      - "v*"
+      - "[0-9][0-9].[0-9][0-9][0-9].[0-9][0-9][0-9]"
   pull_request:
   workflow_dispatch:
 
@@ -45,12 +45,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes clang-18 clang-format-18 clang-tidy-18 lld-18 make pkg-config unzip wget
 
-      - name: Read project identity
+      - name: Read app identity and version
         shell: bash
         run: |
-          title_id=$(python3 -c 'import json; print(json.load(open("project.json"))["titleId"])')
+          metadata=$(python3 -c 'import json; p=json.load(open("sce_sys/param.json")); print(p["titleId"], p["contentVersion"])')
+          read -r title_id content_version <<< "$metadata"
           [[ $title_id =~ ^PPSA[0-9]{5}$ ]] || exit 2
+          [[ $content_version =~ ^[0-9]{2}\.[0-9]{3}\.[0-9]{3}$ ]] || exit 2
+          if [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME != "$content_version" ]]; then
+            echo "Release tag must exactly match param.json contentVersion: $content_version" >&2
+            exit 2
+          fi
           echo "TITLE_ID=$title_id" >> "$GITHUB_ENV"
+          echo "CONTENT_VERSION=$content_version" >> "$GITHUB_ENV"
 
       - name: Lint source and metadata
         run: make lint
@@ -79,7 +86,7 @@ jobs:
 
   release:
     name: GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-latest
     permissions:

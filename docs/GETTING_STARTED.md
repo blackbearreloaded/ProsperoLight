@@ -11,7 +11,7 @@ Install the compiler, linker, Make, Python, and download/archive tools:
 
 ```bash
 sudo apt update
-sudo apt install clang-18 clang-format-18 clang-tidy-18 git lld-18 make \
+sudo apt install clang-18 clang-format-18 clang-tidy-18 curl git lld-18 make \
   pkg-config python3 python3-pip python3-venv tar unzip wget
 ```
 
@@ -40,9 +40,9 @@ Windows PowerShell users can run `./tools/setup-native-dependencies.ps1`
 instead.
 
 Optional third-party PS5 libraries come from PacBrew's pinned prebuilt ports
-image. Add module names to `pacbrewPackages` in `project.json`; bare `make`
-then downloads and links them automatically. Use `make pacbrew-list` to inspect
-available modules. See [PacBrew dependencies](PACBREW.md).
+image. Pass module names through `PACBREW_PACKAGES`; `make` then downloads and
+links them automatically. Use `make pacbrew-list` to inspect available modules.
+See [PacBrew dependencies](PACBREW.md).
 
 ## 3. Install optional packaging prerequisites
 
@@ -79,17 +79,24 @@ procedure.
 
 ## 5. Choose a unique app identity
 
-Edit [`project.json`](../project.json). Change these fields together:
+Edit [`sce_sys/param.json`](../sce_sys/param.json). Change these fields
+together:
 
 ```json
 {
-  "titleName": "My Native App",
-  "applicationCategory": "game",
-  "titleId": "PPSA99999",
+  "applicationCategoryType": 0,
   "conceptId": "99999",
   "contentId": "UP9000-PPSA99999_00-MYNATIVEAPP00001",
   "contentVersion": "01.000.000",
-  "masterVersion": "01.00"
+  "contentBadgeType": 1,
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "My Native App"
+    }
+  },
+  "masterVersion": "01.00",
+  "titleId": "PPSA99999"
 }
 ```
 
@@ -132,11 +139,11 @@ See [Presentation assets](PRESENTATION_ASSETS.md) for source recommendations,
 conversion commands, the supported format profile, licensing guidance,
 and the catalog-owned logo/description limitation.
 
-Set `applicationCategory` to `game` for the Games area or `media` for the Media
-area. The build writes the matching category, badge, and intent fields into the
-generated `param.json`. It does not grant media entitlements or other runtime
-capabilities. See [Project configuration](CONFIGURATION.md) before changing
-category or release versions.
+For the Games area, retain `applicationCategoryType: 0`, `contentBadgeType: 1`,
+and the `launchActivity` game intent. Media applications use category `65536`,
+badge `2`, and no `gameIntent`. The build validates these fields but does not
+rewrite them. See [Application configuration](CONFIGURATION.md) before
+changing category or release versions.
 
 ## 6. Check and build
 

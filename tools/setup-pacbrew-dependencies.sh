@@ -20,9 +20,9 @@ mode=${1:-}
 [[ -n $mode ]] && shift
 
 case "$mode" in
-    --all|--list|--project|--resolve) ;;
+    --all|--list|--environment|--resolve) ;;
     *)
-        echo "usage: tools/setup-pacbrew-dependencies.sh --all|--list|--project|--resolve MODULE..." >&2
+        echo "usage: tools/setup-pacbrew-dependencies.sh --all|--list|--environment|--resolve MODULE..." >&2
         exit 2
         ;;
 esac
@@ -33,25 +33,13 @@ command -v python3 >/dev/null || {
 }
 
 modules=("$@")
-if [[ $mode == --project ]]; then
-    project_enabled=$(python3 - "$root/project.json" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    project = json.load(source)
-keys = ("pacbrewPackages", "pacbrewIncludePaths", "pacbrewStaticArchives")
-print("1" if any(project.get(key, []) for key in keys) else "0")
-PY
-    )
-    mapfile -t modules < <(python3 - "$root/project.json" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    project = json.load(source)
-for module in project.get("pacbrewPackages", []):
-    print(module)
-PY
-    )
-    if [[ $project_enabled != 1 ]]; then
-        echo "==> [pacbrew] No dependencies selected in project.json" >&2
+if [[ $mode == --environment ]]; then
+    modules=()
+    if [[ -n ${PACBREW_PACKAGES:-} ]]; then
+        read -r -a modules <<< "$PACBREW_PACKAGES"
+    fi
+    if [[ -z ${PACBREW_PACKAGES:-}${PACBREW_INCLUDE_PATHS:-}${PACBREW_STATIC_ARCHIVES:-} ]]; then
+        echo "==> [pacbrew] No dependencies selected through Make variables" >&2
         exit 0
     fi
 fi
@@ -114,7 +102,7 @@ case "$mode" in
     --list)
         pkg-config --list-all | LC_ALL=C sort
         ;;
-    --project)
+    --environment)
         if (( ${#modules[@]} > 0 )); then
             pkg-config --static --exists "${modules[@]}" || {
                 echo "PacBrew does not provide every selected pkg-config module: ${modules[*]}" >&2

@@ -22,7 +22,7 @@ development but is not fetched, copied, linked, or required by the build.
 
 ## Optional PacBrew dependencies
 
-When selected in `project.json`, the build downloads the prebuilt ports image
+When selected through `PACBREW_*` build variables, the build downloads the prebuilt ports image
 from [ps5-payload-dev/pacbrew-repo](https://github.com/ps5-payload-dev/pacbrew-repo)
 release `v0.40.2`, verifies its published SHA-256, and extracts only the
 `target/user/homebrew` prefix under ignored `.deps/pacbrew/`. It does not

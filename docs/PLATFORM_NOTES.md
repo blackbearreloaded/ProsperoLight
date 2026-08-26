@@ -57,9 +57,9 @@ environment.
   profiles promised by the asset-preparation script.
 - Presentation metadata may be cached by the shell or loader. Follow the
   loader's refresh procedure after structural asset changes.
-- `applicationCategory=game` maps to native-game category `0` and badge `1`;
-  `media` maps to native-media category `65536` and badge `2`. Classification
-  does not grant capabilities or entitlements.
+- In `param.json`, category `0` with badge `1` selects Games; category `65536`
+  with badge `2` selects Media. Classification does not grant capabilities or
+  entitlements.
 
 ## Application capabilities
 

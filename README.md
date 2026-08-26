@@ -1,7 +1,6 @@
 # PS5 Native App Boilerplate
 
 [![Build](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml/badge.svg)](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/actions/workflows/tooling.yml)
-[![Release](https://img.shields.io/github/v/release/blackbearreloaded/ps5-native-app-boilerplate)](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 Build modern C++20 homebrew applications for PlayStation 5 from Linux, WSL, or
@@ -51,12 +50,13 @@ compatibility.
 ### Prerequisites
 
 On Ubuntu, Debian, or WSL install Git, Make, Python 3 with virtual-environment
-support, Clang 18, lld 18, clang-format, clang-tidy, `wget`, and `unzip`.
+support, Clang 18, lld 18, clang-format, clang-tidy, `curl`, `wget`, and
+`unzip`.
 Windows users may use the same WSL path or the retained PowerShell frontend.
 
 ```bash
 sudo apt update
-sudo apt install git make pkg-config python3 python3-pip python3-venv tar wget unzip \
+sudo apt install curl git make pkg-config python3 python3-pip python3-venv tar wget unzip \
   clang-18 clang-format-18 clang-tidy-18 lld-18
 ```
 
@@ -74,7 +74,7 @@ archive into the ignored `.deps/native/` cache, then generates the clean-room
 ### Build the template
 
 1. Give the application a unique title ID, content ID, and name in
-   [`project.json`](project.json).
+   [`sce_sys/param.json`](sce_sys/param.json).
 2. Build:
 
    ```bash
@@ -84,8 +84,8 @@ archive into the ignored `.deps/native/` cache, then generates the clean-room
 Bare `make` fetches missing native dependencies, generates and verifies
 `runtime/libc.prx`, then builds the complete application folder.
 
-To use a library from PacBrew, run `make pacbrew-list`, place the desired
-module names in `project.json` under `pacbrewPackages`, and run `make` again.
+To use a library from PacBrew, run `make pacbrew-list`, then build with a
+space-separated module list such as `make PACBREW_PACKAGES="sdl2 openssl"`.
 The prebuilt ports image is verified and cached inside `.deps/`; no global
 installation is performed. See [PacBrew dependencies](docs/PACBREW.md).
 
@@ -93,6 +93,19 @@ The finished title directory is written to `dist/<TITLE_ID>/`. Stage that
 entire directory with a compatible loader such as
 [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus); `eboot.bin`
 cannot be deployed by itself.
+
+For a short development loop, build and update the title folder under
+`/data/homebrew` through an already-running FTP service:
+
+```bash
+make deploy PS5_HOST=192.168.1.100
+```
+
+The default FTP port is `2121`. Each file is uploaded under a hidden temporary
+name and promoted only after its transfer completes; `eboot.bin` and
+`sce_sys/param.json` are published last. Use `DEPLOY_FORMAT=ffpfsc` or
+`DEPLOY_FORMAT=ffpkg` when an image is specifically required. Launching and
+closing the app remain explicit manual steps. See [Deployment](docs/DEPLOYMENT.md).
 
 Run `make help` to list the focused targets. `make deps` only prefetches native
 dependencies, `make libc` forces runtime reproduction, `make lint` runs
@@ -106,11 +119,15 @@ Read [Getting started](docs/GETTING_STARTED.md) before the first build.
 
 ### Source and metadata
 
-Edit `project.json` to define the app identity, Games/Media category, release
-versions, sources, compiler definitions, include paths, static archives, and
-runtime modules. The hardware-proven
+Edit `sce_sys/param.json` to define the app identity, Games/Media category, and
+PS5-format release version. Every C or C++ file under `src/` is compiled
+automatically; optional build inputs use documented Make variables. The
+hardware-proven
 graphical skeleton is [`src/main.cpp`](src/main.cpp); replace or extend it directly
 after forking the repository.
+
+`contentVersion` is also the Git tag and GitHub Release version. Use its exact
+`NN.NNN.NNN` value without a `v` prefix; the release workflow rejects drift.
 
 The target uses C++20 with exceptions and RTTI disabled. Allocation-free
 facilities such as `std::array`, `std::span`, and `std::string_view` are
@@ -179,13 +196,14 @@ remains tracked in `runtime/libc.prx.sha256`.
 ## Repository layout
 
 ```text
-project.json                  App identity and build inputs
 src/main.cpp                  Modern C++20 graphical Hello World skeleton
 assets/                       Optional files mounted at /app0/assets/
-sce_sys/                      Param, icon, backgrounds, and selection audio
-Makefile                      Linux/WSL build, lint, dependency, and package targets
+sce_sys/param.json            App identity, metadata, and release version
+sce_sys/                      Icon, backgrounds, and selection audio
+Makefile                      Linux/WSL build, lint, dependency, package, and deploy targets
 build.ps1                     Windows PowerShell build entry point
 tools/build.sh                Native Linux/WSL build orchestrator
+tools/deploy.sh               Folder and image FTP deployment helper
 tools/doctor.ps1              Read-only prerequisite check
 tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
@@ -201,13 +219,13 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 | Document | Purpose |
 | --- | --- |
 | [Getting started](docs/GETTING_STARTED.md) | Host setup, first configuration, build, and output inspection |
-| [Project configuration](docs/CONFIGURATION.md) | `project.json`, `param.json`, Games/Media category, versions, sources, and libraries |
+| [Application configuration](docs/CONFIGURATION.md) | `param.json`, release tags, Games/Media category, sources, and libraries |
 | [Presentation assets](docs/PRESENTATION_ASSETS.md) | Icon, selection/launch images, ATRAC9 conversion, and format limits |
 | [PacBrew dependencies](docs/PACBREW.md) | Third-party PS5 libraries, selection, caching, and limits |
 | [Build output formats](docs/FFPKG.md) | Folder, `.ffpkg`, and `.ffpfsc` generation |
 | [Native build tooling](docs/NATIVE_TOOLING.md) | LLVM boundary and C++ converter/FSELF commands |
 | [Clean-room runtime shim](docs/RUNTIME_SHIM.md) | Design, hashes, compatibility, and deterministic reproduction |
-| [Deployment](docs/DEPLOYMENT.md) | Directory staging and smoke testing |
+| [Deployment](docs/DEPLOYMENT.md) | FTP image deployment and smoke testing |
 | [Platform constraints](docs/PLATFORM_NOTES.md) | Loader, filesystem, presentation, and capability boundaries |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common setup, build, packaging, and launcher failures |
 | [Contributing](CONTRIBUTING.md) | Change requirements and release checks |

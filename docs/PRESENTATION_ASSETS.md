@@ -12,7 +12,7 @@ repository's `sce_sys` files; it does not connect to or configure a console.
 | Selection background | 16:9 image, preferably 3840x2160 | `sce_sys/pic0.dds`, 4K BC7 DX10 DDS |
 | Launch/loading background | 16:9 image, preferably 3840x2160 | `sce_sys/pic1.dds`, 4K BC7 DX10 DDS |
 | Selection music | MP3, M4A, AAC, WAV, FLAC, or a ready AT9 file | `sce_sys/snd0.at9`, 48 kHz stereo ATRAC9 |
-| Displayed app name | `titleName` in `project.json` | Shell-rendered text |
+| Displayed app name | `localizedParameters.<language>.titleName` in `sce_sys/param.json` | Shell-rendered text |
 
 Retail-style custom-font logos and descriptions are catalog metadata, not
 package assets. A synthetic homebrew concept has no retail catalog record, and

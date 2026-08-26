@@ -16,16 +16,10 @@ The first request downloads PacBrew's complete prebuilt ports image because
 upstream publishes one sysroot rather than separate per-library archives. The
 approximately 346 MB download is cached under `.deps/pacbrew/`.
 
-Add one or more names from that list to `project.json`:
-
-```json
-"pacbrewPackages": ["sdl2", "SDL2_image", "openssl"]
-```
-
-Then build normally:
+Pass one or more names through `PACBREW_PACKAGES`:
 
 ```bash
-make
+make PACBREW_PACKAGES="sdl2 SDL2_image openssl"
 ```
 
 The bootstrapper verifies the pinned release, keeps it separate from the
@@ -39,10 +33,9 @@ necessarily PacBrew repository directory names.
 Some ports install headers and static archives without a `.pc` file. Select
 their paths relative to PacBrew's `/user/homebrew` prefix:
 
-```json
-"pacbrewPackages": [],
-"pacbrewIncludePaths": ["include"],
-"pacbrewStaticArchives": ["lib/libsqlite3.a"]
+```bash
+make PACBREW_INCLUDE_PATHS="include" \
+  PACBREW_STATIC_ARCHIVES="lib/libsqlite3.a"
 ```
 
 List multiple archives in linker order when a manually selected library has

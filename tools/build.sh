@@ -23,63 +23,56 @@ for command in python3 sha256sum; do
 done
 bash "$root/tools/setup-native-dependencies.sh" >/dev/null
 
-project="$root/project.json"
-json_scalar() {
-    python3 - "$project" "$1" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    value = json.load(source)[sys.argv[2]]
-if isinstance(value, (dict, list)):
-    raise SystemExit(f"{sys.argv[2]} must be a scalar")
-print(value)
-PY
-}
-json_array() {
-    python3 - "$project" "$1" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    values = json.load(source)[sys.argv[2]]
-if not isinstance(values, list):
-    raise SystemExit(f"{sys.argv[2]} must be an array")
-for value in values:
-    print(value)
-PY
-}
+param="$root/sce_sys/param.json"
+title_id=$(python3 - "$param" <<'PY'
+import json, re, sys
 
-title_name=$(json_scalar titleName)
-application_category=$(json_scalar applicationCategory)
-title_id=$(json_scalar titleId)
-concept_id=$(json_scalar conceptId)
-content_id=$(json_scalar contentId)
-content_version=$(json_scalar contentVersion)
-master_version=$(json_scalar masterVersion)
-module_sdk=$(json_scalar moduleSdkVersion)
-companion_sdk=$(json_scalar companionSdkVersion)
-fself_magic=$(json_scalar fselfMagic)
-download_size=$(json_scalar downloadDataSize)
-[[ $title_id =~ ^PPSA[0-9]{5}$ ]] || { echo "invalid titleId" >&2; exit 2; }
-[[ $concept_id =~ ^[0-9]{5}$ ]] || { echo "invalid conceptId" >&2; exit 2; }
-[[ $content_id =~ ^[A-Z]{2}[0-9]{4}-PPSA[0-9]{5}_00-[A-Z0-9]{16}$ && $content_id == *"$title_id"* ]] || {
-    echo "invalid contentId" >&2; exit 2;
-}
-[[ $application_category == game || $application_category == media ]] || {
-    echo "applicationCategory must be game or media" >&2; exit 2;
-}
-[[ $content_version =~ ^[0-9]{2}\.[0-9]{3}\.[0-9]{3}$ ]] || {
-    echo "invalid contentVersion" >&2; exit 2;
-}
-[[ $master_version =~ ^[0-9]{2}\.[0-9]{2}$ ]] || {
-    echo "invalid masterVersion" >&2; exit 2;
-}
-[[ $module_sdk =~ ^0x[0-9A-Fa-f]{8}$ && $companion_sdk =~ ^0x[0-9A-Fa-f]{8}$ ]] || {
-    echo "invalid SDK version" >&2; exit 2;
-}
-[[ $fself_magic == 0x1D3D154F || $fself_magic == 0xEEF51454 ]] || {
-    echo "unsupported FSELF magic" >&2; exit 2;
-}
-[[ $download_size =~ ^[0-9]+$ && -n $title_name ]] || {
-    echo "invalid application metadata" >&2; exit 2;
-}
+with open(sys.argv[1], encoding="utf-8") as source:
+    value = json.load(source)
+
+title_id = value.get("titleId", "")
+concept_id = value.get("conceptId", "")
+content_id = value.get("contentId", "")
+if not re.fullmatch(r"PPSA\d{5}", title_id):
+    raise SystemExit("param.json titleId must use PPSA followed by five digits")
+if not re.fullmatch(r"\d{5}", concept_id):
+    raise SystemExit("param.json conceptId must contain five digits")
+if (not re.fullmatch(r"[A-Z]{2}\d{4}-PPSA\d{5}_00-[A-Z0-9]{16}", content_id)
+        or title_id not in content_id):
+    raise SystemExit("param.json contentId must be valid and contain titleId")
+if not re.fullmatch(r"\d{2}\.\d{3}\.\d{3}", value.get("contentVersion", "")):
+    raise SystemExit("param.json contentVersion must use NN.NNN.NNN")
+if not re.fullmatch(r"\d{2}\.\d{2}", value.get("masterVersion", "")):
+    raise SystemExit("param.json masterVersion must use NN.NN")
+size = value.get("downloadDataSize")
+if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+    raise SystemExit("param.json downloadDataSize must be a non-negative integer")
+
+category = value.get("applicationCategoryType")
+badge = value.get("contentBadgeType")
+if (category, badge) not in {(0, 1), (65536, 2)}:
+    raise SystemExit("param.json category and badge must describe a game or media app")
+if category == 0:
+    intents = value.get("gameIntent", {}).get("permittedIntents", [])
+    if not any(item.get("intentType") == "launchActivity" for item in intents):
+        raise SystemExit("game param.json must permit the launchActivity intent")
+elif "gameIntent" in value:
+    raise SystemExit("media param.json must not contain gameIntent")
+
+localized = value.get("localizedParameters", {})
+language = localized.get("defaultLanguage", "")
+title = localized.get(language, {}).get("titleName", "")
+if not isinstance(title, str) or not title.strip():
+    raise SystemExit("param.json default-language titleName cannot be empty")
+print(title_id)
+PY
+)
+
+# Loader/container constants validated on firmware 6.02 and 12.70. These are
+# deliberately separate from the public application version in param.json.
+module_sdk=0x02000009
+companion_sdk=0x08050001
+fself_magic=0x1D3D154F
 
 python3 - "$root/sce_sys" <<'PY'
 from pathlib import Path
@@ -155,14 +148,28 @@ mkdir -p "$build/host" "$build/obj" "$dist"
     "$native/elf_object.cpp" "$native/sce_module_writer.cpp" \
     "$zlib_archive" -o "$tool"
 
-mapfile -t sources < <(json_array sources)
-mapfile -t definitions < <(json_array compileDefinitions)
-mapfile -t includes < <(json_array includePaths)
-mapfile -t archives < <(json_array staticArchives)
-mapfile -t pacbrew_packages < <(json_array pacbrewPackages)
-mapfile -t pacbrew_includes < <(json_array pacbrewIncludePaths)
-mapfile -t pacbrew_archives < <(json_array pacbrewStaticArchives)
-(( ${#sources[@]} > 0 )) || { echo "project has no sources" >&2; exit 2; }
+mapfile -d '' -t source_paths < <(
+    find "$root/src" -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+        -print0 | sort -z
+)
+sources=()
+for source in "${source_paths[@]}"; do
+    sources+=("${source#"$root/"}")
+done
+(( ${#sources[@]} > 0 )) || { echo "src/ has no C or C++ sources" >&2; exit 2; }
+
+definitions=()
+includes=()
+archives=()
+pacbrew_packages=()
+pacbrew_includes=()
+pacbrew_archives=()
+[[ -z ${APP_DEFINITIONS:-} ]] || read -r -a definitions <<< "$APP_DEFINITIONS"
+[[ -z ${APP_INCLUDE_PATHS:-} ]] || read -r -a includes <<< "$APP_INCLUDE_PATHS"
+[[ -z ${APP_STATIC_ARCHIVES:-} ]] || read -r -a archives <<< "$APP_STATIC_ARCHIVES"
+[[ -z ${PACBREW_PACKAGES:-} ]] || read -r -a pacbrew_packages <<< "$PACBREW_PACKAGES"
+[[ -z ${PACBREW_INCLUDE_PATHS:-} ]] || read -r -a pacbrew_includes <<< "$PACBREW_INCLUDE_PATHS"
+[[ -z ${PACBREW_STATIC_ARCHIVES:-} ]] || read -r -a pacbrew_archives <<< "$PACBREW_STATIC_ARCHIVES"
 
 pacbrew_cflags=()
 pacbrew_libs=()
@@ -254,54 +261,30 @@ mkdir -p "$app/sce_sys" "$app/sce_module"
 "$tool" self --sign --in "$build/eboot.elf" --out "$app/eboot.bin" \
     --magic "$fself_magic"
 
-python3 - "$root/sce_sys/param.json" "$app/sce_sys/param.json" \
-    "$title_name" "$application_category" "$title_id" "$concept_id" "$content_id" \
-    "$content_version" "$master_version" "$download_size" <<'PY'
-import json, sys
-source, output, title, category, title_id, concept_id, content_id, content_version, master_version, size = sys.argv[1:]
-with open(source, encoding="utf-8") as stream:
-    value = json.load(stream)
-value["titleId"] = title_id
-value["conceptId"] = concept_id
-value["contentId"] = content_id
-value["contentVersion"] = content_version
-value["masterVersion"] = master_version
-value["downloadDataSize"] = int(size)
-value["localizedParameters"]["en-US"]["titleName"] = title
-if category == "game":
-    value["applicationCategoryType"] = 0
-    value["contentBadgeType"] = 1
-    value["gameIntent"] = {"permittedIntents": [{"intentType": "launchActivity"}]}
-else:
-    value["applicationCategoryType"] = 65536
-    value["contentBadgeType"] = 2
-    value.pop("gameIntent", None)
-with open(output, "w", encoding="utf-8", newline="\n") as stream:
-    json.dump(value, stream, indent=2)
-    stream.write("\n")
-PY
+cp "$param" "$app/sce_sys/param.json"
 for asset in icon0.png pic0.dds pic1.dds snd0.at9; do
     [[ -f $root/sce_sys/$asset ]] && cp "$root/sce_sys/$asset" "$app/sce_sys/$asset"
 done
 [[ ! -d $root/assets ]] || cp -a "$root/assets" "$app/assets"
 
-python3 - "$project" <<'PY' > "$build/runtime-modules.tsv"
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as source:
-    modules = json.load(source)["runtimeModules"]
-for module in modules:
-    print(module["source"], module["name"], module.get("sha256", ""), sep="\t")
-PY
-while IFS=$'\t' read -r source name expected; do
-    [[ $source =~ ^(runtime|\.local/runtime)/[A-Za-z0-9._-]+\.prx$ && $name =~ ^[A-Za-z0-9._-]+\.prx$ ]] || {
+[[ -f $root/runtime/libc.prx ]] || bash "$root/tools/rebuild-libc.sh"
+(cd "$root/runtime" && sha256sum --check --strict libc.prx.sha256)
+runtime_modules=("$root/runtime/libc.prx")
+additional_runtime=()
+[[ -z ${APP_RUNTIME_MODULES:-} ]] || read -r -a additional_runtime <<< "$APP_RUNTIME_MODULES"
+for source in "${additional_runtime[@]}"; do
+    [[ $source =~ ^\.local/runtime/[A-Za-z0-9._-]+\.prx$ && -f $root/$source ]] || {
         echo "invalid runtime module: $source" >&2; exit 2;
     }
-    input="$root/$source"
-    [[ -f $input ]] || { echo "missing runtime module: $source" >&2; exit 2; }
-    actual=$(sha256sum "$input" | cut -d ' ' -f 1)
-    [[ -z $expected || ${actual^^} == ${expected^^} ]] || {
-        echo "runtime hash mismatch: $source" >&2; exit 2;
+    runtime_modules+=("$root/$source")
+done
+declare -A runtime_names=()
+for input in "${runtime_modules[@]}"; do
+    name=${input##*/}
+    [[ $name =~ ^[A-Za-z0-9._-]+\.prx$ && -z ${runtime_names[$name]+present} ]] || {
+        echo "invalid or duplicate runtime module name: $name" >&2; exit 2;
     }
+    runtime_names[$name]=present
     magic=$(python3 - "$input" <<'PY'
 import struct, sys
 with open(sys.argv[1], "rb") as stream:
@@ -314,7 +297,7 @@ PY
         "$tool" self --sign --in "$input" --out "$app/sce_module/$name"
     fi
     "$tool" self --inspect --file "$app/sce_module/$name"
-done < "$build/runtime-modules.tsv"
+done
 "$tool" self --inspect --file "$app/eboot.bin"
 
 if [[ $format == ffpkg || $format == all ]]; then

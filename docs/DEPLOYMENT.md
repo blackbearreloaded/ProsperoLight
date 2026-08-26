@@ -1,7 +1,9 @@
 # Deployment
 
 This project creates a directory-style homebrew application and optional
-filesystem images. It does not install software or create a signed retail
+filesystem images. Its Makefile can update the directory or upload an image
+below `/data/homebrew` over FTP. It does not configure the console, start
+payloads, register titles, launch applications, or create a signed retail
 package.
 
 ## Requirements
@@ -10,9 +12,77 @@ Use a console you own with an already configured, compatible homebrew
 environment and loader. Follow that loader's documentation for setup and
 supported input formats. This repository does not configure the console.
 
-Keep loader and mount services on a trusted local network.
+Keep loader, mount, and FTP services on a trusted local network. The automated
+path requires `curl` on the build host and an already-running FTP service on
+the console.
 
-## Build and stage
+## One-command development deployment
+
+Build and update the title folder through the default FTP port `2121`:
+
+```bash
+make deploy PS5_HOST=192.168.1.100
+```
+
+The default folder deployment:
+
+1. builds `dist/<TITLE_ID>/` from the current source;
+2. uploads each file beside its destination under a hidden `.upload` name;
+3. replaces that file only after its transfer completes;
+4. publishes `eboot.bin` and then `sce_sys/param.json` last; and
+5. verifies that both required files appear in the remote directory.
+
+Keeping `/data/homebrew/<TITLE_ID>/` itself in place preserves ShadowMountPlus's
+existing nullfs source while updating what the next launch reads. Fully close
+the application before deploying and do not launch it until the command
+finishes. Files removed from the local build are not deleted remotely; clean
+the title directory manually when an exact mirror is required.
+
+Select an image or a non-default port with Make variables:
+
+```bash
+make deploy PS5_HOST=192.168.1.100 DEPLOY_FORMAT=ffpfsc
+make deploy PS5_HOST=192.168.1.100 FTP_PORT=2121 DEPLOY_FORMAT=ffpkg
+```
+
+Image deployment remains useful for distribution testing. An already-mounted
+image with the same pathname may remain cached by ShadowMountPlus, so folder
+deployment is the recommended repeated development workflow. Do not keep a
+folder and an image with the same title ID in scan paths at the same time.
+
+Supported variables are:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PS5_HOST` | required | Console IPv4 address or hostname |
+| `FTP_PORT` | `2121` | FTP service port |
+| `DEPLOY_FORMAT` | `folder` | `folder`, `ffpfsc`, or `ffpkg` output |
+| `PS5_FTP_USER` | `anonymous` | FTP username |
+| `PS5_FTP_PASSWORD` | `codex` | FTP password |
+| `DEPLOY_DRY_RUN` | `0` | Use `1` to build and print the target without networking |
+
+For example, validate local packaging and the resolved destination without
+contacting a console:
+
+```bash
+make deploy PS5_HOST=192.0.2.1 DEPLOY_DRY_RUN=1
+```
+
+## Recommended edit-test loop
+
+1. Fully close the previous application and any remaining crash dialog.
+2. Confirm the console's FTP and mount services are ready.
+3. Edit the source. Update `contentVersion` in `sce_sys/param.json` for a
+   release-worthy change; routine folder deployments do not require a bump.
+4. Run `make deploy PS5_HOST=<console-address>`.
+5. Wait for the mount service to report the title ready, then launch it
+   manually.
+6. Observe the result and fully close the application before deploying again.
+
+Keeping launch and close actions manual makes the default command predictable
+and avoids replacing a package while its previous title remains active.
+
+## Manual build and stage
 
 1. Build the exact format accepted by your loader:
 
