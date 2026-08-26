@@ -94,6 +94,5 @@ stable render loop, and clean-close test on firmware 6.02 and 12.70 with
 ShadowMountPlus. This validates those two tested environments only; preserve the
 hash when testing another firmware or loader.
 
-Earlier profiles remain in the emitter for research reproducibility, but they
-are not release runtimes and are intentionally undocumented here. The original
-minimal and compact experiments are preserved in their own sibling projects.
+This is the repository's sole libc-compatible runtime emitter and V7 is its
+only supported release profile.

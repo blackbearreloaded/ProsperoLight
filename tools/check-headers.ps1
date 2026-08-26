@@ -11,7 +11,8 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $patterns = @("*.c", "*.cs", "*.ps1", "*.csproj", "*.yml", "*.yaml", "*.sh")
-$files = @(& git -C $root ls-files --cached --others --exclude-standard -- @patterns)
+$files = @(& git -C $root ls-files --cached --others --exclude-standard -- @patterns |
+    Where-Object { Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf })
 $files += @(
     ".editorconfig",
     ".gitattributes",

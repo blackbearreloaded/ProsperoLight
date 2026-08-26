@@ -107,10 +107,6 @@ jobs:
 
           dotnet format tooling/NativeAppBuilder/NativeAppBuilder.csproj --verify-no-changes --verbosity minimal
           if ($LASTEXITCODE -ne 0) { throw "NativeAppBuilder formatting failed." }
-          dotnet format tooling/MinimalLibcBuilder/MinimalLibcBuilder.csproj --verify-no-changes --verbosity minimal
-          if ($LASTEXITCODE -ne 0) { throw "MinimalLibcBuilder formatting failed." }
-          dotnet format tooling/CompactLibcBuilder/CompactLibcBuilder.csproj --verify-no-changes --verbosity minimal
-          if ($LASTEXITCODE -ne 0) { throw "CompactLibcBuilder formatting failed." }
           dotnet format tooling/ConventionalLibcBuilder/ConventionalLibcBuilder.csproj --verify-no-changes --verbosity minimal
           if ($LASTEXITCODE -ne 0) { throw "ConventionalLibcBuilder formatting failed." }
 

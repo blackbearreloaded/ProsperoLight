@@ -78,9 +78,8 @@ delegate `malloc`, `free`, and `posix_memalign` to the system
 can participate in normal runtime initialization without containing those
 allocator implementations itself.
 
-The file is much larger than the original minimal experiment because V7
-preserves the loader geometry and complete symbol/relocation tables that proved
-necessary across the tested firmware versions. The size does not represent a
+The file size comes from the loader geometry and complete symbol/relocation
+tables required across the tested firmware versions. It does not represent a
 copied libc implementation.
 
 ## Host linker and container requirements
@@ -186,14 +185,6 @@ tested consoles:
 These results validate the exact recorded artifact on those two environments.
 They do not prove compatibility with every firmware, loader, or application.
 Preserve the hash when comparing future results.
-
-## Historical emitters
-
-[`tooling/MinimalLibcBuilder`](../tooling/MinimalLibcBuilder) preserves the
-original 4,898-byte clean-room experiment.
-[`tooling/CompactLibcBuilder`](../tooling/CompactLibcBuilder) preserves the later
-compact-layout experiment. Neither is the bundled runtime because neither
-passed the same cross-firmware gate as V7.
 
 ## Distribution
 

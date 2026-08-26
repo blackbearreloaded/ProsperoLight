@@ -41,8 +41,7 @@ licenses.
 are independently authored for this project and licensed under
 GPL-3.0-or-later. The module contains project-authored compatibility stubs,
 startup code, and semantic loader metadata. It contains no Sony runtime
-implementation. `MinimalLibcBuilder` and `CompactLibcBuilder` remain as
-historical clean-room experiments.
+implementation.
 
 Original ps5-native-app-boilerplate code is Copyright (C) 2026
 BlackBearReloaded and licensed under GPL-3.0-or-later. Source and script files

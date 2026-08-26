@@ -152,8 +152,6 @@ tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
 tooling/NativeAppBuilder/     Host-side link and FSELF frontend
 tooling/ConventionalLibcBuilder/ Clean-room V7 runtime emitter and manifests
-tooling/MinimalLibcBuilder/   Historical minimal-shim emitter
-tooling/CompactLibcBuilder/   Compact clean-room experiment emitter
 tooling/patches/              SharpProspero compatibility delta
 runtime/libc.prx              Bundled cross-firmware-tested V7 loader shim
 tools/rebuild-libc.ps1        Deterministic shim reproduction check
