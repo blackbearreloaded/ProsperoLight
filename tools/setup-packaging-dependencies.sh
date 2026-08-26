@@ -57,18 +57,30 @@ case "$kind" in
             echo "MkPFS cache has local changes" >&2
             exit 2
         }
-        packages="$checkout/.python-packages"
-        stamp="$packages/.boilerplate-revision"
+        venv="$checkout/.venv-linux"
+        python="$venv/bin/python"
+        stamp="$venv/.boilerplate-revision"
+        if [[ ! -x $python ]]; then
+            rm -rf -- "$venv"
+            python3 -m venv "$venv" || {
+                echo "Python venv support is required (install python3-venv)" >&2
+                exit 2
+            }
+        fi
+        if ! "$python" -m pip --version >/dev/null 2>&1; then
+            python3 -m pip --python "$python" install \
+                --disable-pip-version-check --quiet pip >&2 || {
+                echo "Unable to seed pip in the MkPFS virtual environment" >&2
+                exit 2
+            }
+        fi
         if [[ ! -f $stamp || $(<"$stamp") != "$revision" ]]; then
-            rm -rf -- "$packages"
-            mkdir -p "$packages"
-            python3 -m pip install --disable-pip-version-check --quiet \
-                --target "$packages" "$checkout" >&2
+            "$python" -m pip install --disable-pip-version-check --quiet \
+                "$checkout" >&2
             printf '%s\n' "$revision" > "$stamp"
         fi
-        runner="$checkout/.mkpfs-run"
-        printf '#!/bin/sh\nPYTHONPATH=%q exec python3 -m mkpfs "$@"\n' \
-            "$packages" > "$runner"
+        runner="$checkout/.mkpfs-run-linux"
+        printf '#!/bin/sh\nexec "%s" -m mkpfs "$@"\n' "$python" > "$runner"
         chmod +x "$runner"
         "$runner" --help >/dev/null
         printf '%s\n' "$runner"

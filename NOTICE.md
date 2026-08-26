@@ -33,8 +33,9 @@ runtime or build dependency.
 When `.ffpfsc` output is requested, the platform bootstrapper fetches
 [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) at commit
 `6cb8313dfe0c988ac52617794553f343243d3a56` into the ignored `.deps/MkPFS`
-cache and installs its Python dependencies there. MkPFS and its dependencies
-retain their own licenses and are not distributed by this repository.
+cache and installs its Python dependencies into an ignored virtual environment
+there. MkPFS and its dependencies retain their own licenses and are not
+distributed by this repository.
 
 ## Independently authored runtime shim
 

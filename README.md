@@ -47,9 +47,9 @@ compatibility.
 
 ### Prerequisites
 
-On Ubuntu, Debian, or WSL install Git, Make, Python 3, Clang 18, lld 18,
-clang-format, clang-tidy, `wget`, and `unzip`. Windows users may use the same
-WSL path or the retained PowerShell frontend.
+On Ubuntu, Debian, or WSL install Git, Make, Python 3 with virtual-environment
+support, Clang 18, lld 18, clang-format, clang-tidy, `wget`, and `unzip`.
+Windows users may use the same WSL path or the retained PowerShell frontend.
 
 The first build fetches the pinned public PS5 payload SDK and native zlib
 archive into the ignored `.deps/native/` cache, then generates the clean-room

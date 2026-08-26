@@ -16,45 +16,58 @@ all: app
 build: app
 
 deps:
+	@printf '%s\n' '==> [deps] Fetching native SDK and zlib dependencies'
 	@bash tools/setup-native-dependencies.sh
 
 libc:
+	@printf '%s\n' '==> [libc] Rebuilding and verifying the clean-room runtime'
 	@bash tools/rebuild-libc.sh
 
 $(RUNTIME): $(RUNTIME_INPUTS)
+	@printf '%s\n' '==> [libc] Generating the missing or outdated runtime'
 	@bash tools/rebuild-libc.sh
 
 app: $(RUNTIME)
+	@printf '%s\n' '==> [app] Compiling, linking, signing, and assembling the app folder'
 	@bash tools/build.sh Folder
 
 ffpkg: $(RUNTIME)
+	@printf '%s\n' '==> [ffpkg] Building the app folder and UFS2 image'
 	@bash tools/build.sh Ffpkg
 
 ffpfsc: $(RUNTIME)
+	@printf '%s\n' '==> [ffpfsc] Building the app folder and compressed image'
 	@bash tools/build.sh Ffpfsc
 
 packages: $(RUNTIME)
+	@printf '%s\n' '==> [packages] Building the app folder and both package formats'
 	@bash tools/build.sh All
 
 format:
+	@printf '%s\n' '==> [format] Formatting C and C++ sources'
 	@bash tools/run_clang_format.sh
 
 format-check:
+	@printf '%s\n' '==> [format] Checking C and C++ formatting'
 	@bash tools/run_clang_format.sh --check
 
 tidy:
+	@printf '%s\n' '==> [tidy] Running Clang static analysis'
 	@bash tools/run_clang_tidy.sh
 
 lint:
+	@printf '%s\n' '==> [lint] Running source, metadata, and shell checks'
 	@bash tools/lint.sh
 
 check: lint app
 
 clean:
+	@printf '%s\n' '==> [clean] Removing generated build outputs'
 	@rm -rf -- build dist
 	@rm -f -- $(RUNTIME)
 
 distclean: clean
+	@printf '%s\n' '==> [distclean] Removing downloaded dependency caches'
 	@rm -rf -- .deps
 
 help:

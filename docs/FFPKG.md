@@ -36,8 +36,9 @@ On first use, `tools/setup-packaging-dependencies.sh` or the equivalent
 PowerShell bootstrapper fetches the pinned
 [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) revision into the ignored
 `.deps/MkPFS` cache and installs its dependencies under that ignored checkout;
-the repository does not distribute MkPFS source or binaries. Python 3.9 or
-newer is required.
+Linux/WSL uses `.venv-linux` and PowerShell uses `.venv`. The repository does
+not distribute MkPFS source or binaries. Python 3.9 or newer with `venv`
+support is required.
 
 The build uses MkPFS's default wrapped-folder mode because upstream documents
 it as the maximum-compatibility `.ffpfsc` layout. It does not use the advanced

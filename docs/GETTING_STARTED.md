@@ -11,7 +11,7 @@ Install the compiler, linker, Make, Python, and download/archive tools:
 
 ```bash
 sudo apt update
-sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip unzip wget
+sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip python3-venv unzip wget
 ```
 
 Confirm the expected compiler exists:
@@ -43,8 +43,9 @@ instead.
 The normal folder build needs no managed runtime or external host project.
 Repository-owned tools are compiled from C/C++ source automatically.
 
-Compressed `.ffpfsc` output uses Python 3.9 or newer. The build fetches MkPFS
-and its Python packages into ignored `.deps/` subdirectories when selected.
+Compressed `.ffpfsc` output uses Python 3.9 or newer with `venv` support. The
+build fetches MkPFS and installs it into an ignored virtual environment under
+`.deps/MkPFS/` when selected.
 
 Uncompressed `.ffpkg` output uses a native `makefs` binary downloaded into
 `.deps/` on first use. It does not require administrator access or a global

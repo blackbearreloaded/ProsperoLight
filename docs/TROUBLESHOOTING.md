@@ -29,7 +29,7 @@ test -x /usr/bin/dpkg-deb
 On Ubuntu, install missing host packages with:
 
 ```bash
-sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip unzip wget
+sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip python3-venv unzip wget
 ```
 
 ## The generated `libc.prx` is missing or has the wrong hash
@@ -65,8 +65,8 @@ The script writes only to `.deps/native/` and never installs packages globally.
 
 - `.ffpkg` requires network access once to download and extract native
   `makefs` into `.deps/makefs`.
-- `.ffpfsc` requires Git and Python 3.9 or newer so MkPFS can be fetched into
-  `.deps/MkPFS`.
+- `.ffpfsc` requires Git and Python 3.9 or newer with `venv` support. MkPFS and
+  its isolated environment are stored under `.deps/MkPFS`.
 - Folder output has neither optional dependency. Use `make app` to isolate
   packaging from compilation.
 
