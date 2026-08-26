@@ -20,6 +20,16 @@ The project’s PS5 ELF converter and FSELF writer are independently authored
 GPL-3.0-or-later code. SharpProspero was a useful public format reference during
 development but is not fetched, copied, linked, or required by the build.
 
+## Optional PacBrew dependencies
+
+When selected in `project.json`, the build downloads the prebuilt ports image
+from [ps5-payload-dev/pacbrew-repo](https://github.com/ps5-payload-dev/pacbrew-repo)
+release `v0.40.2`, verifies its published SHA-256, and extracts only the
+`target/user/homebrew` prefix under ignored `.deps/pacbrew/`. It does not
+replace the pinned SDK or install files globally. PacBrew recipes and every
+linked third-party library retain their upstream licenses; applications must
+review those terms before redistribution.
+
 ## Optional native UFS2 dependency
 
 When `.ffpkg` output is requested, the platform bootstrapper downloads the

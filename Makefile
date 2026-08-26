@@ -10,14 +10,23 @@ RUNTIME_INPUTS := tools/rebuild-libc.sh \
 	$(wildcard tooling/native/*.cpp tooling/native/*.hpp) \
 	$(wildcard tooling/native/runtime/*.txt)
 
-.PHONY: all app build libc deps format format-check tidy lint check ffpkg ffpfsc packages clean distclean help
+.PHONY: all app build libc deps pacbrew pacbrew-list format format-check tidy lint check ffpkg ffpfsc packages clean distclean help
 
 all: app
 build: app
 
 deps:
-	@printf '%s\n' '==> [deps] Fetching native SDK and zlib dependencies'
+	@printf '%s\n' '==> [deps] Fetching declared native dependencies'
 	@bash tools/setup-native-dependencies.sh
+	@bash tools/setup-pacbrew-dependencies.sh --project
+
+pacbrew:
+	@printf '%s\n' '==> [pacbrew] Fetching the pinned prebuilt ports sysroot'
+	@bash tools/setup-pacbrew-dependencies.sh --all
+
+pacbrew-list:
+	@printf '%s\n' '==> [pacbrew] Listing available pkg-config modules'
+	@bash tools/setup-pacbrew-dependencies.sh --list
 
 libc:
 	@printf '%s\n' '==> [libc] Rebuilding and verifying the clean-room runtime'
@@ -74,6 +83,8 @@ help:
 	@printf '%s\n' \
 	  'make                 Generate libc.prx and build the Hello World folder' \
 	  'make deps            Fetch native dependencies into .deps/' \
+	  'make pacbrew         Fetch the pinned PacBrew ports sysroot' \
+	  'make pacbrew-list    List PacBrew pkg-config module names' \
 	  'make libc            Force a deterministic runtime/libc.prx rebuild' \
 	  'make format          Apply the shared Clang formatting policy' \
 	  'make format-check    Check formatting without modifying files' \

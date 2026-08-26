@@ -16,6 +16,9 @@
   "compileDefinitions": [],
   "includePaths": [],
   "staticArchives": [],
+  "pacbrewPackages": [],
+  "pacbrewIncludePaths": [],
+  "pacbrewStaticArchives": [],
   "runtimeModules": [
     {
       "source": "runtime/libc.prx",

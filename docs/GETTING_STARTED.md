@@ -38,6 +38,11 @@ make deps
 Windows PowerShell users can run `./tools/setup-native-dependencies.ps1`
 instead.
 
+Optional third-party PS5 libraries come from PacBrew's pinned prebuilt ports
+image. Add module names to `pacbrewPackages` in `project.json`; bare `make`
+then downloads and links them automatically. Use `make pacbrew-list` to inspect
+available modules. See [PacBrew dependencies](PACBREW.md).
+
 ## 3. Install optional packaging prerequisites
 
 The normal folder build needs no managed runtime or external host project.

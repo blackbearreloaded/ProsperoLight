@@ -45,6 +45,7 @@ $projectRelative = if ($ProjectDirectory -eq $repoRoot) {
 $projectPath = Join-Path $ProjectDirectory "project.json"
 $nativeToolDirectory = Join-Path $here "tooling/native"
 $setupNativeDependencies = Join-Path $here "tools/setup-native-dependencies.ps1"
+$setupPacbrewDependencies = Join-Path $here "tools/setup-pacbrew-dependencies.sh"
 $rebuildLibc = Join-Path $here "tools/rebuild-libc.ps1"
 $setupFfpkgTooling = Join-Path $here "tools/setup-ffpkg-tooling.ps1"
 $setupMkpfsTooling = Join-Path $here "tools/setup-mkpfs-tooling.ps1"
@@ -75,6 +76,7 @@ $buildFfpfsc = $OutputFormat -in @("Ffpfsc", "All")
 
 foreach ($required in @($projectPath, $prepareAssets, $baseParamPath, $iconPath,
         $setupNativeDependencies,
+        $setupPacbrewDependencies,
         $rebuildLibc,
         (Join-Path $nativeToolDirectory "native_app_builder.cpp"),
         (Join-Path $nativeToolDirectory "libc_builder.cpp"),
@@ -122,6 +124,24 @@ if ([long]$project.downloadDataSize -lt 0) {
 }
 if (@($project.sources).Count -eq 0) {
     Fail "project.json must list at least one C or C++ source."
+}
+$pacbrewPackages = @(@($project.pacbrewPackages) | Where-Object { $_ })
+foreach ($package in $pacbrewPackages) {
+    if ($package -notmatch '^[A-Za-z0-9_.+-]+$') {
+        Fail "Invalid PacBrew pkg-config module: $package"
+    }
+}
+$pacbrewIncludePaths = @(@($project.pacbrewIncludePaths) | Where-Object { $_ })
+foreach ($includePath in $pacbrewIncludePaths) {
+    if ($includePath -notmatch '^[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)*$') {
+        Fail "Invalid PacBrew include path: $includePath"
+    }
+}
+$pacbrewStaticArchives = @(@($project.pacbrewStaticArchives) | Where-Object { $_ })
+foreach ($archive in $pacbrewStaticArchives) {
+    if ($archive -notmatch '^[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)*\.a$') {
+        Fail "Invalid PacBrew static archive: $archive"
+    }
 }
 
 $defaultRuntime = Join-Path $here "runtime/libc.prx"
@@ -189,6 +209,44 @@ function Convert-ToWslPath([string]$Path) {
     return "/mnt/$pathDrive/$pathTail"
 }
 
+function Quote-Bash([string]$Value) {
+    if ($Value -match "['`0`r`n]") {
+        Fail "A generated build argument contains an unsupported character."
+    }
+    return "'$Value'"
+}
+
+$pacbrewCflags = @()
+$pacbrewLibs = @()
+if ($pacbrewPackages.Count -gt 0 -or $pacbrewIncludePaths.Count -gt 0 -or
+    $pacbrewStaticArchives.Count -gt 0) {
+    $wslPacbrewSetup = Convert-ToWslPath $setupPacbrewDependencies
+    $pacbrewJson = & wsl.exe --exec bash $wslPacbrewSetup --resolve @pacbrewPackages
+    if ($LASTEXITCODE -ne 0) {
+        Fail "PacBrew dependency resolution failed."
+    }
+    $pacbrew = ($pacbrewJson -join "`n") | ConvertFrom-Json
+    $pacbrewCflags = @($pacbrew.cflags)
+    $pacbrewLibs = @($pacbrew.libs)
+    foreach ($includePath in $pacbrewIncludePaths) {
+        $resolved = "$($pacbrew.root)/user/homebrew/$includePath"
+        & wsl.exe --exec test -d $resolved
+        if ($LASTEXITCODE -ne 0) {
+            Fail "PacBrew include directory not found: $includePath"
+        }
+        $pacbrewCflags += "-I$resolved"
+    }
+    foreach ($archive in $pacbrewStaticArchives) {
+        $resolved = "$($pacbrew.root)/user/homebrew/$archive"
+        & wsl.exe --exec test -f $resolved
+        if ($LASTEXITCODE -ne 0) {
+            Fail "PacBrew static archive not found: $archive"
+        }
+        $pacbrewLibs += $resolved
+    }
+    Write-Host "PacBrew dependencies: $($pacbrewPackages -join ', ')"
+}
+
 $hostToolRoot = Join-Path $buildRoot "host"
 New-Item -ItemType Directory -Path $hostToolRoot -Force | Out-Null
 $nativeTool = Join-Path $hostToolRoot "ps5-native-tool"
@@ -254,7 +312,8 @@ foreach ($source in @($project.sources)) {
     }
     $definitionFlags = ($compileDefinitions | ForEach-Object { "-D$_" }) -join " "
     $includeFlags = ($includePaths | ForEach-Object { "-I$_" }) -join " "
-    $compile = "cd '$wslRoot' && PS5_PAYLOAD_SDK='$sdkRoot' sh tooling/prospero-clang18 $languageFlags -O2 -Wall -Wextra -ffunction-sections -fdata-sections $definitionFlags $includeFlags -c '$sourceFromRepo' -o '$wslObject'"
+    $pacbrewFlags = ($pacbrewCflags | ForEach-Object { Quote-Bash $_ }) -join " "
+    $compile = "cd '$wslRoot' && PS5_PAYLOAD_SDK='$sdkRoot' sh tooling/prospero-clang18 $languageFlags -O2 -Wall -Wextra -ffunction-sections -fdata-sections $definitionFlags $includeFlags $pacbrewFlags -c '$sourceFromRepo' -o '$wslObject'"
     & wsl.exe --exec bash -lc $compile
     if ($LASTEXITCODE -ne 0) {
         Fail "PS5 compilation failed for $source."
@@ -296,7 +355,12 @@ foreach ($archive in $staticArchives) {
     $linkInputs += Convert-ToWslPath ([IO.Path]::GetFullPath((Join-Path $here $archive))
     )
 }
-$quotedInputs = ($linkInputs | ForEach-Object { "'$_'" }) -join " "
+if ($pacbrewLibs.Count -gt 0) {
+    $linkInputs += "--start-group"
+    $linkInputs += $pacbrewLibs
+    $linkInputs += "--end-group"
+}
+$quotedInputs = ($linkInputs | ForEach-Object { Quote-Bash $_ }) -join " "
 $nativeLink = "cd '$wslRoot' && '$sdkRoot/bin/prospero-lld' -T tooling/native/ps5-pie.ld --eh-frame-hdr --version-script tooling/native/app-symbols.map -e _start -o build/llvm-pie.elf $quotedInputs --as-needed '$sdkRoot'/target/lib/*.so"
 & wsl.exe --exec bash -lc $nativeLink
 if ($LASTEXITCODE -ne 0) {

@@ -159,7 +159,40 @@ mapfile -t sources < <(json_array sources)
 mapfile -t definitions < <(json_array compileDefinitions)
 mapfile -t includes < <(json_array includePaths)
 mapfile -t archives < <(json_array staticArchives)
+mapfile -t pacbrew_packages < <(json_array pacbrewPackages)
+mapfile -t pacbrew_includes < <(json_array pacbrewIncludePaths)
+mapfile -t pacbrew_archives < <(json_array pacbrewStaticArchives)
 (( ${#sources[@]} > 0 )) || { echo "project has no sources" >&2; exit 2; }
+
+pacbrew_cflags=()
+pacbrew_libs=()
+if (( ${#pacbrew_packages[@]} > 0 || ${#pacbrew_includes[@]} > 0 || ${#pacbrew_archives[@]} > 0 )); then
+    pacbrew_resolution=$(bash "$root/tools/setup-pacbrew-dependencies.sh" \
+        --resolve "${pacbrew_packages[@]}")
+    mapfile -d '' -t pacbrew_cflags < <(python3 -c \
+        'import json,sys; [print(v, end="\0") for v in json.loads(sys.argv[1])["cflags"]]' \
+        "$pacbrew_resolution")
+    mapfile -d '' -t pacbrew_libs < <(python3 -c \
+        'import json,sys; [print(v, end="\0") for v in json.loads(sys.argv[1])["libs"]]' \
+        "$pacbrew_resolution")
+    pacbrew_root=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["root"])' \
+        "$pacbrew_resolution")
+    for include in "${pacbrew_includes[@]}"; do
+        [[ $include =~ ^[A-Za-z0-9_.+-]+(/[A-Za-z0-9_.+-]+)*$ &&
+            -d $pacbrew_root/user/homebrew/$include ]] || {
+            echo "invalid PacBrew include path: $include" >&2; exit 2;
+        }
+        pacbrew_cflags+=("-I$pacbrew_root/user/homebrew/$include")
+    done
+    for archive in "${pacbrew_archives[@]}"; do
+        [[ $archive =~ ^[A-Za-z0-9_.+-]+(/[A-Za-z0-9_.+-]+)*\.a$ &&
+            -f $pacbrew_root/user/homebrew/$archive ]] || {
+            echo "invalid PacBrew static archive: $archive" >&2; exit 2;
+        }
+        pacbrew_libs+=("$pacbrew_root/user/homebrew/$archive")
+    done
+    printf 'PacBrew dependencies: %s\n' "${pacbrew_packages[*]:-(manual archives)}"
+fi
 
 objects=()
 for source in "${sources[@]}"; do
@@ -182,6 +215,7 @@ for source in "${sources[@]}"; do
         }
         args+=("-I$root/$include")
     done
+    args+=("${pacbrew_cflags[@]}")
     PS5_PAYLOAD_SDK="$sdk_root" sh "$root/tooling/prospero-clang18" \
         "${args[@]}" -c "$root/$source" -o "$object"
     objects+=("$object")
@@ -203,6 +237,9 @@ for archive in "${archives[@]}"; do
     }
     link_inputs+=("$root/$archive")
 done
+if (( ${#pacbrew_libs[@]} > 0 )); then
+    link_inputs+=(--start-group "${pacbrew_libs[@]}" --end-group)
+fi
 "$sdk_root/bin/prospero-lld" -T "$native/ps5-pie.ld" --eh-frame-hdr \
     --version-script "$native/app-symbols.map" \
     -e _start -o "$build/llvm-pie.elf" "${link_inputs[@]}" \

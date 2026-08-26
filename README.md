@@ -41,6 +41,7 @@ compatibility.
 | Packaging | Folder, optional UFS2 `.ffpkg`, and optional compressed `.ffpfsc` outputs |
 | App assets | Recursive read-only `assets/` packaging at `/app0/assets/` |
 | Presentation | Replaceable icon, 4K BC7 backgrounds, and ATRAC9 selection audio |
+| Third-party libraries | Optional pinned PacBrew sysroot with declarative static linking |
 | Root skeleton | C++20 graphical Hello World with RAII, bounded views, unique ownership, CPU-rendered text, shapes, and packaged data |
 | Validation | Host prerequisite checks and static ELF/FSELF inspection before release |
 
@@ -54,7 +55,7 @@ Windows users may use the same WSL path or the retained PowerShell frontend.
 
 ```bash
 sudo apt update
-sudo apt install git make python3 python3-pip python3-venv wget unzip \
+sudo apt install git make pkg-config python3 python3-pip python3-venv tar wget unzip \
   clang-18 clang-format-18 clang-tidy-18 lld-18
 ```
 
@@ -80,6 +81,11 @@ archive into the ignored `.deps/native/` cache, then generates the clean-room
 
 Bare `make` fetches missing native dependencies, generates and verifies
 `runtime/libc.prx`, then builds the complete application folder.
+
+To use a library from PacBrew, run `make pacbrew-list`, place the desired
+module names in `project.json` under `pacbrewPackages`, and run `make` again.
+The prebuilt ports image is verified and cached inside `.deps/`; no global
+installation is performed. See [PacBrew dependencies](docs/PACBREW.md).
 
 The finished title directory is written to `dist/<TITLE_ID>/`. Stage that
 entire directory with a compatible loader such as
@@ -181,6 +187,7 @@ tools/build.sh                Native Linux/WSL build orchestrator
 tools/doctor.ps1              Read-only prerequisite check
 tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
+tools/setup-pacbrew-dependencies.sh  Isolated PacBrew sysroot and flag resolver
 tooling/native/               C++ linker converter, allocation bridge, C ABI CRT, FSELF, and runtime builder
 runtime/libc.prx.sha256       Expected digest for the generated loader shim
 tools/rebuild-libc.sh         Linux/WSL deterministic shim reproduction check
@@ -194,6 +201,7 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 | [Getting started](docs/GETTING_STARTED.md) | Host setup, first configuration, build, and output inspection |
 | [Project configuration](docs/CONFIGURATION.md) | `project.json`, `param.json`, Games/Media category, versions, sources, and libraries |
 | [Presentation assets](docs/PRESENTATION_ASSETS.md) | Icon, selection/launch images, ATRAC9 conversion, and format limits |
+| [PacBrew dependencies](docs/PACBREW.md) | Third-party PS5 libraries, selection, caching, and limits |
 | [Build output formats](docs/FFPKG.md) | Folder, `.ffpkg`, and `.ffpfsc` generation |
 | [Native build tooling](docs/NATIVE_TOOLING.md) | LLVM boundary and C++ converter/FSELF commands |
 | [Clean-room runtime shim](docs/RUNTIME_SHIM.md) | Design, hashes, compatibility, and deterministic reproduction |
@@ -207,6 +215,7 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 | Project | Role |
 | --- | --- |
 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) | Public PS5 headers, libc++ headers, sysroot, and Clang target support |
+| [ps5-payload-dev/pacbrew-repo](https://github.com/ps5-payload-dev/pacbrew-repo) | Optional prebuilt PS5 ports and static libraries |
 | [SvenGDK/SharpProspero](https://github.com/SvenGDK/SharpProspero) | Public format reference used during initial research; not a build dependency |
 | [NetBSD/MirBSD makefs](http://cvs.mirbsd.de/src/usr.sbin/makefs/) | Native optional UFS2 `.ffpkg` generation |
 | [SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) | Public UFS2 profile reference; not a build dependency |

@@ -22,6 +22,9 @@ file and `src/main.cpp`, and list additional source files explicitly below.
 | `compileDefinitions` | Optional preprocessor definitions such as `FEATURE_AUDIO=1`. |
 | `includePaths` | Optional repository-relative header directories. |
 | `staticArchives` | Optional repository-relative `.a` libraries. |
+| `pacbrewPackages` | Optional PacBrew `pkg-config` modules with automatic static dependencies. |
+| `pacbrewIncludePaths` | PacBrew include directories for ports without `pkg-config`. |
+| `pacbrewStaticArchives` | PacBrew `.a` paths for ports without `pkg-config`. |
 | `runtimeModules` | Generated or optional local PRXs copied into the app; the default pins the clean-room shim hash. |
 
 ## Generated `param.json`
@@ -101,6 +104,21 @@ Repository-local include paths and archives are passed through the build:
 ```
 
 Do not put proprietary Sony headers or libraries in a public repository.
+
+## PacBrew ports
+
+Use `pacbrewPackages` for libraries from the PacBrew ports collection:
+
+```json
+"pacbrewPackages": ["sdl2", "SDL2_image"]
+```
+
+Run `make pacbrew-list` to see the exact module names. `make` downloads the
+pinned prebuilt ports image only when one of the three PacBrew fields is used.
+For a port without `pkg-config`, provide paths beneath `/user/homebrew` through
+`pacbrewIncludePaths` and `pacbrewStaticArchives`. See
+[PacBrew dependencies](PACBREW.md) for examples, caching, licensing, and
+runtime-compatibility boundaries.
 
 ## Persistent configuration
 
