@@ -11,13 +11,12 @@
 .SYNOPSIS
     Builds a native PS5 application directory from project.json.
 .DESCRIPTION
-    Compiles C/C++ in WSL with the PS5 payload SDK, links the application with
-    the repository-local C# builder, wraps it as FSELF, and assembles dist/.
+    Compiles C/C++ in WSL with the PS5 payload SDK, links with LLVM lld,
+    converts and wraps the result with the repository's C++ host tool, and
+    assembles dist/.
 #>
 param(
-    [string]$Dotnet = "",
     [string]$Python = "",
-    [string]$Configuration = "Release",
     [string]$ProjectDirectory = "",
     [ValidateSet("Folder", "Ffpkg", "Ffpfsc", "All")]
     [string]$OutputFormat = "Folder",
@@ -44,8 +43,9 @@ $projectRelative = if ($ProjectDirectory -eq $repoRoot) {
     $ProjectDirectory.Substring($repoPrefix.Length).Replace('\', '/')
 }
 $projectPath = Join-Path $ProjectDirectory "project.json"
-$builderProject = Join-Path $here "tooling/NativeAppBuilder/NativeAppBuilder.csproj"
-$setupTooling = Join-Path $here "tools/setup-tooling.ps1"
+$nativeToolDirectory = Join-Path $here "tooling/native"
+$setupNativeDependencies = Join-Path $here "tools/setup-native-dependencies.ps1"
+$rebuildLibc = Join-Path $here "tools/rebuild-libc.ps1"
 $setupFfpkgTooling = Join-Path $here "tools/setup-ffpkg-tooling.ps1"
 $setupMkpfsTooling = Join-Path $here "tools/setup-mkpfs-tooling.ps1"
 $prepareAssets = Join-Path $here "tools/prepare-assets.ps1"
@@ -57,10 +57,10 @@ function Fail([string]$Message) {
     throw "ps5-native-app-boilerplate: $Message"
 }
 
-function Invoke-Dotnet([string[]]$Arguments) {
-    & $Dotnet @Arguments
+function Invoke-WslTool([string[]]$Arguments) {
+    & wsl.exe --exec @Arguments
     if ($LASTEXITCODE -ne 0) {
-        Fail "The .NET application builder failed."
+        Fail "A native build tool failed."
     }
 }
 
@@ -73,7 +73,12 @@ if ($Ffpkg) {
 $buildFfpkg = $OutputFormat -in @("Ffpkg", "All")
 $buildFfpfsc = $OutputFormat -in @("Ffpfsc", "All")
 
-foreach ($required in @($projectPath, $builderProject, $setupTooling, $prepareAssets, $baseParamPath, $iconPath)) {
+foreach ($required in @($projectPath, $prepareAssets, $baseParamPath, $iconPath,
+        $setupNativeDependencies,
+        $rebuildLibc,
+        (Join-Path $nativeToolDirectory "native_app_builder.cpp"),
+        (Join-Path $nativeToolDirectory "libc_builder.cpp"),
+        (Join-Path $nativeToolDirectory "ps5-pie.ld"))) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         Fail "Required file not found: $required"
     }
@@ -110,28 +115,31 @@ if (@($project.sources).Count -eq 0) {
     Fail "project.json must list at least one C or C++ source."
 }
 
-& $prepareAssets -ValidateOnly -OutputDirectory (Join-Path $ProjectDirectory "sce_sys")
+$defaultRuntime = Join-Path $here "runtime/libc.prx"
+$usesDefaultRuntime = @($project.runtimeModules | Where-Object {
+        $_.source -eq "runtime/libc.prx"
+    }).Count -gt 0
+if ($usesDefaultRuntime -and -not (Test-Path -LiteralPath $defaultRuntime -PathType Leaf)) {
+    & $rebuildLibc
+}
 
-if (-not $Dotnet) {
-    $command = Get-Command dotnet -ErrorAction SilentlyContinue
-    if ($command) {
-        $Dotnet = $command.Source
-    }
-}
-if (-not $Dotnet -or -not (Test-Path -LiteralPath $Dotnet -PathType Leaf)) {
-    Fail ".NET SDK 10 was not found. Install it or pass -Dotnet C:\path\to\dotnet.exe."
-}
-$Dotnet = (Resolve-Path -LiteralPath $Dotnet).Path
+& $prepareAssets -ValidateOnly -OutputDirectory (Join-Path $ProjectDirectory "sce_sys")
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Fail "WSL was not found. Install WSL and a Linux distribution first."
 }
-& wsl.exe --exec sh -lc "test -x /usr/bin/clang-18 && test -d /opt/ps5-payload-sdk/target/include"
+& wsl.exe --exec sh -lc "test -x /usr/bin/clang-18 && test -x /usr/bin/clang++ && test -x /usr/bin/wget && test -x /usr/bin/unzip && test -x /usr/bin/apt-get && test -x /usr/bin/dpkg-deb"
 if ($LASTEXITCODE -ne 0) {
-    Fail "WSL needs /usr/bin/clang-18 and /opt/ps5-payload-sdk/target/include."
+    Fail "WSL needs Clang/Clang++, wget, unzip, apt-get, and dpkg-deb."
 }
-
-& $setupTooling
+$dependencyJson = & $setupNativeDependencies
+$nativeDependencies = ($dependencyJson -join "`n") | ConvertFrom-Json
+$sdkRoot = [string]$nativeDependencies.sdkRoot
+$zlibInclude = [string]$nativeDependencies.zlibInclude
+$zlibArchive = [string]$nativeDependencies.zlibArchive
+if (-not $sdkRoot -or -not $zlibInclude -or -not $zlibArchive) {
+    Fail "Native dependency bootstrap returned incomplete paths."
+}
 
 foreach ($runtimeModule in @($project.runtimeModules)) {
     if ($runtimeModule.name -notmatch '^[A-Za-z0-9._-]+\.prx$') {
@@ -155,19 +163,36 @@ foreach ($runtimeModule in @($project.runtimeModules)) {
     }
 }
 
-if (-not $env:DOTNET_CLI_HOME) {
-    $env:DOTNET_CLI_HOME = Join-Path $buildRoot "dotnet-home"
-}
-$env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
-$env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
-$env:DOTNET_NOLOGO = "1"
-
 if ($here -notmatch '^([A-Za-z]):\\(.*)$') {
     Fail "The repository must be on a Windows drive visible to WSL."
 }
 $drive = $Matches[1].ToLowerInvariant()
 $tail = $Matches[2].Replace('\', '/')
 $wslRoot = "/mnt/$drive/$tail"
+
+function Convert-ToWslPath([string]$Path) {
+    $absolute = [IO.Path]::GetFullPath($Path)
+    if ($absolute -notmatch '^([A-Za-z]):\\(.*)$') {
+        Fail "Path is not on a Windows drive visible to WSL: $absolute"
+    }
+    $pathDrive = $Matches[1].ToLowerInvariant()
+    $pathTail = $Matches[2].Replace('\', '/')
+    return "/mnt/$pathDrive/$pathTail"
+}
+
+$hostToolRoot = Join-Path $buildRoot "host"
+New-Item -ItemType Directory -Path $hostToolRoot -Force | Out-Null
+$nativeTool = Join-Path $hostToolRoot "ps5-native-tool"
+$wslNativeTool = Convert-ToWslPath $nativeTool
+$nativeSources = @(
+    "native_app_builder.cpp",
+    "self_container.cpp",
+    "elf_object.cpp",
+    "sce_module_writer.cpp"
+) | ForEach-Object { Convert-ToWslPath (Join-Path $nativeToolDirectory $_) }
+Invoke-WslTool (@("clang++", "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror") +
+    @("-I", $zlibInclude) + $nativeSources +
+    @($zlibArchive, "-o", $wslNativeTool))
 
 $compileDefinitions = @($project.compileDefinitions) | Where-Object { $_ }
 foreach ($definition in $compileDefinitions) {
@@ -220,7 +245,7 @@ foreach ($source in @($project.sources)) {
     }
     $definitionFlags = ($compileDefinitions | ForEach-Object { "-D$_" }) -join " "
     $includeFlags = ($includePaths | ForEach-Object { "-I$_" }) -join " "
-    $compile = "cd '$wslRoot' && sh tooling/prospero-clang18 $languageFlags -O2 -Wall -Wextra -ffunction-sections -fdata-sections $definitionFlags $includeFlags -c '$sourceFromRepo' -o '$wslObject'"
+    $compile = "cd '$wslRoot' && PS5_PAYLOAD_SDK='$sdkRoot' sh tooling/prospero-clang18 $languageFlags -O2 -Wall -Wextra -ffunction-sections -fdata-sections $definitionFlags $includeFlags -c '$sourceFromRepo' -o '$wslObject'"
     & wsl.exe --exec bash -lc $compile
     if ($LASTEXITCODE -ne 0) {
         Fail "PS5 compilation failed for $source."
@@ -228,7 +253,14 @@ foreach ($source in @($project.sources)) {
     $objects += $objectPath
 }
 
+$compileCrt = "cd '$wslRoot' && PS5_PAYLOAD_SDK='$sdkRoot' sh tooling/prospero-clang18 -std=c11 -O2 -Wall -Wextra -ffunction-sections -fdata-sections -c tooling/native/app_crt.c -o build/obj/app_crt.o"
+& wsl.exe --exec bash -lc $compileCrt
+if ($LASTEXITCODE -ne 0) {
+    Fail "PS5 startup object compilation failed."
+}
+
 $rawModule = Join-Path $buildRoot "eboot.elf"
+$intermediateModule = Join-Path $buildRoot "llvm-pie.elf"
 $appRoot = Join-Path $here "dist"
 $app = Join-Path $appRoot $project.titleId
 $resolvedApp = [IO.Path]::GetFullPath($app)
@@ -241,25 +273,32 @@ if (Test-Path -LiteralPath $resolvedApp) {
 }
 New-Item -ItemType Directory -Path (Join-Path $app "sce_sys") -Force | Out-Null
 
-$linkArguments = @("run", "--project", $builderProject, "-c", $Configuration, "--",
-    "link", "--self-contained")
+$linkInputs = @("build/obj/app_crt.o")
 foreach ($object in $objects) {
-    $linkArguments += @("--obj", $object)
+    $linkInputs += Convert-ToWslPath $object
 }
 foreach ($archive in $staticArchives) {
-    $linkArguments += @("--lib", [IO.Path]::GetFullPath((Join-Path $here $archive)))
+    $linkInputs += Convert-ToWslPath ([IO.Path]::GetFullPath((Join-Path $here $archive))
+    )
 }
-$linkArguments += @(
-    "--out", $rawModule,
-    "--entry", "_start",
+$quotedInputs = ($linkInputs | ForEach-Object { "'$_'" }) -join " "
+$nativeLink = "cd '$wslRoot' && '$sdkRoot/bin/prospero-lld' -T tooling/native/ps5-pie.ld --eh-frame-hdr -e _start -o build/llvm-pie.elf $quotedInputs --as-needed '$sdkRoot'/target/lib/*.so"
+& wsl.exe --exec bash -lc $nativeLink
+if ($LASTEXITCODE -ne 0) {
+    Fail "LLVM application link failed."
+}
+
+Invoke-WslTool @($wslNativeTool, "link",
+    "--in", (Convert-ToWslPath $intermediateModule),
+    "--out", (Convert-ToWslPath $rawModule),
+    "--stub-dir", "$sdkRoot/target/lib",
     "--module-sdk", $project.moduleSdkVersion,
-    "--companion-sdk", $project.companionSdkVersion
-)
-Invoke-Dotnet $linkArguments
+    "--companion-sdk", $project.companionSdkVersion,
+    "--file-name", "eboot.elf")
 
 $module = Join-Path $app "eboot.bin"
-Invoke-Dotnet @("run", "--project", $builderProject, "-c", $Configuration, "--",
-    "self", "--sign", "--in", $rawModule, "--out", $module,
+Invoke-WslTool @($wslNativeTool, "self", "--sign",
+    "--in", (Convert-ToWslPath $rawModule), "--out", (Convert-ToWslPath $module),
     "--magic", $project.fselfMagic)
 
 $param = Get-Content -LiteralPath $baseParamPath -Raw | ConvertFrom-Json
@@ -295,15 +334,16 @@ foreach ($runtimeModule in @($project.runtimeModules)) {
     if ($runtimeMagic -in @([uint32]0x1D3D154F, [uint32]4009038932)) {
         [IO.File]::Copy($runtimeSource, $runtimeOutput, $true)
     } else {
-        Invoke-Dotnet @("run", "--project", $builderProject, "-c", $Configuration, "--",
-            "self", "--sign", "--in", $runtimeSource, "--out", $runtimeOutput)
+        Invoke-WslTool @($wslNativeTool, "self", "--sign",
+            "--in", (Convert-ToWslPath $runtimeSource),
+            "--out", (Convert-ToWslPath $runtimeOutput))
     }
-    Invoke-Dotnet @("run", "--project", $builderProject, "-c", $Configuration, "--",
-        "self", "--inspect", "--file", $runtimeOutput)
+    Invoke-WslTool @($wslNativeTool, "self", "--inspect",
+        "--file", (Convert-ToWslPath $runtimeOutput))
 }
 
-Invoke-Dotnet @("run", "--project", $builderProject, "-c", $Configuration, "--",
-    "self", "--inspect", "--file", $module)
+Invoke-WslTool @($wslNativeTool, "self", "--inspect",
+    "--file", (Convert-ToWslPath $module))
 & (Join-Path $here "tools/inspect.ps1") $module
 if ($LASTEXITCODE -ne 0) {
     Fail "Static FSELF compatibility inspection failed."
@@ -314,7 +354,8 @@ if ($buildFfpkg) {
     if (-not (Test-Path -LiteralPath $setupFfpkgTooling -PathType Leaf)) {
         Fail "Optional FFPKG bootstrapper not found: $setupFfpkgTooling"
     }
-    $ufs2Assembly = & $setupFfpkgTooling -Dotnet $Dotnet
+    $makefs = & $setupFfpkgTooling
+    if ($makefs -is [array]) { $makefs = $makefs[-1] }
     $ffpkgOutput = Join-Path $appRoot "$($project.titleId).ffpkg"
     $resolvedFfpkg = [IO.Path]::GetFullPath($ffpkgOutput)
     if (-not $resolvedFfpkg.StartsWith($resolvedDist, [StringComparison]::OrdinalIgnoreCase) -or
@@ -325,23 +366,17 @@ if ($buildFfpkg) {
         [IO.File]::Delete($resolvedFfpkg)
     }
 
-    $previousRollForward = $env:DOTNET_ROLL_FORWARD
-    try {
-        $env:DOTNET_ROLL_FORWARD = "Major"
-        & $Dotnet $ufs2Assembly newfs -O 2 -b 32768 -f 4096 -D $app $resolvedFfpkg
-        if ($LASTEXITCODE -ne 0) {
-            Fail "UFS2Tool FFPKG creation failed."
-        }
-        & $Dotnet $ufs2Assembly fsck_ufs -n $resolvedFfpkg
-        if ($LASTEXITCODE -ne 0) {
-            Fail "Generated FFPKG failed its read-only UFS2 consistency check."
-        }
-    } finally {
-        if ($null -eq $previousRollForward) {
-            Remove-Item Env:DOTNET_ROLL_FORWARD -ErrorAction SilentlyContinue
-        } else {
-            $env:DOTNET_ROLL_FORWARD = $previousRollForward
-        }
+    Invoke-WslTool @($makefs, "-S", "4096", "-b", "20%", "-t", "ffs", "-o",
+        "version=2,bsize=32768,fsize=4096,minfree=0,optimization=space",
+        (Convert-ToWslPath $resolvedFfpkg), (Convert-ToWslPath $app))
+    if (-not (Test-Path -LiteralPath $resolvedFfpkg -PathType Leaf) -or
+        (Get-Item -LiteralPath $resolvedFfpkg).Length -le 0) {
+        Fail "Native makefs did not produce an FFPKG image."
+    }
+    $ufsHeader = [IO.File]::ReadAllBytes($resolvedFfpkg)
+    if ($ufsHeader.Length -lt 0x2560 -or
+        [BitConverter]::ToUInt32($ufsHeader, 0x255c) -ne 0x19540119) {
+        Fail "Generated FFPKG does not contain the expected UFS2 superblock magic."
     }
 }
 

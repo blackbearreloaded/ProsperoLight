@@ -2,14 +2,8 @@
 
 [`project.json`](../project.json) is the only normal build configuration file.
 
-The root build also accepts `-ProjectDirectory` for complete application
-profiles kept inside the repository. The bundled graphical example uses this
-to share the compiler, linker, validation, and runtime shim without duplicating
-the build system:
-
-```powershell
-./build.ps1 -ProjectDirectory ./examples/hello-world
-```
+The repository root is the application skeleton. Fork the project, edit this
+file and `src/main.c`, and list additional source files explicitly below.
 
 | Field | Purpose |
 | --- | --- |
@@ -25,7 +19,7 @@ the build system:
 | `compileDefinitions` | Optional preprocessor definitions such as `FEATURE_AUDIO=1`. |
 | `includePaths` | Optional repository-relative header directories. |
 | `staticArchives` | Optional repository-relative `.a` libraries. |
-| `runtimeModules` | Bundled or optional private PRXs copied into the generated app; the default pins the clean-room shim hash. |
+| `runtimeModules` | Generated or optional local PRXs copied into the app; the default pins the clean-room shim hash. |
 
 ## Adding code
 
@@ -70,8 +64,8 @@ Native SaveData initialization is not part of this baseline; see
 
 ## Runtime modules
 
-The default entry points at the tracked `runtime/libc.prx` FSELF and pins its
-release SHA-256. Keep that entry unchanged for the baseline. A module
-under `runtime/` may be pre-signed and is copied byte-for-byte; an optional raw
-module under ignored `.local/runtime/` is wrapped by the build. Never move an
-extracted proprietary module into the tracked `runtime/` directory.
+The default entry points at the generated `runtime/libc.prx` FSELF and pins its
+release SHA-256. `make` creates it automatically when needed. Keep that entry
+unchanged for the baseline. A pre-signed module is copied byte-for-byte; an
+optional raw module under ignored `.local/runtime/` is wrapped by the build.
+Never move an extracted proprietary module into the repository.

@@ -130,7 +130,7 @@ Validate the current presentation files at any time:
 The normal build runs the same validation automatically:
 
 ```powershell
-./build.ps1
+make
 ```
 
 The validator rejects renamed PNG-as-DDS files, mipmapped or non-BC7 DDS

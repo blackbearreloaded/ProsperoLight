@@ -1,30 +1,25 @@
 # Build output formats
 
-Every build creates and validates `dist/<TITLE_ID>/`. Select the additional
-package output with `-OutputFormat`:
+Every application or package build creates and validates
+`dist/<TITLE_ID>/`. The Make targets map to the same PowerShell
+`-OutputFormat` selections:
 
-| Selection | Additional output | Packaging tool |
+| Make target / selection | Additional output | Packaging tool |
 | --- | --- | --- |
-| `Folder` | None | None |
-| `Ffpkg` | `dist/<TITLE_ID>.ffpkg` | UFS2Tool |
-| `Ffpfsc` | `dist/<TITLE_ID>.ffpfsc` | MkPFS |
-| `All` | Both images | Both tools |
+| `make app` / `Folder` | None | None |
+| `make ffpkg` / `Ffpkg` | `dist/<TITLE_ID>.ffpkg` | Native `makefs` |
+| `make ffpfsc` / `Ffpfsc` | `dist/<TITLE_ID>.ffpfsc` | MkPFS |
+| `make packages` / `All` | Both images | Both tools |
 
-```powershell
-./build.ps1 -OutputFormat Folder
-./build.ps1 -OutputFormat Ffpkg
-./build.ps1 -OutputFormat Ffpfsc
-./build.ps1 -OutputFormat All
-```
-
-The Hello World wrapper accepts the same option:
-
-```powershell
-./examples/hello-world/build.ps1 -OutputFormat Ffpfsc
+```bash
+make app
+make ffpkg
+make ffpfsc
+make packages
 ```
 
 `-Ffpkg` remains accepted as a compatibility alias for
-`-OutputFormat Ffpkg`.
+`-OutputFormat Ffpkg` in the Windows PowerShell frontend.
 
 ## Compressed FFPFSC
 
@@ -37,12 +32,12 @@ python -m mkpfs pack folder --no-adjust-output-file-extension \
   <app-directory> <title.ffpfsc>
 ```
 
-On first use, `tools/setup-mkpfs-tooling.ps1` fetches the pinned
+On first use, `tools/setup-packaging-dependencies.sh` or the equivalent
+PowerShell bootstrapper fetches the pinned
 [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) revision into the ignored
-`.deps/MkPFS` cache. It creates `.deps/MkPFS/.venv` and installs the tool there;
+`.deps/MkPFS` cache and installs its dependencies under that ignored checkout;
 the repository does not distribute MkPFS source or binaries. Python 3.9 or
-newer is required. Pass a nonstandard interpreter with
-`-Python C:\path\to\python.exe`.
+newer is required.
 
 The build uses MkPFS's default wrapped-folder mode because upstream documents
 it as the maximum-compatibility `.ffpfsc` layout. It does not use the advanced
@@ -53,14 +48,19 @@ direct raw-PFS mode.
 The `.ffpkg` option creates and checks an uncompressed UFS2 filesystem image:
 
 ```text
-newfs -O 2 -b 32768 -f 4096 -D <app-directory> <title.ffpkg>
+makefs -S 4096 -b 20% -t ffs \
+  -o version=2,bsize=32768,fsize=4096,minfree=0,optimization=space \
+  <title.ffpkg> <app-directory>
 ```
 
-On first use, `tools/setup-ffpkg-tooling.ps1` fetches the pinned
-[SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) revision into the
-ignored `.deps/UFS2Tool` cache and builds its command-line assembly. The
-profile follows the public procedure documented by
-[sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG).
+On first use, `tools/setup-packaging-dependencies.sh` or the equivalent
+PowerShell bootstrapper downloads the native Ubuntu or Debian `makefs` package
+into `.deps/makefs` and extracts it without root. The
+build reserves allocation slack and verifies the UFS2 superblock magic. The
+profile follows the public procedures documented by
+[SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) and
+[sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG); neither managed tool is
+executed or fetched.
 
 Despite the similar names, `.ffpkg` here is a mountable filesystem image. This
 project does not create a signed retail PKG/FPKG container.

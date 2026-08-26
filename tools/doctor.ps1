@@ -3,14 +3,10 @@
   Copyright (C) 2026 BlackBearReloaded
   SPDX-License-Identifier: GPL-3.0-or-later
 
-  Verifies the host toolchain and bundled clean-room runtime artifact.
+  Verifies the native host toolchain, dependency bootstrap, and runtime.
 #>
 
 #requires -Version 5.1
-param(
-    [string]$Dotnet = ""
-)
-
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $failed = $false
@@ -29,47 +25,34 @@ try {
     Report "project.json" $false $_.Exception.Message
 }
 
-if (-not $Dotnet) {
-    $command = Get-Command dotnet -ErrorAction SilentlyContinue
-    if ($command) {
-        $Dotnet = $command.Source
-    }
-}
-$dotnetExists = $Dotnet -and (Test-Path -LiteralPath $Dotnet -PathType Leaf)
-if ($dotnetExists) {
-    $version = & $Dotnet --version
-    $dotnetExists = $LASTEXITCODE -eq 0 -and $version -match '^10\.'
-    Report ".NET SDK 10" $dotnetExists $version
-} else {
-    Report ".NET SDK 10" $false "install it or pass -Dotnet"
-}
-
 $wslExists = $null -ne (Get-Command wsl.exe -ErrorAction SilentlyContinue)
 Report "WSL" $wslExists $(if ($wslExists) { "wsl.exe found" } else { "wsl.exe not found" })
 if ($wslExists) {
-    & wsl.exe --exec sh -lc "test -x /usr/bin/clang-18"
-    Report "Clang 18 in WSL" ($LASTEXITCODE -eq 0) "/usr/bin/clang-18"
-    & wsl.exe --exec sh -lc "test -d /opt/ps5-payload-sdk/target/include"
-    Report "PS5 payload SDK" ($LASTEXITCODE -eq 0) "/opt/ps5-payload-sdk"
+    & wsl.exe --exec sh -lc "test -x /usr/bin/clang-18 && test -x /usr/bin/clang++"
+    Report "Native C/C++ compiler" ($LASTEXITCODE -eq 0) "Clang 18 and Clang++ in WSL"
+    & wsl.exe --exec sh -lc "test -x /usr/bin/wget && test -x /usr/bin/unzip && test -x /usr/bin/apt-get && test -x /usr/bin/dpkg-deb"
+    Report "Native dependency bootstrap" ($LASTEXITCODE -eq 0) "wget, unzip, apt-get, and dpkg-deb in WSL"
 }
 
 $git = Get-Command git -ErrorAction SilentlyContinue
-Report "Git" ($null -ne $git) $(if ($git) { $git.Source } else { "Git for Windows is required for the on-demand SharpProspero checkout" })
+Report "Git" ($null -ne $git) $(if ($git) { $git.Source } else { "required only for optional MkPFS bootstrap" })
 
 $libc = Join-Path $root "runtime/libc.prx"
 $expectedLibcHash = "E6FF45D16ADF687855CC3B33B0C8A4132B6504360B221E0A34C7E99FB3BA0036"
 $libcReady = Test-Path -LiteralPath $libc -PathType Leaf
 if ($libcReady) {
     $libcReady = (Get-FileHash -LiteralPath $libc -Algorithm SHA256).Hash -eq $expectedLibcHash
+    Report "Generated clean-room libc.prx" $libcReady $libc
+} else {
+    Write-Host "[GENERATED] Clean-room libc.prx: make will create $libc"
 }
-Report "Bundled clean-room libc.prx" $libcReady $libc
 
-$libcBuilder = Join-Path $root "tooling/LibcBuilder/LibcBuilder.csproj"
-Report "Clean-room libc source" (Test-Path -LiteralPath $libcBuilder -PathType Leaf) $libcBuilder
+$nativeBuilder = Join-Path $root "tooling/native/libc_builder.cpp"
+Report "Clean-room libc source" (Test-Path -LiteralPath $nativeBuilder -PathType Leaf) $nativeBuilder
 
 if ($failed) {
     Write-Error "One or more prerequisites are missing. See docs/GETTING_STARTED.md."
     exit 1
 }
 
-Write-Host "All build prerequisites are ready."
+Write-Host "All native build prerequisites are ready."

@@ -1,8 +1,8 @@
 {
-  "titleName": "PS5 Native App",
+  "titleName": "Native Hello World",
   "titleId": "PPSA99999",
   "conceptId": "99999",
-  "contentId": "UP9000-PPSA99999_00-NATIVEAPP0000001",
+  "contentId": "UP9000-PPSA99999_00-HELLOWORLD000001",
   "moduleSdkVersion": "0x02000009",
   "companionSdkVersion": "0x08050001",
   "fselfMagic": "0x1D3D154F",

@@ -10,16 +10,16 @@ environment.
   FSELF.
 - FSELF magic `0x1D3D154F` and SDK pair
   `0x02000009 / 0x08050001` are the template defaults.
-- The supported title layout includes `sce_module/libc.prx`. The bundled
+- The supported title layout includes `sce_module/libc.prx`. The generated
   clean-room shim supplies the loader-visible compatibility contract and
   contains no Sony implementation code.
-- The byte-identical bundled shim is hardware-verified on firmware 6.02 and
+- The byte-identical generated shim is hardware-verified on firmware 6.02 and
   12.70 with ShadowMountPlus. Other firmware and loader combinations remain
   unverified.
 - The shim is not a C library. Application imports bind to platform modules
   selected by the linker.
-- The examples keep `main` alive and rely on the host application lifecycle
-  for process closure.
+- The root skeleton keeps `main` alive and relies on the host application
+  lifecycle for process closure.
 
 ## Filesystem
 
@@ -60,9 +60,9 @@ environment.
 
 ## Application capabilities
 
-The template includes notification and basic lifecycle code. The graphical
-example adds CPU-rendered VideoOut output. Filesystem, networking, controller
-input, AudioOut, and third-party libraries can be added through the public SDK
-interfaces and explicit build inputs.
+The root skeleton includes notification, basic lifecycle code, CPU-rendered
+VideoOut output, and packaged read-only asset access. Filesystem writes,
+networking, controller input, AudioOut, and third-party libraries can be added
+through public SDK interfaces and explicit build inputs.
 
 GPU decoding is outside this repository's scope.

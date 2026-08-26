@@ -10,17 +10,19 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$patterns = @("*.c", "*.cs", "*.ps1", "*.csproj", "*.yml", "*.yaml", "*.sh")
+$patterns = @("*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.ld", "*.ps1", "*.yml", "*.yaml", "*.sh")
 $files = @(& git -C $root ls-files --cached --others --exclude-standard -- @patterns |
     Where-Object { Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf })
 $files += @(
     ".editorconfig",
+    ".clang-format",
+    ".clang-tidy",
     ".gitattributes",
     ".gitignore",
+    "Makefile",
     "tooling/prospero-clang18",
-    "tooling/LibcBuilder/api-surface.txt",
-    "tooling/LibcBuilder/runtime-imports.txt",
-    "tooling/patches/sharpprospero-native-app.patch"
+    "tooling/native/runtime/api-surface.txt",
+    "tooling/native/runtime/imports.txt"
 )
 $files = @($files | Sort-Object -Unique)
 $markers = @(

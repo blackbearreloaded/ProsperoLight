@@ -1,23 +1,24 @@
-# Repository-local application builder
+# Native host tooling
 
-This folder contains the project-owned host-side frontend and clean-room runtime
-emitter. The root `build.ps1` invokes `../tools/setup-tooling.ps1`, which fetches
-the pinned SharpProspero source into the ignored `.deps/` cache when needed.
+All repository-owned format tooling is C or C++. Make/Bash and PowerShell are
+thin platform-specific orchestrators. No C# or .NET runtime is required.
 
-Requirements:
+The root build performs four native stages:
 
-- Git for Windows and network access for the first dependency fetch.
-- Windows .NET SDK 10 for `NativeAppBuilder`.
-- WSL `/usr/bin/clang-18` and `/opt/ps5-payload-sdk` for compilation.
-- The bundled clean-room `libc.prx`; its independent builder and manifests
-  are in `LibcBuilder`, and its reproduction command is
-  `../tools/rebuild-libc.ps1`.
-- `LibcBuilder` has one build path for the deterministic artifact validated on
-  firmware 6.02 and 12.70. Its stubs
-  provide loader compatibility, not a complete behavioral libc.
+1. `prospero-clang18` compiles application sources and `native/app_crt.c`.
+2. LLVM lld resolves objects, static archives, public SDK import stubs,
+   constructors, TLS, and unwind information into an intermediate PIE.
+3. `native/ps5-native-tool` converts that PIE to the PS5 ELF layout and wraps
+   it in a deterministic development FSELF.
+4. The requested folder or optional filesystem image is assembled.
 
-The bootstrapper pins
-[SharpProspero](https://github.com/SvenGDK/SharpProspero) commit
-`e36e610fa5b4be23ad38b9c8429f11f11750cc0c` and applies
-[`patches/sharpprospero-native-app.patch`](patches/sharpprospero-native-app.patch).
-See [`../docs/CSHARP_TOOLING.md`](../docs/CSHARP_TOOLING.md).
+`native/libc_builder.cpp` independently reproduces the generated clean-room
+runtime from the two manifests under `native/runtime/`. Run `make libc` on
+Linux/WSL or `../tools/rebuild-libc.ps1` on Windows to prove both hashes.
+
+`make deps` fetches the pinned public payload SDK and static zlib archive into
+`.deps/native/`; neither is installed globally. The shell and PowerShell
+bootstrappers share the same cache layout.
+
+See [`../docs/NATIVE_TOOLING.md`](../docs/NATIVE_TOOLING.md) for the format
+boundary and low-level commands.

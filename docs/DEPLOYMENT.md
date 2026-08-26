@@ -14,10 +14,12 @@ Keep loader and mount services on a trusted local network.
 
 ## Build and stage
 
-1. Complete a build successfully:
+1. Build the exact format accepted by your loader:
 
-   ```powershell
-   ./build.ps1
+   ```bash
+   make          # directory form
+   make ffpkg    # directory plus UFS2 image
+   make ffpfsc   # directory plus compressed image
    ```
 
 2. Choose one complete output supported by the loader:
@@ -31,17 +33,17 @@ Keep loader and mount services on a trusted local network.
 4. Wait for the loader to report that the title is ready, then launch it from
    the Games section of the home screen.
 
-Rebuild the selected format immediately before deployment so an older package
-is not mistaken for the current application.
+Use `make packages` only when both optional image formats are needed. Rebuild
+the selected format immediately before deployment so an older package is not
+mistaken for the current application.
 
 ## Smoke test
 
-The default application hides the splash screen, displays
-`Hello from ps5-native-app-boilerplate`, and remains alive. The graphical
-example displays its rendered frame and also remains alive. Close either
-application through the home-screen interface.
+The default skeleton hides the splash screen, renders the Hello World frame,
+loads `/app0/assets/banner.txt`, and remains alive. Close it through the
+home-screen interface.
 
-The examples intentionally keep `main` alive. Do not return from `main` or
+The skeleton intentionally keeps `main` alive. Do not return from `main` or
 call an exit function unless the target loader and application lifecycle
 explicitly support that path.
 

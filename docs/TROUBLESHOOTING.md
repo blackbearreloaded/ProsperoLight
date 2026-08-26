@@ -1,60 +1,76 @@
 # Troubleshooting
 
-## `dotnet` was not found
+## Linux, WSL, or the native toolchain is missing
 
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0),
-open a new PowerShell window, or pass the executable directly:
+On Linux or WSL, run:
 
-```powershell
-./build.ps1 -Dotnet C:\path\to\dotnet.exe
+```bash
+make deps
+make lint
 ```
 
-## WSL, Clang 18, or the SDK is missing
-
-Run:
+On Windows PowerShell, run:
 
 ```powershell
 ./tools/doctor.ps1
 ```
 
-Inside WSL, confirm both paths:
+On Linux or inside WSL, confirm the native toolchain:
 
 ```bash
 test -x /usr/bin/clang-18
-test -d /opt/ps5-payload-sdk/target/include
+test -x /usr/bin/clang++
+test -x /usr/bin/wget
+test -x /usr/bin/unzip
+test -x /usr/bin/apt-get
+test -x /usr/bin/dpkg-deb
 ```
 
-## SharpProspero setup failed
+On Ubuntu, install missing host packages with:
 
-Confirm Git for Windows can reach
-`https://github.com/SvenGDK/SharpProspero.git`. The bootstrapper accepts only
-the revision pinned in `tools/setup-tooling.ps1`. If `.deps/SharpProspero` is an
-incomplete checkout or contains experimental edits, move it aside and rerun:
-
-```powershell
-./tools/setup-tooling.ps1
+```bash
+sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip unzip wget
 ```
 
-The bootstrapper never changes global Git configuration.
+## The generated `libc.prx` is missing or has the wrong hash
 
-## The bundled `libc.prx` is missing or has the wrong hash
+Run the source reproducer, which verifies both release digests:
 
-Restore `runtime/libc.prx` from Git. To reproduce it from the tracked emitter
-and verify both release hashes, run:
-
-```powershell
-./tools/rebuild-libc.ps1
+```bash
+make libc
 ```
 
-Do not replace the public artifact with a module extracted from a game or
-firmware.
+Normal `make` builds it automatically when absent. Do not replace it with a
+module extracted from a game or firmware.
 
 ## The linker reports unresolved symbols
 
-The source called a function absent from the fetched import catalog or supplied
-archives. Check spelling and C/C++ linkage first. Then either add the required
-static library in `project.json` or update the tracked SharpProspero
-compatibility patch deliberately. Do not silence unresolved symbols.
+Check spelling, C versus C++ linkage, and whether the needed static archive is
+listed in `project.json`. Platform imports must exist in the public SDK stubs
+under `.deps/native/ps5-payload-sdk/target/lib`. Do not silence unresolved symbols;
+update the SDK or provide a legitimate native implementation.
+
+## Native dependency bootstrap fails
+
+The first build needs network access to download the hash-pinned public PS5
+payload SDK and the distribution's native zlib development package. Retry:
+
+```bash
+make deps
+```
+
+The script writes only to `.deps/native/` and never installs packages globally.
+
+## Optional package setup fails
+
+- `.ffpkg` requires network access once to download and extract native
+  `makefs` into `.deps/makefs`.
+- `.ffpfsc` requires Git and Python 3.9 or newer so MkPFS can be fetched into
+  `.deps/MkPFS`.
+- Folder output has neither optional dependency. Use `make app` to isolate
+  packaging from compilation.
+
+Nothing is installed globally by these optional bootstrappers.
 
 ## The title does not appear
 
@@ -66,39 +82,33 @@ compatibility patch deliberately. Do not silence unresolved symbols.
 
 ## The icon, background, or selection audio does not update
 
-- Run `./tools/prepare-assets.ps1 -ValidateOnly`; `build.ps1` also runs this
-  check before compiling.
-- Confirm `icon0.png`, `pic0.dds`, and `pic1.dds` reached the generated
-  `dist/<TITLE_ID>/sce_sys/` directory.
-- Selection pictures must be 3840x2160 DX10 DDS files using BC7 UNORM. PNG
-  pictures can be kept as editable sources, but the PS5 promoter may copy and
-  then ignore them, leaving `pic0Info` and `pic1Info` unset.
+- Run `make`; both the Make and PowerShell builds validate the tracked
+  presentation assets before compiling.
+- Confirm `icon0.png`, `pic0.dds`, and `pic1.dds` reached
+  `dist/<TITLE_ID>/sce_sys/`.
+- Selection pictures must be 3840x2160 DX10 DDS files using BC7 UNORM. A PNG
+  renamed to `.dds` is not sufficient.
 - Audio must be ATRAC9 in a RIFF container named exactly `snd0.at9`; renaming
-  an MP3 or AAC file does not convert it.
-- The RIFF must contain one `smpl` loop. If selecting the app stops the default
-  home-screen music but the replacement remains silent, inspect the chunk list;
-  this is the observed signature of an acknowledged but non-playing track.
-- `Base.BgmController: Invalid file size` indicates Shell rejection before
-  playback. The exact accepted total-file maximum is 2,097,152 bytes (2 MiB),
-  not 15 seconds; shorten and re-encode the track rather than debugging
-  application AudioOut. For stereo 192 kb/s output from the documented encoder,
-  keep the source at or below 4,193,024 samples (87.354666667 seconds) so frame
-  padding does not cross the file ceiling.
+  MP3 or AAC input does not convert it.
+- The RIFF must contain one `smpl` loop. If selecting the app stops default
+  home-screen music but remains silent, inspect the chunk list.
+- `Base.BgmController: Invalid file size` means Shell rejected the file. The
+  observed limit is 2,097,152 bytes (2 MiB), not a fixed duration. At stereo
+  192 kb/s, keep input at or below 4,193,024 samples (87.354666667 seconds) so
+  frame padding stays below the ceiling.
 - Presentation metadata may be cached for an already registered title. Follow
-  the loader's documented refresh or unregister procedure after changing the
-  presentation structure.
-- A retail-style custom logo and description are Internet catalog metadata,
-  not package assets. Their absence on a synthetic homebrew concept is expected
-  and cannot be fixed by renaming or adding another local image.
+  the loader's documented refresh procedure after structural changes.
+- Retail-style custom logos and descriptions are Internet catalog metadata,
+  not package assets for a synthetic homebrew concept.
 
 ## The app immediately crashes
 
 - Do not return from `main` or call an exit function.
-- Keep the bundled shim unchanged while testing the baseline.
+- Keep the generated runtime digest unchanged while testing the baseline.
 - Keep the default FSELF magic and SDK pair until the baseline launches.
 - Run `tools/inspect.ps1 dist/<TITLE_ID>/eboot.bin` and resolve every error.
-- Consult the loader's diagnostics; the home-screen message alone is not a
-  root cause.
+- Consult loader diagnostics; the home-screen message alone is not a root
+  cause.
 
 ## `/download0` is missing
 

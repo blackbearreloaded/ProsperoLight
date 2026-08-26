@@ -1,17 +1,17 @@
 # Getting started
 
-This guide starts from a Windows development PC with no PS5 build tools
-installed. It does not configure or modify the PS5.
+This guide supports native Linux, WSL, and Windows PowerShell hosts. It does
+not configure or modify the PS5.
 
-## 1. Install WSL and Clang 18
+## 1. Install the Linux toolchain
 
-Follow Microsoft's [WSL installation guide](https://learn.microsoft.com/windows/wsl/install).
-Inside the WSL Linux distribution, install the compiler, archive, and optional
-audio-preparation tools:
+Use an Ubuntu or Debian host directly, or follow Microsoft's
+[WSL installation guide](https://learn.microsoft.com/windows/wsl/install).
+Install the compiler, linker, Make, Python, and download/archive tools:
 
 ```bash
 sudo apt update
-sudo apt install clang-18 lld-18 unzip wget ffmpeg
+sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip unzip wget
 ```
 
 Confirm the expected compiler exists:
@@ -20,51 +20,43 @@ Confirm the expected compiler exists:
 /usr/bin/clang-18 --version
 ```
 
-## 2. Install the PS5 payload SDK in WSL
+## 2. Native dependencies
 
-This template expects the SDK at `/opt/ps5-payload-sdk`, matching the official
-[ps5-payload-dev/sdk quick start](https://github.com/ps5-payload-dev/sdk):
+The first build downloads the pinned public
+[PS5 payload SDK](https://github.com/ps5-payload-dev/sdk) and a native static
+zlib package into `.deps/native/`. It verifies the SDK archive digest and
+extracts both dependencies without administrator privileges.
+
+Nothing is installed globally. Bare `make` invokes this bootstrapper
+automatically and later builds reuse the ignored cache. To prefetch without
+building:
 
 ```bash
-wget https://github.com/ps5-payload-dev/sdk/releases/latest/download/ps5-payload-sdk.zip
-sudo unzip -d /opt ps5-payload-sdk.zip
+make deps
 ```
 
-Verify this directory exists:
+Windows PowerShell users can run `./tools/setup-native-dependencies.ps1`
+instead.
 
-```bash
-test -d /opt/ps5-payload-sdk/target/include && echo SDK ready
-```
+## 3. Install optional packaging prerequisites
 
-The payload SDK supplies public headers and Clang target support.
+The normal folder build needs no managed runtime or external host project.
+Repository-owned tools are compiled from C/C++ source automatically.
 
-## 3. Install Git and .NET 10 on Windows
+Compressed `.ffpfsc` output uses Python 3.9 or newer. The build fetches MkPFS
+and its Python packages into ignored `.deps/` subdirectories when selected.
 
-Install [Git for Windows](https://git-scm.com/download/win). The first build
-uses it to fetch the pinned SharpProspero source into the ignored `.deps/`
-cache; later builds reuse that checkout.
+Uncompressed `.ffpkg` output uses a native `makefs` binary downloaded into
+`.deps/` on first use. It does not require administrator access or a global
+installation.
 
-Install the Windows x64 SDK from the official
-[.NET 10 download page](https://dotnet.microsoft.com/download/dotnet/10.0).
-Open a new PowerShell window and check:
-
-```powershell
-dotnet --version
-```
-
-The C# tooling runs only on the PC. The produced PS5 application contains no
-.NET runtime or managed code.
-
-Compressed `.ffpfsc` output additionally requires Python 3.9 or newer. MkPFS
-is fetched and installed in the ignored `.deps/` cache only when that format is
-selected.
-
-## 4. Use the bundled clean-room loader shim
+## 4. Generate the clean-room loader shim
 
 No proprietary runtime module is required. The repository includes the
-1,284,674-byte `runtime/libc.prx` artifact plus its complete clean-room
-emitter and input manifests.
-`tools/doctor.ps1` verifies its SHA-256 before a build. See
+complete clean-room emitter, input manifests, and expected digest. The first
+`make` generates the 1,284,674-byte `runtime/libc.prx` locally and verifies its
+SHA-256 before packaging. `make libc` forces an independent two-pass
+reproduction. See
 [Clean-room runtime shim](RUNTIME_SHIM.md) for its scope and reproduction
 procedure.
 
@@ -77,7 +69,7 @@ Edit [`project.json`](../project.json). Change these fields together:
   "titleName": "My Native App",
   "titleId": "PPSA99999",
   "conceptId": "99999",
-  "contentId": "UP9000-PPSA99999_00-NATIVEAPP0000001"
+  "contentId": "UP9000-PPSA99999_00-MYNATIVEAPP00001"
 }
 ```
 
@@ -121,18 +113,22 @@ and the catalog-owned logo/description limitation.
 
 ## 6. Check and build
 
-From PowerShell in the repository root:
+From Linux or WSL in the repository root:
+
+```bash
+make lint
+make
+```
+
+Only `make` is required for a normal folder build. It fetches missing native
+dependencies, generates and verifies `runtime/libc.prx`, and builds the root
+application. Linting remains an explicit development check.
+
+Windows PowerShell remains supported:
 
 ```powershell
 ./tools/doctor.ps1
 ./build.ps1
-```
-
-Pass `-Dotnet` to either command if .NET is installed in a nonstandard place:
-
-```powershell
-./tools/doctor.ps1 -Dotnet C:\path\to\dotnet.exe
-./build.ps1 -Dotnet C:\path\to\dotnet.exe
 ```
 
 Successful output ends with an app directory such as:
@@ -148,7 +144,16 @@ dist/PPSA99999/
   sce_sys/snd0.at9
 ```
 
-Choose the final output with `-OutputFormat`:
+Choose the final output with Make:
+
+```bash
+make app
+make ffpkg
+make ffpfsc
+make packages
+```
+
+The equivalent PowerShell selections are:
 
 ```powershell
 ./build.ps1 -OutputFormat Folder
@@ -159,5 +164,8 @@ Choose the final output with `-OutputFormat`:
 
 The optional packaging tools are fetched only on first use. See
 [Build output formats](FFPKG.md).
+
+`runtime/libc.prx` is a generated, ignored file. Tagged GitHub Releases also
+publish the verified runtime as a standalone convenience download.
 
 Continue with [Deployment](DEPLOYMENT.md).

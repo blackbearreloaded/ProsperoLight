@@ -3,31 +3,24 @@
   Copyright (C) 2026 BlackBearReloaded
   SPDX-License-Identifier: GPL-3.0-or-later
 
-  Rebuilds twice and installs the shim only after deterministic hash checks.
+  Rebuilds twice with the native C++ tools and installs the shim only after
+  deterministic hash and attribution checks pass.
 #>
 
 #requires -Version 5.1
-param(
-    [string]$Dotnet = "",
-    [string]$Configuration = "Release"
-)
-
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$emitter = Join-Path $root "tooling/LibcBuilder/LibcBuilder.csproj"
-$apiManifest = Join-Path $root "tooling/LibcBuilder/api-surface.txt"
-$importManifest = Join-Path $root "tooling/LibcBuilder/runtime-imports.txt"
-$signer = Join-Path $root "tooling/NativeAppBuilder/NativeAppBuilder.csproj"
-$setupTooling = Join-Path $root "tools/setup-tooling.ps1"
+$native = Join-Path $root "tooling/native"
+$setupNativeDependencies = Join-Path $root "tools/setup-native-dependencies.ps1"
+$apiManifest = Join-Path $root "tooling/native/runtime/api-surface.txt"
+$importManifest = Join-Path $root "tooling/native/runtime/imports.txt"
 $work = Join-Path $root "build/runtime-shim"
 $rawA = Join-Path $work "libc-a.raw.elf"
 $rawB = Join-Path $work "libc-b.raw.elf"
 $signedA = Join-Path $work "libc-a.prx"
 $signedB = Join-Path $work "libc-b.prx"
-$emitterOutput = Join-Path $work "dotnet/emitter"
-$signerOutput = Join-Path $work "dotnet/signer"
-$emitterDll = Join-Path $emitterOutput "LibcBuilder.dll"
-$signerDll = Join-Path $signerOutput "NativeAppBuilder.dll"
+$builder = Join-Path $work "libc-builder"
+$tool = Join-Path $work "ps5-native-tool"
 $output = Join-Path $root "runtime/libc.prx"
 $manifest = Join-Path $root "runtime/libc.prx.sha256"
 $expectedRaw = "8EE6E124993E1AF26420CB455890FD002F5D6C7E78883C860CE45734E7D002BB"
@@ -37,51 +30,70 @@ function Fail([string]$Message) {
     throw "ps5-native-app-boilerplate: $Message"
 }
 
-function Invoke-Dotnet([string[]]$Arguments) {
-    & $Dotnet @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        Fail "The .NET runtime-module build failed."
+function WslPath([string]$Path) {
+    $absolute = [IO.Path]::GetFullPath($Path)
+    if ($absolute -notmatch '^([A-Za-z]):\\(.*)$') {
+        Fail "Path is not on a Windows drive visible to WSL: $absolute"
     }
+    return "/mnt/$($Matches[1].ToLowerInvariant())/$($Matches[2].Replace('\', '/'))"
 }
 
-if (-not $Dotnet) {
-    $command = Get-Command dotnet -ErrorAction SilentlyContinue
-    if ($command) {
-        $Dotnet = $command.Source
-    }
+function Invoke-Wsl([string[]]$Arguments) {
+    & wsl.exe --exec @Arguments
+    if ($LASTEXITCODE -ne 0) { Fail "Native runtime build failed." }
 }
-if (-not $Dotnet -or -not (Test-Path -LiteralPath $Dotnet -PathType Leaf)) {
-    Fail ".NET SDK 10 was not found. Install it or pass -Dotnet C:\path\to\dotnet.exe."
-}
-$Dotnet = (Resolve-Path -LiteralPath $Dotnet).Path
 
-foreach ($required in @($emitter, $apiManifest, $importManifest, $signer, $setupTooling)) {
+if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+    Fail "WSL was not found."
+}
+foreach ($required in @($apiManifest, $importManifest,
+        $manifest,
+        $setupNativeDependencies,
+        (Join-Path $native "libc_builder.cpp"),
+        (Join-Path $native "native_app_builder.cpp"))) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
-        Fail "Required source project not found: $required"
+        Fail "Required source file not found: $required"
     }
 }
 
-& $setupTooling
+$recordedSigned = ((Get-Content -LiteralPath $manifest -Raw).Trim() -split '\s+')[0]
+if ($recordedSigned -ne $expectedSigned) {
+    Fail "The runtime checksum manifest does not match the release digest."
+}
 
-$env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
-$env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
-$env:DOTNET_NOLOGO = "1"
 New-Item -ItemType Directory -Path $work -Force | Out-Null
+$dependencyJson = & $setupNativeDependencies -SkipSdk
+$nativeDependencies = ($dependencyJson -join "`n") | ConvertFrom-Json
+$zlibInclude = [string]$nativeDependencies.zlibInclude
+$zlibArchive = [string]$nativeDependencies.zlibArchive
+if (-not $zlibInclude -or -not $zlibArchive) {
+    Fail "Native dependency bootstrap returned incomplete zlib paths."
+}
 
-Invoke-Dotnet @("build", $emitter, "-c", $Configuration, "-o", $emitterOutput)
-Invoke-Dotnet @("build", $signer, "-c", $Configuration, "-o", $signerOutput)
-Invoke-Dotnet @($emitterDll, $apiManifest, $importManifest, $rawA)
-Invoke-Dotnet @($emitterDll, $apiManifest, $importManifest, $rawB)
+Invoke-Wsl @("clang++", "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
+    (WslPath (Join-Path $native "libc_builder.cpp")), "-o", (WslPath $builder))
+Invoke-Wsl @("clang++", "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
+    "-I", $zlibInclude,
+    (WslPath (Join-Path $native "native_app_builder.cpp")),
+    (WslPath (Join-Path $native "self_container.cpp")),
+    (WslPath (Join-Path $native "elf_object.cpp")),
+    (WslPath (Join-Path $native "sce_module_writer.cpp")),
+    $zlibArchive, "-o", (WslPath $tool))
+
+Invoke-Wsl @((WslPath $builder), (WslPath $apiManifest),
+    (WslPath $importManifest), (WslPath $rawA))
+Invoke-Wsl @((WslPath $builder), (WslPath $apiManifest),
+    (WslPath $importManifest), (WslPath $rawB))
 $rawHashA = (Get-FileHash -LiteralPath $rawA -Algorithm SHA256).Hash
 $rawHashB = (Get-FileHash -LiteralPath $rawB -Algorithm SHA256).Hash
 if ($rawHashA -ne $rawHashB -or $rawHashA -ne $expectedRaw) {
-    Fail "The clean-room raw module does not match the deterministic release artifact."
+    Fail "The raw module does not match the deterministic release artifact."
 }
 
-Invoke-Dotnet @($signerDll,
-    "self", "--sign", "--in", $rawA, "--out", $signedA)
-Invoke-Dotnet @($signerDll,
-    "self", "--sign", "--in", $rawB, "--out", $signedB)
+Invoke-Wsl @((WslPath $tool), "self", "--sign", "--in", (WslPath $rawA),
+    "--out", (WslPath $signedA))
+Invoke-Wsl @((WslPath $tool), "self", "--sign", "--in", (WslPath $rawB),
+    "--out", (WslPath $signedB))
 $signedHashA = (Get-FileHash -LiteralPath $signedA -Algorithm SHA256).Hash
 $signedHashB = (Get-FileHash -LiteralPath $signedB -Algorithm SHA256).Hash
 if ($signedHashA -ne $signedHashB -or $signedHashA -ne $expectedSigned) {
@@ -94,21 +106,21 @@ if ((Get-Item -LiteralPath $signedA).Length -ne 1284674) {
 foreach ($artifact in @($rawA, $signedA)) {
     $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($artifact))
     if (-not $text.Contains("BlackBearReloaded")) {
-        Fail "Generated output is missing the BlackBearReloaded attribution marker."
+        Fail "Generated output is missing the attribution marker."
     }
     foreach ($forbidden in @("W:/Build", "J013", "Prospero_Release", "sys/internal")) {
         if ($text.Contains($forbidden)) {
-            Fail "Generated output contains forbidden historical path text: $forbidden"
+            Fail "Generated output contains forbidden historical text: $forbidden"
         }
     }
 }
 
-New-Item -ItemType Directory -Path (Split-Path -Parent $output) -Force | Out-Null
 [IO.File]::Copy($signedA, $output, $true)
-Set-Content -LiteralPath $manifest `
-    -Value "$($signedHashA.ToLowerInvariant()) *libc.prx" -Encoding ascii
-Write-Host "Rebuilt deterministic clean-room runtime module."
+$installedHash = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash
+if ($installedHash -ne $expectedSigned) {
+    Fail "The installed runtime does not match the release digest."
+}
+Write-Host "Rebuilt deterministic clean-room runtime module with native C++ tools."
 Write-Host "Raw SHA-256:    $rawHashA"
 Write-Host "Signed SHA-256: $signedHashA"
 Write-Host "Output:         $output"
-Write-Host "Manifest:       $manifest"

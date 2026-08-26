@@ -9,7 +9,7 @@
   "attribute3": 0,
   "conceptId": "99999",
   "contentBadgeType": 1,
-  "contentId": "UP9000-PPSA99999_00-NATIVEAPP0000001",
+  "contentId": "UP9000-PPSA99999_00-HELLOWORLD000001",
   "contentVersion": "01.000.000",
   "downloadDataSize": 256,
   "gameIntent": {
@@ -22,7 +22,7 @@
   "localizedParameters": {
     "defaultLanguage": "en-US",
     "en-US": {
-      "titleName": "PS5 Native App"
+      "titleName": "Native Hello World"
     }
   },
   "masterVersion": "01.00",

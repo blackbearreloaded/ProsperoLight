@@ -23,113 +23,41 @@ concurrency:
 jobs:
   build:
     name: Lint, build, and package
-    runs-on: windows-2025
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up .NET 10
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: 10.0.x
-
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
-      - name: Set up WSL toolchain
-        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
-        with:
-          distribution: Ubuntu-24.04
-          wsl-version: "1"
-          additional-packages: >-
-            ca-certificates clang-18 lld-18 llvm-18 unzip wget
-
-      - name: Install pinned PS5 Payload SDK
-        shell: pwsh
+      - name: Install native toolchain
         run: |
-          $url = "https://github.com/ps5-payload-dev/sdk/releases/download/v0.42/ps5-payload-sdk.zip"
-          $hash = "8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da"
-          wsl.exe --user root --exec bash -lc "wget -q '$url' -O /tmp/ps5-payload-sdk.zip"
-          if ($LASTEXITCODE -ne 0) { throw "PS5 Payload SDK download failed." }
-          wsl.exe --user root --exec bash -lc "echo '$hash  /tmp/ps5-payload-sdk.zip' | sha256sum --check --strict"
-          if ($LASTEXITCODE -ne 0) { throw "PS5 Payload SDK checksum failed." }
-          wsl.exe --user root --exec bash -lc "unzip -q /tmp/ps5-payload-sdk.zip -d /opt && test -d /opt/ps5-payload-sdk/target/include"
-          if ($LASTEXITCODE -ne 0) { throw "PS5 Payload SDK installation failed." }
+          sudo apt-get update
+          sudo apt-get install --yes clang-18 clang-format-18 clang-tidy-18 lld-18 make unzip wget
 
-      - name: Fetch pinned SharpProspero tooling
-        shell: pwsh
-        run: ./tools/setup-tooling.ps1
-
-      - name: Test patched SharpProspero tooling
-        shell: pwsh
-        run: dotnet test .deps/SharpProspero/SharpProspero.slnx -c Release --nologo
-
-      - name: Verify prerequisites
-        shell: pwsh
+      - name: Read project identity
+        shell: bash
         run: |
-          ./tools/doctor.ps1
-          $titleId = (Get-Content project.json -Raw | ConvertFrom-Json).titleId
-          if ($titleId -notmatch '^PPSA[0-9]{5}$') { throw "Invalid release title ID: $titleId" }
-          "TITLE_ID=$titleId" >> $env:GITHUB_ENV
+          title_id=$(python3 -c 'import json; print(json.load(open("project.json"))["titleId"])')
+          [[ $title_id =~ ^PPSA[0-9]{5}$ ]] || exit 2
+          echo "TITLE_ID=$title_id" >> "$GITHUB_ENV"
 
       - name: Lint source and metadata
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          ./tools/check-headers.ps1
-
-          git diff --check
-          if ($LASTEXITCODE -ne 0) { throw "Whitespace validation failed." }
-
-          $parseFailed = $false
-          foreach ($file in (git ls-files "*.ps1")) {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile(
-              (Resolve-Path -LiteralPath $file).Path,
-              [ref]$tokens,
-              [ref]$errors
-            ) | Out-Null
-            foreach ($error in $errors) {
-              Write-Host "::error file=${file}::$($error.Message)"
-              $parseFailed = $true
-            }
-          }
-          if ($parseFailed) { throw "PowerShell parsing failed." }
-
-          foreach ($file in (git ls-files "*.json")) {
-            Get-Content -LiteralPath $file -Raw | ConvertFrom-Json | Out-Null
-          }
-
-          dotnet format tooling/NativeAppBuilder/NativeAppBuilder.csproj --verify-no-changes --verbosity minimal
-          if ($LASTEXITCODE -ne 0) { throw "NativeAppBuilder formatting failed." }
-          dotnet format tooling/LibcBuilder/LibcBuilder.csproj --verify-no-changes --verbosity minimal
-          if ($LASTEXITCODE -ne 0) { throw "LibcBuilder formatting failed." }
-
-          wsl.exe --exec sh tooling/prospero-clang18 -std=c11 -Wall -Wextra -Werror -fsyntax-only src/main.c
-          if ($LASTEXITCODE -ne 0) { throw "Template source lint failed." }
-          wsl.exe --exec sh tooling/prospero-clang18 -std=c11 -Wall -Wextra -Werror -fsyntax-only examples/hello-world/src/main.c
-          if ($LASTEXITCODE -ne 0) { throw "Hello World source lint failed." }
+        run: make lint
 
       - name: Reproduce clean-room runtime shim
-        shell: pwsh
-        run: ./tools/rebuild-libc.ps1
+        run: make libc
 
       - name: Verify generated runtime is unchanged
-        shell: pwsh
-        run: git diff --exit-code -- runtime/libc.prx runtime/libc.prx.sha256
+        run: cd runtime && sha256sum -c libc.prx.sha256
 
-      - name: Build folder and FFPFSC image
-        shell: pwsh
-        run: ./build.ps1 -OutputFormat Ffpfsc
-
-      - name: Build Hello World example
-        shell: pwsh
-        run: ./examples/hello-world/build.ps1
+      - name: Build all output formats
+        run: make packages
 
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -137,7 +65,9 @@ jobs:
           name: ps5-native-app-boilerplate-${{ github.sha }}
           path: |
             dist/${{ env.TITLE_ID }}/
+            dist/${{ env.TITLE_ID }}.ffpkg
             dist/${{ env.TITLE_ID }}.ffpfsc
+            runtime/libc.prx
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -169,27 +99,34 @@ jobs:
           cd release
           shopt -s nullglob
           images=(PPSA*.ffpfsc)
+          ufs_images=(PPSA*.ffpkg)
           app_dirs=(PPSA*/)
-          if (( ${#images[@]} != 1 || ${#app_dirs[@]} != 1 )); then
-            echo "Expected one FFPFSC image and one app folder." >&2
+          runtime="runtime/libc.prx"
+          if (( ${#images[@]} != 1 || ${#ufs_images[@]} != 1 || ${#app_dirs[@]} != 1 )) || [[ ! -f $runtime ]]; then
+            echo "Expected one FFPFSC image, one FFPKG image, one app folder, and libc.prx." >&2
             exit 1
           fi
           title_id="${app_dirs[0]%/}"
           folder_archive="${title_id}-folder.zip"
           python3 -m zipfile -c "$folder_archive" "$title_id"
-          sha256sum "${images[0]}" "$folder_archive" > SHA256SUMS
+          sha256sum "${images[0]}" "${ufs_images[0]}" "$folder_archive" > SHA256SUMS
+          sha256sum "$runtime" | sed 's#  runtime/libc.prx#  libc.prx#' >> SHA256SUMS
           echo "image=${images[0]}" >> "$GITHUB_OUTPUT"
+          echo "ufs_image=${ufs_images[0]}" >> "$GITHUB_OUTPUT"
           echo "folder=$folder_archive" >> "$GITHUB_OUTPUT"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.package.outputs.image }}
+          UFS_IMAGE: ${{ steps.package.outputs.ufs_image }}
           FOLDER: ${{ steps.package.outputs.folder }}
+          RUNTIME: ${{ steps.package.outputs.runtime }}
         shell: bash
         run: |
           set -euo pipefail
-          assets=("release/$IMAGE" "release/$FOLDER" "release/SHA256SUMS")
+          assets=("release/$IMAGE" "release/$UFS_IMAGE" "release/$FOLDER" "release/$RUNTIME" "release/SHA256SUMS")
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else

@@ -76,6 +76,7 @@ $types = @()
 $mappedLoads = @()
 $procParam = $null
 $linkingLoad = $null
+$programHeaders = @()
 for ($i = 0; $i -lt $phnum; $i++) {
     $p = $elf + [int]$phoff + $i * $phentsize
     $pt = U32 $p
@@ -85,6 +86,10 @@ for ($i = 0; $i -lt $phnum; $i++) {
     $filesz = U64 ($p + 32)
     $memsz = U64 ($p + 40)
     $align = U64 ($p + 48)
+    $programHeaders += [pscustomobject]@{
+        Index=$i; Type=$pt; Flags=$flags; Offset=$offset; Address=$vaddr
+        FileSize=$filesz; MemorySize=$memsz; Align=$align
+    }
     $types += $pt
     if ($pt -eq 1) {
         if ($flags -eq 0) { $linkingLoad = $i }
@@ -104,6 +109,20 @@ foreach ($load in $mappedLoads) {
     if ($load.Align -ne 0x4000) { $errors.Add("Mapped LOAD $($load.Index) is not 0x4000 aligned.") }
     if ($load.MemorySize -lt $load.FileSize) { $errors.Add("LOAD $($load.Index) has memsz smaller than filesz.") }
     if ($load.Flags -notin @(1, 4, 6)) { $errors.Add("LOAD $($load.Index) has unsupported flags $($load.Flags).") }
+}
+foreach ($header in $programHeaders) {
+    if ($header.Type -eq 0x6fffff00) {
+        if ($header.MemorySize -ne 0) {
+            $errors.Add("Comment header $($header.Index) must have zero memsz.")
+        }
+        if ($header.Align -ne 0x10) {
+            $errors.Add("Comment header $($header.Index) must use 0x10 alignment.")
+        }
+    }
+    if ($header.Type -eq 4 -and $header.Address -eq 0 -and
+        $header.MemorySize -ne 0) {
+        $errors.Add("Unmapped NOTE header $($header.Index) must have zero memsz.")
+    }
 }
 
 $companion = $null
