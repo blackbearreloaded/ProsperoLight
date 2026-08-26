@@ -11,9 +11,9 @@ environment.
 - FSELF magic `0x1D3D154F` and SDK pair
   `0x02000009 / 0x08050001` are the template defaults.
 - The supported title layout includes `sce_module/libc.prx`. The bundled
-  clean-room V7 shim supplies the loader-visible compatibility contract and
+  clean-room shim supplies the loader-visible compatibility contract and
   contains no Sony implementation code.
-- The byte-identical bundled V7 shim is hardware-verified on firmware 6.02 and
+- The byte-identical bundled shim is hardware-verified on firmware 6.02 and
   12.70 with ShadowMountPlus. Other firmware and loader combinations remain
   unverified.
 - The shim is not a C library. Application imports bind to platform modules

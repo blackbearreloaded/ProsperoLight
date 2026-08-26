@@ -14,9 +14,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$emitter = Join-Path $root "tooling/ConventionalLibcBuilder/ConventionalLibcBuilder.csproj"
-$apiManifest = Join-Path $root "tooling/ConventionalLibcBuilder/api-surface-v2.txt"
-$importManifest = Join-Path $root "tooling/ConventionalLibcBuilder/startup-imports-v7.txt"
+$emitter = Join-Path $root "tooling/LibcBuilder/LibcBuilder.csproj"
+$apiManifest = Join-Path $root "tooling/LibcBuilder/api-surface.txt"
+$importManifest = Join-Path $root "tooling/LibcBuilder/runtime-imports.txt"
 $signer = Join-Path $root "tooling/NativeAppBuilder/NativeAppBuilder.csproj"
 $setupTooling = Join-Path $root "tools/setup-tooling.ps1"
 $work = Join-Path $root "build/runtime-shim"
@@ -26,12 +26,12 @@ $signedA = Join-Path $work "libc-a.prx"
 $signedB = Join-Path $work "libc-b.prx"
 $emitterOutput = Join-Path $work "dotnet/emitter"
 $signerOutput = Join-Path $work "dotnet/signer"
-$emitterDll = Join-Path $emitterOutput "ConventionalLibcBuilder.dll"
+$emitterDll = Join-Path $emitterOutput "LibcBuilder.dll"
 $signerDll = Join-Path $signerOutput "NativeAppBuilder.dll"
 $output = Join-Path $root "runtime/libc.prx"
 $manifest = Join-Path $root "runtime/libc.prx.sha256"
-$expectedRaw = "FD18A0C7C18BC62144890294DC1BB85C780757D2ED425B1D7FE0BD58AED1ACE2"
-$expectedSigned = "E2292D285565937F1DAC09EF5AB742B6027C28D38BA775AD56465AA5594E2A10"
+$expectedRaw = "8EE6E124993E1AF26420CB455890FD002F5D6C7E78883C860CE45734E7D002BB"
+$expectedSigned = "E6FF45D16ADF687855CC3B33B0C8A4132B6504360B221E0A34C7E99FB3BA0036"
 
 function Fail([string]$Message) {
     throw "ps5-native-app-boilerplate: $Message"
@@ -70,10 +70,8 @@ New-Item -ItemType Directory -Path $work -Force | Out-Null
 
 Invoke-Dotnet @("build", $emitter, "-c", $Configuration, "-o", $emitterOutput)
 Invoke-Dotnet @("build", $signer, "-c", $Configuration, "-o", $signerOutput)
-Invoke-Dotnet @($emitterDll,
-    "--startup-v7", $apiManifest, $importManifest, $rawA)
-Invoke-Dotnet @($emitterDll,
-    "--startup-v7", $apiManifest, $importManifest, $rawB)
+Invoke-Dotnet @($emitterDll, $apiManifest, $importManifest, $rawA)
+Invoke-Dotnet @($emitterDll, $apiManifest, $importManifest, $rawB)
 $rawHashA = (Get-FileHash -LiteralPath $rawA -Algorithm SHA256).Hash
 $rawHashB = (Get-FileHash -LiteralPath $rawB -Algorithm SHA256).Hash
 if ($rawHashA -ne $rawHashB -or $rawHashA -ne $expectedRaw) {

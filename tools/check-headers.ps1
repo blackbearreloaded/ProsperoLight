@@ -18,8 +18,8 @@ $files += @(
     ".gitattributes",
     ".gitignore",
     "tooling/prospero-clang18",
-    "tooling/ConventionalLibcBuilder/api-surface-v2.txt",
-    "tooling/ConventionalLibcBuilder/startup-imports-v7.txt",
+    "tooling/LibcBuilder/api-surface.txt",
+    "tooling/LibcBuilder/runtime-imports.txt",
     "tooling/patches/sharpprospero-native-app.patch"
 )
 $files = @($files | Sort-Object -Unique)

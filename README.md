@@ -19,12 +19,12 @@ are included.
 | Area | Status |
 | --- | --- |
 | Host build | Verified on Windows with PowerShell, WSL, Clang 18, and .NET 10 |
-| PS5 hardware | Exact V7 runtime verified on firmware 6.02 and 12.70 with ShadowMountPlus |
-| Runtime shim | Project-authored, reproducible V7 artifact with no proprietary implementation code |
+| PS5 hardware | Exact runtime artifact verified on firmware 6.02 and 12.70 with ShadowMountPlus |
+| Runtime shim | Project-authored, reproducible artifact with no proprietary implementation code |
 | Output formats | Title folder, UFS2 `.ffpkg`, and compressed `.ffpfsc` |
 | CI | Builds the host tooling and reproduces the bundled runtime shim |
 
-Firmware and homebrew-loader behavior vary. The bundled V7 artifact is verified
+Firmware and homebrew-loader behavior vary. The bundled runtime is verified
 on 6.02 and 12.70; validate the exact artifact on other target environments
 before distribution. Do not present two tested versions as universal firmware
 compatibility.
@@ -151,9 +151,9 @@ tools/doctor.ps1              Read-only prerequisite check
 tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
 tooling/NativeAppBuilder/     Host-side link and FSELF frontend
-tooling/ConventionalLibcBuilder/ Clean-room V7 runtime emitter and manifests
+tooling/LibcBuilder/           Clean-room runtime builder and manifests
 tooling/patches/              SharpProspero compatibility delta
-runtime/libc.prx              Bundled cross-firmware-tested V7 loader shim
+runtime/libc.prx              Bundled cross-firmware-tested loader shim
 tools/rebuild-libc.ps1        Deterministic shim reproduction check
 ```
 

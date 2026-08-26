@@ -1,7 +1,7 @@
-# Clean-room V7 runtime shim
+# Clean-room runtime module
 
 This repository includes [`runtime/libc.prx`](../runtime/libc.prx), the
-project-authored V7 loader companion used by the default template and the Hello
+project-authored loader companion used by the default template and the Hello
 World example. The same binary is hardware-validated on PS5 firmware 6.02 and
 12.70 with ShadowMountPlus.
 
@@ -14,11 +14,11 @@ BlackBearReloaded designed and implemented the emitter, startup code,
 compatibility stubs, relocation population, manifests, and metadata in this
 repository. The complete build inputs are:
 
-- [`tooling/ConventionalLibcBuilder/Program.cs`](../tooling/ConventionalLibcBuilder/Program.cs):
+- [`tooling/LibcBuilder/Program.cs`](../tooling/LibcBuilder/Program.cs):
   deterministic clean-room ELF emitter;
-- [`tooling/ConventionalLibcBuilder/api-surface-v2.txt`](../tooling/ConventionalLibcBuilder/api-surface-v2.txt):
+- [`tooling/LibcBuilder/api-surface.txt`](../tooling/LibcBuilder/api-surface.txt):
   loader-visible export ABI manifest;
-- [`tooling/ConventionalLibcBuilder/startup-imports-v7.txt`](../tooling/ConventionalLibcBuilder/startup-imports-v7.txt):
+- [`tooling/LibcBuilder/runtime-imports.txt`](../tooling/LibcBuilder/runtime-imports.txt):
   named system imports and relocation roles;
 - [`tooling/NativeAppBuilder`](../tooling/NativeAppBuilder): the host-side
   frontend that wraps the raw module in a development FSELF.
@@ -37,11 +37,11 @@ repository-authored source is GPL-3.0-or-later.
 ## Purpose
 
 The tested application layout requires a loader-visible module named
-`sce_module/libc.prx`. V7 satisfies that module contract so a native application
+`sce_module/libc.prx`. The bundled runtime satisfies that contract so a native application
 can reach its own entry point without requiring users to supply a proprietary
 game or application runtime.
 
-V7 is a compatibility shim, not a complete C standard library. Most of its
+It is a compatibility shim, not a complete C standard library. Most of its
 large export surface consists of independently authored compatibility stubs or
 zero-initialized object/TLS storage. Application functionality such as files,
 networking, input, audio, and video continues to use the platform modules and
@@ -57,7 +57,7 @@ The raw module is an x86-64 PS5 dynamic module (`e_type=0xFE18`) with 14 program
 headers. The development FSELF reports 12 container segments, authority
 `0x3100000000000002`, and program type `1`.
 
-V7 emits:
+The builder emits:
 
 - 2,566 loader-visible exports;
 - 102 named system imports;
@@ -84,7 +84,7 @@ copied libc implementation.
 
 ## Host linker and container requirements
 
-V7 depends on several host-side format capabilities that are not present in the
+The build depends on several host-side format capabilities that are not present in the
 pinned upstream SharpProspero revision. The tracked compatibility patch adds
 them without copying the upstream repository into this project:
 
@@ -109,10 +109,10 @@ script rejects a different revision or unexplained cache changes.
 
 ```text
 Raw ELF size:     1,335,962 bytes
-Raw ELF SHA-256:  fd18a0c7c18bc62144890294dc1bb85c780757d2ed425b1d7fe0bd58aed1ace2
+Raw ELF SHA-256:  8ee6e124993e1af26420cb455890fd002f5d6c7e78883c860ce45734e7d002bb
 
 Bundled FSELF size:    1,284,674 bytes
-Bundled FSELF SHA-256: e2292d285565937f1dac09ef5ab742b6027c28d38ba775ad56465aa5594e2a10
+Bundled FSELF SHA-256: e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036
 ```
 
 The FSELF digest is tracked in
@@ -144,7 +144,7 @@ From the repository root:
 The script:
 
 1. fetches or verifies the pinned open-source host tooling;
-2. emits V7 twice from the tracked source and manifests;
+2. emits the raw runtime twice from the tracked source and manifests;
 3. requires byte-identical raw ELF outputs and the recorded raw hash;
 4. wraps both outputs as development FSELF containers;
 5. requires byte-identical FSELF outputs, the recorded signed hash, and the
@@ -156,16 +156,16 @@ The script:
 The equivalent low-level commands are:
 
 ```powershell
-dotnet run --project tooling/ConventionalLibcBuilder/ConventionalLibcBuilder.csproj `
-  -c Release -- --startup-v7 `
-  tooling/ConventionalLibcBuilder/api-surface-v2.txt `
-  tooling/ConventionalLibcBuilder/startup-imports-v7.txt `
-  build/conventional-libc-v7.raw.elf
+dotnet run --project tooling/LibcBuilder/LibcBuilder.csproj `
+  -c Release -- `
+  tooling/LibcBuilder/api-surface.txt `
+  tooling/LibcBuilder/runtime-imports.txt `
+  build/libc.raw.elf
 
 dotnet run --project tooling/NativeAppBuilder/NativeAppBuilder.csproj `
   -c Release -- self --sign `
-  --in build/conventional-libc-v7.raw.elf `
-  --out build/conventional-libc-v7.prx
+  --in build/libc.raw.elf `
+  --out build/libc.prx
 ```
 
 The private modules used during research are neither build inputs nor repository
@@ -173,14 +173,15 @@ content.
 
 ## Hardware validation
 
-The exact bundled FSELF completed the same diagnostic application on both
-tested consoles:
+The exact bundled FSELF completed the Hello World application on both tested
+consoles:
 
-- firmware 6.02: all 26 application checkpoints, stable render loop, clean
-  close, and healthy FTP/elfldr/klog/websrv services;
-- firmware 12.70: all 26 application checkpoints, stable render loop, clean
-  close, healthy FTP/elfldr/klog/websrv/MemDBG services, and no loader,
-  fatal-signal, crash, or panic marker.
+- firmware 6.02: the CPU-rendered scene and packaged `/app0` asset appeared,
+  the application closed normally, and FTP/elfldr/klog/websrv remained healthy;
+- firmware 12.70: directory and compressed `.ffpfsc` deployments both entered
+  `eboot`, stopped normally, left FTP/elfldr/klog/websrv healthy, and produced
+  no loader, fatal-signal, crash, or panic marker. The compressed-image test
+  also verified the uploaded image hash before launch.
 
 These results validate the exact recorded artifact on those two environments.
 They do not prove compatibility with every firmware, loader, or application.

@@ -9,11 +9,11 @@ Requirements:
 - Git for Windows and network access for the first dependency fetch.
 - Windows .NET SDK 10 for `NativeAppBuilder`.
 - WSL `/usr/bin/clang-18` and `/opt/ps5-payload-sdk` for compilation.
-- The bundled clean-room V7 `libc.prx`; its independent emitter and manifests
-  are in `ConventionalLibcBuilder`, and its reproduction command is
+- The bundled clean-room `libc.prx`; its independent builder and manifests
+  are in `LibcBuilder`, and its reproduction command is
   `../tools/rebuild-libc.ps1`.
-- `ConventionalLibcBuilder` contains the sole supported runtime profile: the
-  deterministic V7 artifact validated on firmware 6.02 and 12.70. Its stubs
+- `LibcBuilder` has one build path for the deterministic artifact validated on
+  firmware 6.02 and 12.70. Its stubs
   provide loader compatibility, not a complete behavioral libc.
 
 The bootstrapper pins

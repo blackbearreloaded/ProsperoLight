@@ -1,4 +1,4 @@
-# ps5-native-app-boilerplate - V7 clean-room startup import manifest
+# ps5-native-app-boilerplate - Clean-room runtime import manifest.
 # Copyright (C) 2026 BlackBearReloaded
 # SPDX-License-Identifier: GPL-3.0-or-later
 #

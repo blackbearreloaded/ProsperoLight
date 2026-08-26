@@ -37,7 +37,7 @@ licenses.
 
 ## Independently authored runtime shim
 
-`runtime/libc.prx`, `tooling/ConventionalLibcBuilder`, and its tracked manifests
+`runtime/libc.prx`, `tooling/LibcBuilder`, and its tracked manifests
 are independently authored for this project and licensed under
 GPL-3.0-or-later. The module contains project-authored compatibility stubs,
 startup code, and semantic loader metadata. It contains no Sony runtime
