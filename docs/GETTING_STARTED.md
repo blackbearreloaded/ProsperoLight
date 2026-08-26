@@ -11,7 +11,8 @@ Install the compiler, linker, Make, Python, and download/archive tools:
 
 ```bash
 sudo apt update
-sudo apt install clang-18 clang-format-18 clang-tidy-18 lld-18 make python3 python3-pip python3-venv unzip wget
+sudo apt install clang-18 clang-format-18 clang-tidy-18 git lld-18 make \
+  pkg-config python3 python3-pip python3-venv tar unzip wget
 ```
 
 Confirm the expected compiler exists:
@@ -57,9 +58,14 @@ Compressed `.ffpfsc` output uses Python 3.9 or newer with `venv` support. The
 build fetches MkPFS and installs it into an ignored virtual environment under
 `.deps/MkPFS/` when selected.
 
-Uncompressed `.ffpkg` output uses a native `makefs` binary downloaded into
-`.deps/` on first use. It does not require administrator access or a global
-installation.
+Uncompressed `.ffpkg` output requires the .NET SDK 8 or newer. The build
+fetches a pinned UFS2Tool checkout, builds its command-line application under
+`.deps/UFS2Tool/`, and reuses that ignored cache. It does not require
+administrator access or a global UFS2Tool installation.
+
+```bash
+dotnet --version
+```
 
 ## 4. Generate the clean-room loader shim
 

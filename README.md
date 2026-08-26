@@ -13,8 +13,9 @@ The application and all repository-owned build tools are native C/C++. LLVM
 handles ordinary linking; a small project-owned converter emits PS5 metadata
 and the development FSELF. The public SDK, static zlib, and optional packaging
 dependencies are fetched on demand into the ignored `.deps/` cache. No
-C#/.NET toolchain, proprietary Sony SDK file, or proprietary runtime module is
-required.
+proprietary Sony SDK file or proprietary runtime module is required. The
+optional `.ffpkg` target builds the external UFS2Tool with .NET 8 or newer;
+the application and repository-owned tooling remain C/C++.
 
 ## Project status
 
@@ -64,6 +65,7 @@ The optional presentation-asset converter uses Windows PowerShell, DirectXTex
 requires a compatible `ps4_at9tool.exe` that you are legally permitted to use;
 the repository neither bundles nor downloads that encoder. Packaging tools are
 fetched into `.deps/` automatically when their Make targets are requested.
+`make ffpkg` additionally requires the .NET SDK 8 or newer to build UFS2Tool.
 
 The first build fetches the pinned public PS5 payload SDK and native zlib
 archive into the ignored `.deps/native/` cache, then generates the clean-room
@@ -217,8 +219,7 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 | [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) | Public PS5 headers, libc++ headers, sysroot, and Clang target support |
 | [ps5-payload-dev/pacbrew-repo](https://github.com/ps5-payload-dev/pacbrew-repo) | Optional prebuilt PS5 ports and static libraries |
 | [SvenGDK/SharpProspero](https://github.com/SvenGDK/SharpProspero) | Public format reference used during initial research; not a build dependency |
-| [NetBSD/MirBSD makefs](http://cvs.mirbsd.de/src/usr.sbin/makefs/) | Native optional UFS2 `.ffpkg` generation |
-| [SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) | Public UFS2 profile reference; not a build dependency |
+| [SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) | Optional UFS2 `.ffpkg` generation |
 | [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) | Optional compressed `.ffpfsc` generation |
 | [sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG) | Public `.ffpkg` procedure used as a format reference |
 | [LLVM/Clang](https://github.com/llvm/llvm-project) | Native compiler |

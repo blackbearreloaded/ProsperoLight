@@ -447,8 +447,8 @@ if ($buildFfpkg) {
     if (-not (Test-Path -LiteralPath $setupFfpkgTooling -PathType Leaf)) {
         Fail "Optional FFPKG bootstrapper not found: $setupFfpkgTooling"
     }
-    $makefs = & $setupFfpkgTooling
-    if ($makefs -is [array]) { $makefs = $makefs[-1] }
+    $ufs2tool = & $setupFfpkgTooling
+    if ($ufs2tool -is [array]) { $ufs2tool = $ufs2tool[-1] }
     $ffpkgOutput = Join-Path $appRoot "$($project.titleId).ffpkg"
     $resolvedFfpkg = [IO.Path]::GetFullPath($ffpkgOutput)
     if (-not $resolvedFfpkg.StartsWith($resolvedDist, [StringComparison]::OrdinalIgnoreCase) -or
@@ -459,16 +459,16 @@ if ($buildFfpkg) {
         [IO.File]::Delete($resolvedFfpkg)
     }
 
-    Invoke-WslTool @($makefs, "-S", "4096", "-b", "20%", "-t", "ffs", "-o",
-        "version=2,bsize=32768,fsize=4096,minfree=0,optimization=space",
+    Invoke-WslTool @($ufs2tool, "makefs", "-S", "4096", "-b", "20%", "-t", "ffs", "-o",
+        "version=2,bsize=32768,fsize=4096,minfree=0,softupdates=0,optimization=space",
         (Convert-ToWslPath $resolvedFfpkg), (Convert-ToWslPath $app))
     if (-not (Test-Path -LiteralPath $resolvedFfpkg -PathType Leaf) -or
         (Get-Item -LiteralPath $resolvedFfpkg).Length -le 0) {
-        Fail "Native makefs did not produce an FFPKG image."
+        Fail "UFS2Tool did not produce an FFPKG image."
     }
     $ufsHeader = [IO.File]::ReadAllBytes($resolvedFfpkg)
-    if ($ufsHeader.Length -lt 0x2560 -or
-        [BitConverter]::ToUInt32($ufsHeader, 0x255c) -ne 0x19540119) {
+    if ($ufsHeader.Length -lt 0x10560 -or
+        [BitConverter]::ToUInt32($ufsHeader, 0x1055c) -ne 0x19540119) {
         Fail "Generated FFPKG does not contain the expected UFS2 superblock magic."
     }
 }

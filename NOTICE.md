@@ -30,18 +30,13 @@ replace the pinned SDK or install files globally. PacBrew recipes and every
 linked third-party library retain their upstream licenses; applications must
 review those terms before redistribution.
 
-## Optional native UFS2 dependency
+## Optional UFS2Tool dependency
 
-When `.ffpkg` output is requested, the platform bootstrapper downloads the
-Ubuntu/Debian `makefs` binary package into the ignored `.deps/makefs` cache and
-extracts it without root privileges. `makefs` is native code derived from the
-NetBSD/MirBSD implementation and retains the copyright and license text shipped
-inside that package. Nothing from the package is committed here.
-
-The selected UFS2 profile follows the public procedures documented by
-[SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) and
-[sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG); neither project is a
-runtime or build dependency.
+When `.ffpkg` output is requested, the platform bootstrapper fetches
+[SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) at commit
+`b5307a60d5b4e3a68ba680e0e33cfadf05017c77` into the ignored
+`.deps/UFS2Tool` cache and builds it with the host .NET SDK. UFS2Tool is
+BSD-2-Clause software and is not distributed by this repository.
 
 ## Optional MkPFS dependency
 

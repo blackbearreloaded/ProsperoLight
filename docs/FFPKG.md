@@ -7,7 +7,7 @@ Every application or package build creates and validates
 | Make target / selection | Additional output | Packaging tool |
 | --- | --- | --- |
 | `make app` / `Folder` | None | None |
-| `make ffpkg` / `Ffpkg` | `dist/<TITLE_ID>.ffpkg` | Native `makefs` |
+| `make ffpkg` / `Ffpkg` | `dist/<TITLE_ID>.ffpkg` | UFS2Tool |
 | `make ffpfsc` / `Ffpfsc` | `dist/<TITLE_ID>.ffpfsc` | MkPFS |
 | `make packages` / `All` | Both images | Both tools |
 
@@ -49,19 +49,21 @@ direct raw-PFS mode.
 The `.ffpkg` option creates and checks an uncompressed UFS2 filesystem image:
 
 ```text
-makefs -S 4096 -b 20% -t ffs \
-  -o version=2,bsize=32768,fsize=4096,minfree=0,optimization=space \
+ufs2tool makefs -S 4096 -b 20% -t ffs \
+  -o version=2,bsize=32768,fsize=4096,minfree=0,softupdates=0,optimization=space \
   <title.ffpkg> <app-directory>
 ```
 
 On first use, `tools/setup-packaging-dependencies.sh` or the equivalent
-PowerShell bootstrapper downloads the native Ubuntu or Debian `makefs` package
-into `.deps/makefs` and extracts it without root. The
-build reserves allocation slack and verifies the UFS2 superblock magic. The
-profile follows the public procedures documented by
-[SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) and
-[sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG); neither managed tool is
-executed or fetched.
+PowerShell bootstrapper fetches
+[SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) at commit
+`b5307a60d5b4e3a68ba680e0e33cfadf05017c77`, builds its CLI with the .NET SDK
+8 or newer, and caches it under ignored `.deps/UFS2Tool/`. The repository does
+not distribute UFS2Tool source or binaries. The build reserves allocation
+slack and verifies the resulting UFS2 superblock magic.
+
+The same UFS2Tool-generated image was mounted through ShadowMountPlus and
+launched successfully on PS5 system software 6.02 and 12.70.
 
 Despite the similar names, `.ffpkg` here is a mountable filesystem image. This
 project does not create a signed retail PKG/FPKG container.

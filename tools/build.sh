@@ -318,15 +318,15 @@ done < "$build/runtime-modules.tsv"
 "$tool" self --inspect --file "$app/eboot.bin"
 
 if [[ $format == ffpkg || $format == all ]]; then
-    makefs=$(bash "$root/tools/setup-packaging-dependencies.sh" ffpkg)
+    ufs2tool=$(bash "$root/tools/setup-packaging-dependencies.sh" ffpkg)
     rm -f -- "$dist/$title_id.ffpkg"
-    "$makefs" -S 4096 -b 20% -t ffs \
-        -o version=2,bsize=32768,fsize=4096,minfree=0,optimization=space \
+    "$ufs2tool" makefs -S 4096 -b 20% -t ffs \
+        -o version=2,bsize=32768,fsize=4096,minfree=0,softupdates=0,optimization=space \
         "$dist/$title_id.ffpkg" "$app"
     python3 - "$dist/$title_id.ffpkg" <<'PY'
 import struct, sys
 with open(sys.argv[1], "rb") as stream:
-    stream.seek(0x255c)
+    stream.seek(0x1055c)
     if struct.unpack("<I", stream.read(4))[0] != 0x19540119:
         raise SystemExit("FFPKG is missing the UFS2 superblock magic")
 PY

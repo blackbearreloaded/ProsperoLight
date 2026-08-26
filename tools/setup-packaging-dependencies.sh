@@ -3,7 +3,7 @@
 # Copyright (C) 2026 BlackBearReloaded
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Fetches makefs or MkPFS into the ignored cache without a global install.
+# Fetches UFS2Tool or MkPFS into the ignored cache without a global install.
 
 set -euo pipefail
 
@@ -12,25 +12,49 @@ kind=${1:-}
 
 case "$kind" in
     ffpkg)
-        for command in apt-get dpkg-deb; do
+        for command in dotnet git; do
             command -v "$command" >/dev/null || {
                 echo "missing required command: $command" >&2
                 exit 2
             }
         done
-        cache="$root/.deps/makefs"
-        binary="$cache/root/usr/sbin/makefs"
-        if [[ ! -x $binary ]]; then
-            mkdir -p "$cache"
-            pushd "$cache" >/dev/null
-            apt-get download makefs >/dev/null
-            for package in makefs_*.deb; do
-                dpkg-deb -x "$package" root
-            done
-            popd >/dev/null
+        dotnet_major=$(dotnet --version | cut -d. -f1)
+        [[ $dotnet_major =~ ^[0-9]+$ && $dotnet_major -ge 8 ]] || {
+            echo "UFS2Tool requires the .NET SDK 8 or newer" >&2
+            exit 2
+        }
+        checkout="$root/.deps/UFS2Tool"
+        revision="b5307a60d5b4e3a68ba680e0e33cfadf05017c77"
+        if [[ ! -d $checkout/.git ]]; then
+            mkdir -p "$checkout"
+            git -C "$checkout" init --quiet
+            git -C "$checkout" remote add origin https://github.com/SvenGDK/UFS2Tool.git
+            git -C "$checkout" fetch --quiet --depth 1 origin "$revision"
+            git -C "$checkout" checkout --quiet --detach FETCH_HEAD
         fi
-        [[ -x $binary ]] || { echo "makefs bootstrap failed" >&2; exit 2; }
-        printf '%s\n' "$binary"
+        actual=$(git -C "$checkout" rev-parse HEAD)
+        [[ $actual == "$revision" ]] || {
+            echo "UFS2Tool cache is at $actual; expected $revision" >&2
+            exit 2
+        }
+        git -C "$checkout" diff --quiet || {
+            echo "UFS2Tool cache has local changes" >&2
+            exit 2
+        }
+        output="$checkout/.build-linux"
+        binary="$output/UFS2Tool.dll"
+        stamp="$output/.boilerplate-revision"
+        if [[ ! -f $binary || ! -f $stamp || $(<"$stamp") != "$revision" ]]; then
+            dotnet build "$checkout/UFS2Tool.csproj" --configuration Release \
+                --output "$output" --nologo --verbosity quiet >&2
+            printf '%s\n' "$revision" > "$stamp"
+        fi
+        runner="$checkout/.ufs2tool-run-linux"
+        printf '#!/bin/sh\nDOTNET_ROLL_FORWARD=Major exec dotnet "%s" "$@"\n' \
+            "$binary" > "$runner"
+        chmod +x "$runner"
+        "$runner" --help >/dev/null || [[ $? -eq 1 ]]
+        printf '%s\n' "$runner"
         ;;
     ffpfsc)
         for command in git python3; do

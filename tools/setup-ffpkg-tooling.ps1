@@ -1,17 +1,16 @@
 <#
-  ps5-native-app-boilerplate - Optional native FFPKG tooling bootstrapper.
+  ps5-native-app-boilerplate - Optional UFS2Tool bootstrapper.
   Copyright (C) 2026 BlackBearReloaded
   SPDX-License-Identifier: GPL-3.0-or-later
 
-  Downloads and extracts the Debian/Ubuntu native makefs package without root
-  privileges. The ignored cache is reused by later builds.
+  Delegates to the shared WSL bootstrapper, which fetches and builds a pinned
+  UFS2Tool checkout inside the ignored dependency cache.
 #>
 
 #requires -Version 5.1
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$cache = Join-Path $root ".deps/makefs"
-$binary = Join-Path $cache "root/usr/sbin/makefs"
+$setup = Join-Path $root "tools/setup-packaging-dependencies.sh"
 
 function Fail([string]$Message) {
     throw "ps5-native-app-boilerplate: $Message"
@@ -28,17 +27,17 @@ function WslPath([string]$Path) {
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Fail "WSL was not found."
 }
-if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-    New-Item -ItemType Directory -Path $cache -Force | Out-Null
-    $wslCache = WslPath $cache
-    $command = "cd '$wslCache' && apt-get download makefs >/dev/null && dpkg-deb -x makefs_*.deb root"
-    & wsl.exe --exec bash -lc $command
-    if ($LASTEXITCODE -ne 0) {
-        Fail "Unable to download and extract the native makefs package."
-    }
-}
-if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-    Fail "Native makefs executable was not found after extraction."
+if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) {
+    Fail "Shared packaging bootstrapper was not found: $setup"
 }
 
-Write-Output (WslPath $binary)
+$binary = & wsl.exe --exec bash (WslPath $setup) ffpkg
+if ($LASTEXITCODE -ne 0) {
+    Fail "Unable to fetch and build UFS2Tool."
+}
+if ($binary -is [array]) { $binary = $binary[-1] }
+if (-not $binary) {
+    Fail "UFS2Tool bootstrapper did not return its runner path."
+}
+
+Write-Output $binary.Trim()
