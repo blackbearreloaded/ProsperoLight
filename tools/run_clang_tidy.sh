@@ -19,7 +19,7 @@ sdk="$root/.deps/native/ps5-payload-sdk"
 zlib="$root/.deps/native/zlib/root/usr/include"
 
 mapfile -d '' host_sources < <(find "$root/tooling/native" -maxdepth 1 \
-    -type f -name '*.cpp' -print0)
+    -type f -name '*.cpp' ! -name 'app_cpp_runtime.cpp' -print0)
 "$tidy" "${host_sources[@]}" --quiet --warnings-as-errors='*' -- \
     -std=c++20 -I"$zlib"
 
@@ -30,7 +30,9 @@ app_c_sources+=("$root/tooling/native/app_crt.c")
 
 mapfile -d '' app_cpp_sources < <(find "$root/src" -type f \
     \( -name '*.cc' -o -name '*.cpp' \) -print0)
+app_cpp_sources+=("$root/tooling/native/app_cpp_runtime.cpp")
 if (( ${#app_cpp_sources[@]} )); then
     "$tidy" "${app_cpp_sources[@]}" --quiet --warnings-as-errors='*' -- \
-        -std=c++20 -fno-exceptions -fno-rtti -isystem "$sdk/target/include"
+        -std=c++20 -fno-exceptions -fno-rtti --target=x86_64-sie-ps5 \
+        -isystem "$sdk/target/include/c++/v1" -isystem "$sdk/target/include"
 fi

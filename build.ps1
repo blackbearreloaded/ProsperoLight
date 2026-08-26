@@ -259,6 +259,12 @@ if ($LASTEXITCODE -ne 0) {
     Fail "PS5 startup object compilation failed."
 }
 
+$compileCppRuntime = "cd '$wslRoot' && PS5_PAYLOAD_SDK='$sdkRoot' sh tooling/prospero-clang18 -std=c++20 -O2 -Wall -Wextra -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections -c tooling/native/app_cpp_runtime.cpp -o build/obj/app_cpp_runtime.o"
+& wsl.exe --exec bash -lc $compileCppRuntime
+if ($LASTEXITCODE -ne 0) {
+    Fail "PS5 C++ allocation runtime compilation failed."
+}
+
 $rawModule = Join-Path $buildRoot "eboot.elf"
 $intermediateModule = Join-Path $buildRoot "llvm-pie.elf"
 $appRoot = Join-Path $here "dist"
@@ -273,7 +279,7 @@ if (Test-Path -LiteralPath $resolvedApp) {
 }
 New-Item -ItemType Directory -Path (Join-Path $app "sce_sys") -Force | Out-Null
 
-$linkInputs = @("build/obj/app_crt.o")
+$linkInputs = @("build/obj/app_crt.o", "build/obj/app_cpp_runtime.o")
 foreach ($object in $objects) {
     $linkInputs += Convert-ToWslPath $object
 }
@@ -282,7 +288,7 @@ foreach ($archive in $staticArchives) {
     )
 }
 $quotedInputs = ($linkInputs | ForEach-Object { "'$_'" }) -join " "
-$nativeLink = "cd '$wslRoot' && '$sdkRoot/bin/prospero-lld' -T tooling/native/ps5-pie.ld --eh-frame-hdr -e _start -o build/llvm-pie.elf $quotedInputs --as-needed '$sdkRoot'/target/lib/*.so"
+$nativeLink = "cd '$wslRoot' && '$sdkRoot/bin/prospero-lld' -T tooling/native/ps5-pie.ld --eh-frame-hdr --version-script tooling/native/app-symbols.map -e _start -o build/llvm-pie.elf $quotedInputs --as-needed '$sdkRoot'/target/lib/*.so"
 & wsl.exe --exec bash -lc $nativeLink
 if ($LASTEXITCODE -ne 0) {
     Fail "LLVM application link failed."

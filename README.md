@@ -4,9 +4,10 @@
 [![Release](https://img.shields.io/github/v/release/blackbearreloaded/ps5-native-app-boilerplate)](https://github.com/blackbearreloaded/ps5-native-app-boilerplate/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-Build native C and C++ homebrew applications for PlayStation 5 from Linux,
-WSL, or Windows. The repository root is a complete graphical Hello World
-skeleton: fork it, edit `src/main.c`, and build a deployable title.
+Build modern C++20 homebrew applications for PlayStation 5 from Linux, WSL, or
+Windows. The repository root is a complete graphical Hello World skeleton:
+fork it, edit `src/main.cpp`, and build a deployable title. C sources and C
+libraries remain supported at explicit ABI boundaries.
 
 The application and all repository-owned build tools are native C/C++. LLVM
 handles ordinary linking; a small project-owned converter emits PS5 metadata
@@ -20,7 +21,7 @@ required.
 | Area | Status |
 | --- | --- |
 | Host build | C/C++ pipeline verified through Make on Linux/WSL and PowerShell on Windows |
-| PS5 hardware | Native-built Hello World and exact runtime verified on firmware 6.02 and 12.70 with ShadowMountPlus |
+| PS5 hardware | Current C++20 skeleton and runtime verified on firmware 6.02 and 12.70 |
 | Runtime shim | Project-authored, reproducible artifact with no proprietary implementation code |
 | Output formats | Title folder, UFS2 `.ffpkg`, and compressed `.ffpfsc` |
 | CI | Runs the native Linux Make workflow and reproduces the runtime shim |
@@ -34,13 +35,13 @@ compatibility.
 
 | Feature | Included implementation |
 | --- | --- |
-| Native build | C11 and basic C++20 compilation through the PS5 payload SDK |
+| Native build | C++20 with RAII, libc++ headers, unique ownership, and C-library interoperability |
 | Linking and FSELF | LLVM lld plus the repository-owned C++ PS5 converter and FSELF writer |
 | Runtime companion | Source-reproducible, independently authored `libc.prx` loader shim |
 | Packaging | Folder, optional UFS2 `.ffpkg`, and optional compressed `.ffpfsc` outputs |
 | App assets | Recursive read-only `assets/` packaging at `/app0/assets/` |
 | Presentation | Replaceable icon, 4K BC7 backgrounds, and ATRAC9 selection audio |
-| Root skeleton | Graphical Hello World with CPU-rendered text, shapes, and packaged data |
+| Root skeleton | C++20 graphical Hello World with RAII, bounded views, unique ownership, CPU-rendered text, shapes, and packaged data |
 | Validation | Host prerequisite checks and static ELF/FSELF inspection before release |
 
 ## Quick start
@@ -50,6 +51,16 @@ compatibility.
 On Ubuntu, Debian, or WSL install Git, Make, Python 3 with virtual-environment
 support, Clang 18, lld 18, clang-format, clang-tidy, `wget`, and `unzip`.
 Windows users may use the same WSL path or the retained PowerShell frontend.
+
+```bash
+sudo apt update
+sudo apt install git make python3 python3-pip python3-venv wget unzip \
+  clang-18 clang-format-18 clang-tidy-18 lld-18
+```
+
+The optional presentation-asset converter also uses FFmpeg. Packaging tools
+are fetched into `.deps/` automatically when their corresponding Make targets
+are requested.
 
 The first build fetches the pinned public PS5 payload SDK and native zlib
 archive into the ignored `.deps/native/` cache, then generates the clean-room
@@ -87,8 +98,15 @@ Read [Getting started](docs/GETTING_STARTED.md) before the first build.
 
 Edit `project.json` to define the app identity, sources, compiler definitions,
 include paths, static archives, and runtime modules. The hardware-proven
-graphical skeleton is [`src/main.c`](src/main.c); replace or extend it directly
+graphical skeleton is [`src/main.cpp`](src/main.cpp); replace or extend it directly
 after forking the repository.
+
+The target uses C++20 with exceptions and RTTI disabled. Allocation-free
+facilities such as `std::array`, `std::span`, and `std::string_view` are
+available, and the repository-owned allocation bridge supports
+`std::unique_ptr`, `new`, and `delete` through the clean-room runtime. Prefer
+values and unique ownership; `std::shared_ptr` and the complete libc++ runtime
+are intentionally outside the baseline.
 
 ### Read-only application assets
 
@@ -137,7 +155,7 @@ remains tracked in `runtime/libc.prx.sha256`.
 
 ```text
 project.json                  App identity and build inputs
-src/main.c                    CPU-rendered graphical Hello World skeleton
+src/main.cpp                  Modern C++20 graphical Hello World skeleton
 assets/                       Optional files mounted at /app0/assets/
 sce_sys/                      Param, icon, backgrounds, and selection audio
 Makefile                      Linux/WSL build, lint, dependency, and package targets
@@ -146,7 +164,7 @@ tools/build.sh                Native Linux/WSL build orchestrator
 tools/doctor.ps1              Read-only prerequisite check
 tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
-tooling/native/               C/C++ linker converter, FSELF, CRT, and runtime builder
+tooling/native/               C++ linker converter, allocation bridge, C ABI CRT, FSELF, and runtime builder
 runtime/libc.prx.sha256       Expected digest for the generated loader shim
 tools/rebuild-libc.sh         Linux/WSL deterministic shim reproduction check
 tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
@@ -171,7 +189,7 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 
 | Project | Role |
 | --- | --- |
-| [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) | Public PS5 headers, sysroot, and Clang target support |
+| [ps5-payload-dev/sdk](https://github.com/ps5-payload-dev/sdk) | Public PS5 headers, libc++ headers, sysroot, and Clang target support |
 | [SvenGDK/SharpProspero](https://github.com/SvenGDK/SharpProspero) | Public format reference used during initial research; not a build dependency |
 | [NetBSD/MirBSD makefs](http://cvs.mirbsd.de/src/usr.sbin/makefs/) | Native optional UFS2 `.ffpkg` generation |
 | [SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) | Public UFS2 profile reference; not a build dependency |

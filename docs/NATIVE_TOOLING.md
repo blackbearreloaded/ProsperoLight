@@ -31,6 +31,8 @@ native libraries such as zlib or OpenSSL.
 | File | Purpose |
 | --- | --- |
 | `tooling/native/app_crt.c` | Native process startup and constructor handling |
+| `tooling/native/app_cpp_runtime.cpp` | Minimal `new`/`delete` bridge to `malloc`, `free`, and `posix_memalign` |
+| `tooling/native/app-symbols.map` | Keeps replacement allocation operators internal to the application |
 | `tooling/native/ps5-pie.ld` | Non-overlapping intermediate PIE layout |
 | `tooling/native/elf_object.*` | ELF and SDK-stub reader |
 | `tooling/native/sce_module_writer.*` | PS5 executable converter |
@@ -56,6 +58,20 @@ wsl.exe --exec clang++ -std=c++20 -O2 -Wall -Wextra -Werror `
 
 zlib is the only directly linked host library.
 
+## Target C++ profile
+
+Application `.cpp` files compile as C++20 with exceptions and RTTI disabled.
+The public SDK's libc++ headers provide zero-cost vocabulary types and
+`std::unique_ptr`; the build does not link the full libc++, libc++abi, or unwind
+archives. Repository-owned replacement allocation operators forward to the
+clean-room runtime and are localized before PS5 conversion, so they do not
+become loader-visible application exports.
+
+Throwing `new` deliberately traps on allocation failure. Nothrow allocation
+returns `nullptr`. Prefer value semantics and allocation-free RAII in steady
+state, and do not introduce `std::shared_ptr`, streams, locale, filesystem,
+exceptions, or RTTI without a separate runtime and firmware validation.
+
 ## Source quality
 
 The repository uses the same focused Clang policy as the CPython PS5 project:
@@ -75,12 +91,12 @@ ps5-native-tool self --inspect --file <module>
 `link` expects the repository linker script’s page-separated PIE. The normal
 build invokes it correctly; the command is documented for debugging and CI.
 
-## Hardware validation
+## Previous hardware-validation baseline
 
-The C++ pipeline's signed graphical Hello World output was tested unchanged on
-firmware 6.02 and 12.70. It entered `eboot`, rendered the CPU VideoOut scene,
-loaded `/app0/assets/banner.txt`, remained stable for observation, and closed
-normally. The exact validation artifact had:
+The native pipeline's previously published graphical Hello World was tested
+unchanged on firmware 6.02 and 12.70. It entered `eboot`, rendered the CPU
+VideoOut scene, loaded `/app0/assets/banner.txt`, remained stable for
+observation, and closed normally. That exact baseline artifact had:
 
 ```text
 Raw ELF SHA-256:  49a0d657708d633ce32233361b9d147d16387e63e9e67f2a09800684fa4ead67
@@ -92,3 +108,13 @@ The loader-visible comment record and the unmapped trailing note intentionally
 have zero memory size. Firmware 6.02 rejects those records before entry when
 their file size is incorrectly copied into `p_memsz`; the static validator now
 enforces the tested convention.
+
+The modern C++20 application changes `eboot.bin`. Its FSELF with SHA-256
+`34a5e2b1cf01569da6570795551dc0019b379212ddd8bf883da9498db5a78da3`
+was hardware-validated on firmware 6.02 and 12.70. On 6.02 it rendered the
+complete CPU VideoOut scene, loaded `/app0/assets/banner.txt`, remained stable
+for the observation interval, and closed normally. On 12.70 klog recorded
+native `eboot` execution, transition into `AppScreen`, the same stable interval,
+and normal suspend, kill, and process teardown after title-aware closure. FTP,
+klog, and elfldr remained healthy. This artifact is the current release
+validation baseline.

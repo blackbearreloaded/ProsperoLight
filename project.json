@@ -8,7 +8,7 @@
   "fselfMagic": "0x1D3D154F",
   "downloadDataSize": 256,
   "sources": [
-    "src/main.c"
+    "src/main.cpp"
   ],
   "compileDefinitions": [],
   "includePaths": [],

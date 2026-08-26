@@ -43,6 +43,11 @@ instead.
 The normal folder build needs no managed runtime or external host project.
 Repository-owned tools are compiled from C/C++ source automatically.
 
+The root application is C++20. It uses the libc++ headers already present in
+the fetched public SDK while keeping exceptions and RTTI disabled. The build
+links a small project-owned allocation bridge rather than the complete libc++
+runtime; see [Native build tooling](NATIVE_TOOLING.md).
+
 Compressed `.ffpfsc` output uses Python 3.9 or newer with `venv` support. The
 build fetches MkPFS and installs it into an ignored virtual environment under
 `.deps/MkPFS/` when selected.

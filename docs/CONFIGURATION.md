@@ -3,7 +3,7 @@
 [`project.json`](../project.json) is the only normal build configuration file.
 
 The repository root is the application skeleton. Fork the project, edit this
-file and `src/main.c`, and list additional source files explicitly below.
+file and `src/main.cpp`, and list additional source files explicitly below.
 
 | Field | Purpose |
 | --- | --- |
@@ -27,8 +27,8 @@ Add files under `src/`, then list each file explicitly:
 
 ```json
 "sources": [
-  "src/main.c",
-  "src/network.c",
+  "src/main.cpp",
+  "src/network.cpp",
   "src/ui.cpp"
 ]
 ```
@@ -36,10 +36,17 @@ Add files under `src/`, then list each file explicitly:
 Source paths are explicit so stale or experimental files cannot enter a build
 accidentally.
 
-Basic C++20 sources are supported with exceptions and RTTI disabled. The
-template does not bundle a C++ standard library. Export platform functions with
-`extern "C"` in C++ and add any required static runtime archive explicitly.
-C11 is the baseline language mode.
+C++20 is the application baseline, with exceptions and RTTI disabled. The
+public SDK supplies libc++ headers; the template exposes allocation-free
+facilities and supplies project-owned `new`/`delete` operators for
+`std::unique_ptr`. It does not link the complete libc++ or libc++abi archives.
+
+Prefer stack values, RAII, `std::array`, `std::span`, `std::string_view`, and
+`std::unique_ptr`. Treat raw pointers as non-owning. Throwing allocation traps
+on exhaustion because exceptions are disabled; use a temporary
+`std::nothrow_t{}` when allocation failure must be handled locally. C11 sources
+remain supported for C libraries and narrow platform ABI code. Declare C and
+platform entry points with `extern "C"` from C++.
 
 ## Adding headers or static libraries
 

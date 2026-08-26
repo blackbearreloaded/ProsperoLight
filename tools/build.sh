@@ -154,7 +154,12 @@ PS5_PAYLOAD_SDK="$sdk_root" sh "$root/tooling/prospero-clang18" \
     -std=c11 -O2 -Wall -Wextra -ffunction-sections -fdata-sections \
     -c "$native/app_crt.c" -o "$build/obj/app_crt.o"
 
-link_inputs=("$build/obj/app_crt.o" "${objects[@]}")
+PS5_PAYLOAD_SDK="$sdk_root" sh "$root/tooling/prospero-clang18" \
+    -std=c++20 -O2 -Wall -Wextra -fno-exceptions -fno-rtti \
+    -ffunction-sections -fdata-sections \
+    -c "$native/app_cpp_runtime.cpp" -o "$build/obj/app_cpp_runtime.o"
+
+link_inputs=("$build/obj/app_crt.o" "$build/obj/app_cpp_runtime.o" "${objects[@]}")
 for archive in "${archives[@]}"; do
     [[ $archive =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\.a$ && -f $root/$archive ]] || {
         echo "invalid static archive: $archive" >&2; exit 2;
@@ -162,6 +167,7 @@ for archive in "${archives[@]}"; do
     link_inputs+=("$root/$archive")
 done
 "$sdk_root/bin/prospero-lld" -T "$native/ps5-pie.ld" --eh-frame-hdr \
+    --version-script "$native/app-symbols.map" \
     -e _start -o "$build/llvm-pie.elf" "${link_inputs[@]}" \
     --as-needed "$sdk_root"/target/lib/*.so
 "$tool" link --in "$build/llvm-pie.elf" --out "$build/eboot.elf" \

@@ -23,6 +23,7 @@ exec "$compiler" \
     -target x86_64-sie-ps5 \
     -fvisibility-nodllstorageclass=default \
     -isysroot "$sdk_root" \
+    -isystem "$sdk_root/target/include/c++/v1" \
     -isystem "$sdk_root/target/include" \
     -fno-stack-protector -fno-plt -femulated-tls \
     "$@"
