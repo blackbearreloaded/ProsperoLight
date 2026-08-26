@@ -215,7 +215,7 @@ std::string nid(std::string_view name)
             result.push_back(base64[(bits >> bit_count) & 0x3f]);
         }
     }
-    if (result.size() < 11 && bit_count > 0)
+    if (result.size() < 11 && bit_count > 0 && bit_count < 6)
         result.push_back(base64[(bits << (6 - bit_count)) & 0x3f]);
     result.resize(11);
     std::replace(result.begin(), result.end(), '/', '-');
