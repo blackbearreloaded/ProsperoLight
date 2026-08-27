@@ -38,6 +38,12 @@ winget install Microsoft.DirectXTex.Texconv
 Open a new PowerShell window after installation. Alternatively, pass the full
 executable path with `-Texconv`.
 
+WSL users can run `tools/prepare-assets.sh`; it translates POSIX paths and
+invokes the same PowerShell converter through Windows interop. Native Linux can
+validate prepared files with `tools/validate-assets.sh`, but conversion still
+requires Windows `texconv` (or an equivalent command supplied through a
+Windows-compatible environment).
+
 ## Prepare the icon and backgrounds
 
 From the repository root:
@@ -46,6 +52,14 @@ From the repository root:
 ./tools/prepare-assets.ps1 `
     -Icon C:\art\my-icon.png `
     -Background C:\art\my-background.png
+```
+
+Equivalent WSL command:
+
+```bash
+./tools/prepare-assets.sh \
+    --icon /mnt/c/art/my-icon.png \
+    --background /mnt/c/art/my-background.png
 ```
 
 The command normalizes the icon to 512x512 and the background to 3840x2160,
@@ -60,6 +74,12 @@ look different:
 ./tools/prepare-assets.ps1 `
     -SelectionBackground C:\art\selected-app.png `
     -LaunchBackground C:\art\launching.png
+```
+
+```bash
+./tools/prepare-assets.sh \
+    --selection-background /mnt/c/art/selected-app.png \
+    --launch-background /mnt/c/art/launching.png
 ```
 
 Hardware traces from the validated launcher path show `pic0.dds` in the
@@ -95,6 +115,12 @@ Convert the first 15 seconds:
     -At9Tool C:\tools\ps4_at9tool.exe
 ```
 
+```bash
+./tools/prepare-assets.sh \
+    --audio /mnt/c/music/selection.mp3 \
+    --at9-tool /mnt/c/tools/ps4_at9tool.exe
+```
+
 Choose a different excerpt with `-AudioStart`:
 
 ```powershell
@@ -104,6 +130,8 @@ Choose a different excerpt with `-AudioStart`:
     -AudioDuration 15 `
     -At9Tool C:\tools\ps4_at9tool.exe
 ```
+
+The Bash flags are `--audio-start`, `--audio-duration`, and `--at9-tool`.
 
 The script strips metadata, normalizes toward -28 LUFS, creates 48 kHz stereo
 16-bit PCM, encodes ATRAC9 at 192 kb/s, and adds a whole-track RIFF `smpl`
@@ -134,6 +162,10 @@ needed:
 ./tools/prepare-assets.ps1 -Audio C:\music\selection.at9
 ```
 
+```bash
+./tools/prepare-assets.sh --audio /mnt/c/music/selection.at9
+```
+
 Only publish audio you own or have permission to distribute.
 
 ## Validate and build
@@ -142,6 +174,14 @@ Validate the current presentation files at any time:
 
 ```powershell
 ./tools/prepare-assets.ps1 -ValidateOnly
+```
+
+On Linux or WSL, validation is native and does not require PowerShell:
+
+```bash
+./tools/prepare-assets.sh --validate-only
+# or
+make assets-check
 ```
 
 The normal build runs the same validation automatically:

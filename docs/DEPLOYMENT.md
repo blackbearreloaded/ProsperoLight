@@ -13,8 +13,8 @@ environment and loader. Follow that loader's documentation for setup and
 supported input formats. This repository does not configure the console.
 
 Keep loader, mount, and FTP services on a trusted local network. The automated
-path requires `curl` on the build host and an already-running FTP service on
-the console.
+path uses Python 3's standard-library FTP client and requires an already-running
+FTP service on the console.
 
 ## One-command development deployment
 
@@ -31,6 +31,11 @@ The default folder deployment:
 3. replaces that file only after its transfer completes;
 4. publishes `eboot.bin` and then `sce_sys/param.json` last; and
 5. verifies that both required files appear in the remote directory.
+
+The FTP client uses current-directory `MLSD` checks and accepts any successful
+2xx completion for file deletion. This accommodates the homebrew `ftpsrv`
+behavior used by the validated 6.02 and 12.70 environments while preserving
+the temporary-upload and required-file gates.
 
 Keeping `/data/homebrew/<TITLE_ID>/` itself in place preserves ShadowMountPlus's
 existing nullfs source while updating what the next launch reads. Fully close

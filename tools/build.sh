@@ -74,59 +74,7 @@ module_sdk=0x02000009
 companion_sdk=0x08050001
 fself_magic=0x1D3D154F
 
-python3 - "$root/sce_sys" <<'PY'
-from pathlib import Path
-import struct, sys
-
-root = Path(sys.argv[1])
-icon = (root / "icon0.png").read_bytes()
-if icon[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(">II", icon[16:24]) != (512, 512):
-    raise SystemExit("sce_sys/icon0.png must be a 512x512 PNG")
-
-pics = [root / "pic0.dds", root / "pic1.dds"]
-if pics[0].exists() != pics[1].exists():
-    raise SystemExit("supply both pic0.dds and pic1.dds, or neither")
-for path in pics if pics[0].exists() else []:
-    data = path.read_bytes()
-    if len(data) < 148 or data[:4] != b"DDS ":
-        raise SystemExit(f"{path} is not a DDS file")
-    height, width = struct.unpack_from("<II", data, 12)
-    mipmaps = struct.unpack_from("<I", data, 28)[0]
-    expected = 148 + width // 4 * (height // 4) * 16
-    if (width, height, mipmaps, data[84:88], struct.unpack_from("<I", data, 128)[0], len(data)) != (3840, 2160, 1, b"DX10", 98, expected):
-        raise SystemExit(f"{path} is not the supported 4K BC7 profile")
-
-sound = root / "snd0.at9"
-if sound.exists():
-    data = sound.read_bytes()
-    if len(data) < 128 or data[:4] != b"RIFF" or data[8:12] != b"WAVE" or struct.unpack_from("<I", data, 4)[0] + 8 != len(data) or len(data) > 2097152:
-        raise SystemExit("sce_sys/snd0.at9 is not the supported selection-audio profile")
-    chunks = {}
-    position = 12
-    while position + 8 <= len(data):
-        chunk_id = data[position:position + 4]
-        size = struct.unpack_from("<I", data, position + 4)[0]
-        payload = position + 8
-        if payload + size > len(data):
-            raise SystemExit("sce_sys/snd0.at9 contains a truncated RIFF chunk")
-        chunks[chunk_id] = (payload, size)
-        position = payload + size + size % 2
-    if not all(chunk in chunks for chunk in (b"fmt ", b"fact", b"smpl", b"data")):
-        raise SystemExit("sce_sys/snd0.at9 is missing required ATRAC9 RIFF chunks")
-    fmt = chunks[b"fmt "][0]
-    smpl = chunks[b"smpl"][0]
-    if chunks[b"fmt "][1] < 40 or chunks[b"smpl"][1] < 32:
-        raise SystemExit("sce_sys/snd0.at9 contains undersized format or loop metadata")
-    channels = struct.unpack_from("<H", data, fmt + 2)[0]
-    byte_rate = struct.unpack_from("<I", data, fmt + 8)[0]
-    atrac9_guid = bytes.fromhex("D242E147BA368D4D88FC61654F8C836C")
-    if (struct.unpack_from("<H", data, fmt)[0] != 0xFFFE or
-            channels not in (1, 2) or
-            struct.unpack_from("<I", data, fmt + 4)[0] != 48000 or
-            not 0 < byte_rate <= channels * 12000 or data[fmt + 24:fmt + 40] != atrac9_guid or
-            struct.unpack_from("<I", data, smpl + 28)[0] < 1):
-        raise SystemExit("sce_sys/snd0.at9 is not 48 kHz looped ATRAC9 within the supported bitrate")
-PY
+bash "$root/tools/validate-assets.sh" "$root/sce_sys"
 
 sdk_root="$root/.deps/native/ps5-payload-sdk"
 zlib_root="$root/.deps/native/zlib/root"

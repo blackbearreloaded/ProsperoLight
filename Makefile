@@ -34,7 +34,7 @@ RUNTIME_INPUTS := tools/rebuild-libc.sh \
 	$(wildcard tooling/native/*.cpp tooling/native/*.hpp) \
 	$(wildcard tooling/native/runtime/*.txt)
 
-.PHONY: all app build init doctor test libc deps pacbrew pacbrew-list format format-check tidy lint check ffpkg ffpfsc packages deploy undeploy clean distclean help
+.PHONY: all app build init doctor test libc deps pacbrew pacbrew-list assets-check format format-check tidy lint check ffpkg ffpfsc packages deploy undeploy clean distclean help
 
 all: app
 build: app
@@ -63,6 +63,10 @@ pacbrew:
 pacbrew-list:
 	@printf '%s\n' '==> [pacbrew] Listing available pkg-config modules'
 	@bash tools/setup-pacbrew-dependencies.sh --list
+
+assets-check:
+	@printf '%s\n' '==> [assets] Validating icon, backgrounds, and selection audio'
+	@bash tools/validate-assets.sh
 
 libc:
 	@printf '%s\n' '==> [libc] Rebuilding and verifying the clean-room runtime'
@@ -132,6 +136,7 @@ help:
 	  'make deps            Fetch native dependencies into .deps/' \
 	  'make pacbrew         Fetch the pinned PacBrew ports sysroot' \
 	  'make pacbrew-list    List PacBrew pkg-config module names' \
+	  'make assets-check    Validate the current presentation assets' \
 	  'make libc            Force a deterministic runtime/libc.prx rebuild' \
 	  'make format          Apply the shared Clang formatting policy' \
 	  'make format-check    Check formatting without modifying files' \

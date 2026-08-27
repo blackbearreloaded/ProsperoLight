@@ -89,7 +89,7 @@ def remove_entry(ftp, path):
     try:
         # ftpsrv implements DELE with POSIX remove(), which safely unlinks files,
         # symlinks, and empty directories before recursion is considered.
-        ftp.delete(path)
+        ftp.sendcmd(f"DELE {path}")
         print(f"Removed: {path}")
         return True
     except error_perm as error:
@@ -170,84 +170,112 @@ if [[ ${DEPLOY_DRY_RUN:-0} == 1 ]]; then
     exit 0
 fi
 
-command -v curl >/dev/null || { echo "missing required command: curl" >&2; exit 2; }
-common=(--fail --show-error --disable-epsv --user "$user:$password")
-
-urlencode_path() {
-    python3 - "$1" <<'PY'
+python3 - "$host" "$port" "$user" "$password" "$title_id" "$format" "$artifact" <<'PY'
+from ftplib import FTP, error_perm
+from pathlib import Path
+from posixpath import dirname, join
 import sys
-from urllib.parse import quote
-print(quote(sys.argv[1], safe="/-._~"))
+
+host, port, user, password, title_id, format_name, artifact_name = sys.argv[1:]
+homebrew_root = "/data/homebrew"
+
+
+def reply_code(error):
+    return str(error).split(maxsplit=1)[0]
+
+
+def list_names(ftp, path):
+    previous = ftp.pwd()
+    ftp.cwd(path)
+    try:
+        return {name for name, _ in ftp.mlsd() if name not in {".", ".."}}
+    finally:
+        ftp.cwd(previous)
+
+
+def ensure_directory(ftp, path):
+    current = ""
+    for component in path.strip("/").split("/"):
+        current += f"/{component}"
+        try:
+            ftp.mkd(current)
+        except error_perm as error:
+            if reply_code(error) != "550":
+                raise
+            previous = ftp.pwd()
+            try:
+                ftp.cwd(current)
+            finally:
+                ftp.cwd(previous)
+
+
+def remove_if_present(ftp, path):
+    try:
+        # ftpsrv returns 226 for a successful DELE. FTP.sendcmd accepts every
+        # valid 2xx completion while ftplib.FTP.delete only permits 200/250.
+        ftp.sendcmd(f"DELE {path}")
+        return True
+    except error_perm as error:
+        text = str(error).lower()
+        if reply_code(error) == "550" and ("no such" in text or "not found" in text):
+            return False
+        raise
+
+
+def upload_atomic(ftp, local, remote):
+    directory = dirname(remote)
+    temporary = join(directory, f".{remote.rsplit('/', 1)[-1]}.upload")
+    ensure_directory(ftp, directory)
+    remove_if_present(ftp, temporary)
+    with local.open("rb") as source:
+        ftp.storbinary(f"STOR {temporary}", source, blocksize=256 * 1024)
+    remove_if_present(ftp, remote)
+    ftp.rename(temporary, remote)
+
+
+with FTP() as ftp:
+    ftp.connect(host, int(port), timeout=15)
+    ftp.login(user, password)
+    if format_name == "folder":
+        artifact = Path(artifact_name)
+        critical = [artifact / "eboot.bin", artifact / "sce_sys/param.json"]
+        files = sorted(
+            path for path in artifact.rglob("*")
+            if path.is_file() and path not in critical
+        ) + critical
+        print(f"==> [deploy] Publishing {len(files)} files; eboot.bin and param.json are last")
+        remote_root = join(homebrew_root, title_id)
+        for index, local in enumerate(files, 1):
+            relative = local.relative_to(artifact).as_posix()
+            if "\n" in relative or "\r" in relative:
+                raise RuntimeError(f"deployment paths cannot contain newlines: {relative!r}")
+            print(f"==> [deploy] [{index}/{len(files)}] {relative}")
+            upload_atomic(ftp, local, join(remote_root, relative))
+        if "eboot.bin" not in list_names(ftp, remote_root):
+            raise RuntimeError("FTP upload completed but eboot.bin is not listed")
+        if "param.json" not in list_names(ftp, join(remote_root, "sce_sys")):
+            raise RuntimeError("FTP upload completed but param.json is not listed")
+        print(f"Deployment complete: ftp://{host}:{port}{remote_root}/")
+    else:
+        artifact = Path(artifact_name)
+        remote_name = f"{title_id}.{format_name}"
+        temporary = join(homebrew_root, f".{remote_name}.upload")
+        ensure_directory(ftp, homebrew_root)
+        remove_if_present(ftp, temporary)
+        print("==> [deploy] Uploading complete image under a temporary name")
+        with artifact.open("rb") as source:
+            ftp.storbinary(f"STOR {temporary}", source, blocksize=256 * 1024)
+        for suffix in ("ffpfsc", "ffpkg"):
+            old_name = f"{title_id}.{suffix}"
+            if remove_if_present(ftp, join(homebrew_root, old_name)):
+                print(f"==> [deploy] Removed previous {old_name} image")
+        print("==> [deploy] Publishing the completed image")
+        ftp.rename(temporary, join(homebrew_root, remote_name))
+        if remote_name not in list_names(ftp, homebrew_root):
+            raise RuntimeError("FTP upload completed but the final image is not listed")
+        print(f"Deployment complete: ftp://{host}:{port}{homebrew_root}/{remote_name}")
+    try:
+        ftp.quit()
+    except (EOFError, OSError):
+        pass
 PY
-}
-
-if [[ $format == folder ]]; then
-    echo "==> [deploy] Publishing $total files; eboot.bin and param.json are last"
-    index=0
-    for file in "${files[@]}"; do
-        ((index += 1))
-        relative=${file#"$artifact/"}
-        case $relative in
-        *$'\n'* | *$'\r'*)
-            echo "deployment paths cannot contain newlines: $relative" >&2
-            exit 2
-            ;;
-        esac
-
-        directory=$(dirname -- "$relative")
-        filename=$(basename -- "$relative")
-        if [[ $directory == . ]]; then
-            temporary_relative=".$filename.upload"
-        else
-            temporary_relative="$directory/.$filename.upload"
-        fi
-
-        encoded_temporary=$(urlencode_path "$temporary_relative")
-        remote_path="/data/homebrew/$title_id/$relative"
-        temporary_path="/data/homebrew/$title_id/$temporary_relative"
-        printf '==> [deploy] [%d/%d] %s\n' "$index" "$total" "$relative"
-        curl "${common[@]}" --progress-bar --ftp-create-dirs \
-            --upload-file "$file" "$base_url/$title_id/$encoded_temporary"
-        curl "${common[@]}" --silent --list-only \
-            --quote "*DELE $remote_path" \
-            --quote "RNFR $temporary_path" \
-            --quote "RNTO $remote_path" "ftp://$host:$port/" >/dev/null
-    done
-
-    root_listing=$(curl "${common[@]}" --silent --list-only \
-        "$base_url/$title_id/")
-    metadata_listing=$(curl "${common[@]}" --silent --list-only \
-        "$base_url/$title_id/sce_sys/")
-    grep -Fqx "eboot.bin" <<< "${root_listing//$'\r'/}" &&
-        grep -Fqx "param.json" <<< "${metadata_listing//$'\r'/}" || {
-        echo "FTP upload completed but required files are not listed" >&2
-        exit 2
-    }
-    printf 'Deployment complete: %s/%s/\n' "$base_url" "$title_id"
-    exit 0
-fi
-
-listing=$(curl "${common[@]}" --silent --list-only "$base_url/")
-echo "==> [deploy] Uploading complete image under a temporary name"
-curl "${common[@]}" --progress-bar --ftp-create-dirs \
-    --upload-file "$artifact" "$base_url/$temporary_name"
-
-for old_name in "$title_id.ffpfsc" "$title_id.ffpkg"; do
-    if grep -Fqx "$old_name" <<< "${listing//$'\r'/}"; then
-        echo "==> [deploy] Removing the previous $old_name image"
-        curl "${common[@]}" --silent --list-only \
-            --quote "DELE /data/homebrew/$old_name" "ftp://$host:$port/" >/dev/null
-    fi
-done
-
-echo "==> [deploy] Publishing the completed image"
-curl "${common[@]}" --silent --list-only \
-    --quote "RNFR /data/homebrew/$temporary_name" \
-    --quote "RNTO /data/homebrew/$remote_name" "ftp://$host:$port/" >/dev/null
-
-listing=$(curl "${common[@]}" --silent --list-only "$base_url/")
-grep -Fqx "$remote_name" <<< "${listing//$'\r'/}" || {
-    echo "FTP upload completed but the final image is not listed" >&2
-    exit 2
-}
-printf 'Deployment complete: %s/%s\n' "$base_url" "$remote_name"

@@ -126,6 +126,14 @@ to give the app its own identity is:
     -Background C:\art\my-background.png
 ```
 
+From WSL, the same operation uses POSIX paths:
+
+```bash
+./tools/prepare-assets.sh \
+    --icon /mnt/c/art/my-icon.png \
+    --background /mnt/c/art/my-background.png
+```
+
 The generated console files are:
 
 - `sce_sys/icon0.png`: 512x512 launcher icon.

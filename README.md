@@ -84,8 +84,9 @@ sudo apt install curl git make pkg-config python3 python3-pip python3-venv tar w
   clang-18 clang-format-18 clang-tidy-18 lld-18
 ```
 
-The optional presentation-asset converter uses Windows PowerShell, DirectXTex
-`texconv`, and FFmpeg on Windows or inside WSL. ATRAC9 output additionally
+The optional presentation-asset converter uses DirectXTex `texconv` and
+Windows PowerShell, either directly or through its Bash frontend in WSL.
+FFmpeg may run on Windows or inside WSL. ATRAC9 output additionally
 requires a compatible `ps4_at9tool.exe` that you are legally permitted to use;
 the repository neither bundles nor downloads that encoder. Packaging tools are
 fetched into `.deps/` automatically when their Make targets are requested.
@@ -212,6 +213,14 @@ Replace the icon and background with one command:
     -Background C:\art\background.png
 ```
 
+From WSL, use the equivalent Bash frontend and POSIX paths:
+
+```bash
+./tools/prepare-assets.sh \
+    --icon /mnt/c/art/icon.png \
+    --background /mnt/c/art/background.png
+```
+
 The asset tool validates the required dimensions and prepares the PS5-facing
 formats. Use `-SelectionBackground` and `-LaunchBackground` when the selected
 app and launch/loading screens should differ.
@@ -223,6 +232,15 @@ Prepare a 15-second selection-audio excerpt from MP3, M4A, AAC, WAV, or FLAC:
     -Audio C:\music\selection.mp3 `
     -AudioDuration 15 `
     -At9Tool C:\tools\ps4_at9tool.exe
+```
+
+The WSL equivalent is:
+
+```bash
+./tools/prepare-assets.sh \
+    --audio /mnt/c/music/selection.mp3 \
+    --audio-duration 15 \
+    --at9-tool /mnt/c/tools/ps4_at9tool.exe
 ```
 
 The default is 15 seconds; the tool and validator support the documented
@@ -263,6 +281,8 @@ tools/doctor.ps1              Windows frontend for the same doctor
 tools/init-project.sh         Coordinated param.json identity initializer
 tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
+tools/prepare-assets.sh       WSL Bash frontend for presentation conversion
+tools/validate-assets.sh      Portable Linux/WSL presentation validator
 tools/setup-pacbrew-dependencies.sh  Isolated PacBrew sysroot and flag resolver
 tooling/native/               C++ linker converter, allocation bridge, C ABI CRT, FSELF, and runtime builder
 runtime/libc.prx.sha256       Expected digest for the generated loader shim
