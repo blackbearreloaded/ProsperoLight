@@ -5,8 +5,7 @@
 On Linux or WSL, run:
 
 ```bash
-make deps
-make lint
+make doctor
 ```
 
 On Windows PowerShell, run:
@@ -23,14 +22,14 @@ test -x /usr/bin/clang++
 test -x /usr/bin/curl
 test -x /usr/bin/wget
 test -x /usr/bin/unzip
-test -x /usr/bin/apt-get
-test -x /usr/bin/dpkg-deb
+test -x /usr/bin/tar
+test -x /usr/bin/llvm-ar-18
 ```
 
 On Ubuntu, install missing host packages with:
 
 ```bash
-sudo apt install clang-18 clang-format-18 clang-tidy-18 curl lld-18 make python3 python3-pip python3-venv unzip wget
+sudo apt install clang-18 clang-format-18 clang-tidy-18 curl lld-18 make python3 python3-pip python3-venv tar unzip wget
 ```
 
 ## The generated `libc.prx` is missing or has the wrong hash
@@ -55,7 +54,7 @@ update the SDK or provide a legitimate native implementation.
 ## Native dependency bootstrap fails
 
 The first build needs network access to download the hash-pinned public PS5
-payload SDK and the distribution's native zlib development package. Retry:
+payload SDK and upstream zlib source archive. Retry:
 
 ```bash
 make deps

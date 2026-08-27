@@ -128,7 +128,6 @@ function Convert-BackgroundAsset(
     if (-not $dds) {
         Fail "texconv did not produce the $Label BC7 DDS."
     }
-    [IO.File]::Copy($preview.FullName, (Join-Path $Destination "$Stem.png"), $true)
     [IO.File]::Copy($dds.FullName, (Join-Path $Destination "$Stem.dds"), $true)
     return [PSCustomObject]@{ Preview = $preview.FullName; Dds = $dds.FullName }
 }
@@ -287,18 +286,23 @@ try {
     if ($Background) {
         $convertedBackground = Convert-BackgroundAsset $Background "Background" "pic0" $work `
             $OutputDirectory $texconvPath
-        [IO.File]::Copy($convertedBackground.Preview, (Join-Path $OutputDirectory "pic1.png"), $true)
         [IO.File]::Copy($convertedBackground.Dds, (Join-Path $OutputDirectory "pic1.dds"), $true)
         [IO.File]::Copy($convertedBackground.Preview,
             (Join-Path $OutputDirectory "background-source.png"), $true)
+        [IO.File]::Copy($convertedBackground.Preview,
+            (Join-Path $OutputDirectory "launch-background-source.png"), $true)
     } else {
         if ($SelectionBackground) {
-            Convert-BackgroundAsset $SelectionBackground "Selection background" "pic0" $work `
-                $OutputDirectory $texconvPath | Out-Null
+            $convertedSelection = Convert-BackgroundAsset $SelectionBackground `
+                "Selection background" "pic0" $work $OutputDirectory $texconvPath
+            [IO.File]::Copy($convertedSelection.Preview,
+                (Join-Path $OutputDirectory "background-source.png"), $true)
         }
         if ($LaunchBackground) {
-            Convert-BackgroundAsset $LaunchBackground "Launch background" "pic1" $work `
-                $OutputDirectory $texconvPath | Out-Null
+            $convertedLaunch = Convert-BackgroundAsset $LaunchBackground `
+                "Launch background" "pic1" $work $OutputDirectory $texconvPath
+            [IO.File]::Copy($convertedLaunch.Preview,
+                (Join-Path $OutputDirectory "launch-background-source.png"), $true)
         }
     }
 

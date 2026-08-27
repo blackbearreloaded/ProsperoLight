@@ -66,6 +66,7 @@ environment.
 The root skeleton includes notification, basic lifecycle code, CPU-rendered
 VideoOut output, and packaged read-only asset access. Filesystem writes,
 networking, controller input, AudioOut, and third-party libraries can be added
-through public SDK interfaces and explicit build inputs.
+through public SDK interfaces and explicit build inputs. Start with the focused
+[capability recipes](RECIPES.md).
 
 GPU decoding is outside this repository's scope.

@@ -5,6 +5,8 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := app
 
+-include .env
+
 APP_DEFINITIONS ?=
 APP_INCLUDE_PATHS ?=
 APP_STATIC_ARCHIVES ?=
@@ -18,19 +20,36 @@ DEPLOY_FORMAT ?= folder
 PS5_FTP_USER ?= anonymous
 PS5_FTP_PASSWORD ?= codex
 DEPLOY_DRY_RUN ?= 0
+TITLE_ID ?=
+APP_NAME ?=
+APP_CATEGORY ?= game
+CONTENT_SUFFIX ?=
 export APP_DEFINITIONS APP_INCLUDE_PATHS APP_STATIC_ARCHIVES APP_RUNTIME_MODULES
 export PACBREW_PACKAGES PACBREW_INCLUDE_PATHS PACBREW_STATIC_ARCHIVES
 export PS5_HOST FTP_PORT DEPLOY_FORMAT PS5_FTP_USER PS5_FTP_PASSWORD DEPLOY_DRY_RUN
+export TITLE_ID APP_NAME APP_CATEGORY CONTENT_SUFFIX
 
 RUNTIME := runtime/libc.prx
 RUNTIME_INPUTS := tools/rebuild-libc.sh \
 	$(wildcard tooling/native/*.cpp tooling/native/*.hpp) \
 	$(wildcard tooling/native/runtime/*.txt)
 
-.PHONY: all app build libc deps pacbrew pacbrew-list format format-check tidy lint check ffpkg ffpfsc packages deploy clean distclean help
+.PHONY: all app build init doctor test libc deps pacbrew pacbrew-list format format-check tidy lint check ffpkg ffpfsc packages deploy undeploy clean distclean help
 
 all: app
 build: app
+
+init:
+	@printf '%s\n' '==> [init] Configuring the application identity in sce_sys/param.json'
+	@bash tools/init-project.sh sce_sys/param.json
+
+doctor:
+	@printf '%s\n' '==> [doctor] Checking the Linux/WSL host without changing it'
+	@bash tools/doctor.sh
+
+test:
+	@printf '%s\n' '==> [test] Running host-only metadata and deployment tests'
+	@python3 -m unittest discover -s tests -p 'test_*.py' -v
 
 deps:
 	@printf '%s\n' '==> [deps] Fetching declared native dependencies'
@@ -73,6 +92,10 @@ deploy:
 	@printf '%s\n' '==> [deploy] Building and publishing the selected app output over FTP'
 	@bash tools/deploy.sh
 
+undeploy:
+	@printf '%s\n' '==> [undeploy] Removing staged development files for this title over FTP'
+	@bash tools/deploy.sh undeploy
+
 format:
 	@printf '%s\n' '==> [format] Formatting C and C++ sources'
 	@bash tools/run_clang_format.sh
@@ -89,7 +112,7 @@ lint:
 	@printf '%s\n' '==> [lint] Running source, metadata, and shell checks'
 	@bash tools/lint.sh
 
-check: lint app
+check: lint test app
 
 clean:
 	@printf '%s\n' '==> [clean] Removing generated build outputs'
@@ -103,6 +126,9 @@ distclean: clean
 help:
 	@printf '%s\n' \
 	  'make                 Generate libc.prx and build the Hello World folder' \
+	  'make init TITLE_ID=PPSA12345 APP_NAME="My App"  Configure app identity' \
+	  'make doctor          Check required and optional Linux/WSL tools' \
+	  'make test            Run host-only metadata and deployment tests' \
 	  'make deps            Fetch native dependencies into .deps/' \
 	  'make pacbrew         Fetch the pinned PacBrew ports sysroot' \
 	  'make pacbrew-list    List PacBrew pkg-config module names' \
@@ -116,8 +142,10 @@ help:
 	  'make ffpfsc          Build the folder and compressed .ffpfsc image' \
 	  'make packages        Build folder, .ffpkg, and .ffpfsc outputs' \
 	  'make deploy PS5_HOST=<address>  Build and FTP-deploy the app folder' \
+	  'make undeploy PS5_HOST=<address>  Remove this title from /data/homebrew' \
 	  'Build variables:     APP_DEFINITIONS, APP_INCLUDE_PATHS, APP_STATIC_ARCHIVES, APP_RUNTIME_MODULES' \
 	  'PacBrew variables:   PACBREW_PACKAGES, PACBREW_INCLUDE_PATHS, PACBREW_STATIC_ARCHIVES' \
 	  'Deploy variables:    FTP_PORT=2121, DEPLOY_FORMAT=folder|ffpfsc|ffpkg, DEPLOY_DRY_RUN=0|1' \
+	  'Local defaults:      Copy .env.example to the ignored .env file' \
 	  'make clean           Remove build/, dist/, and generated libc.prx' \
 	  'make distclean       Also remove the ignored .deps/ cache'

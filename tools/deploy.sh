@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# ps5-native-app-boilerplate - FTP development deployment.
+# ps5-native-app-boilerplate - FTP development deployment and cleanup.
 # Copyright (C) 2026 BlackBearReloaded
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Builds the selected output and publishes it below /data/homebrew. Folder
-# files are uploaded under ignored temporary names and promoted individually.
+# Builds the selected output and publishes it below /data/homebrew, or removes
+# only the current title's staged files. Folder files are uploaded under
+# ignored temporary names and promoted individually.
 
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+action=${1:-deploy}
 format=${DEPLOY_FORMAT:-folder}
 format=${format,,}
 host=${PS5_HOST:-}
@@ -16,7 +18,11 @@ port=${FTP_PORT:-2121}
 user=${PS5_FTP_USER:-anonymous}
 password=${PS5_FTP_PASSWORD:-codex}
 
-[[ $format == folder || $format == ffpfsc || $format == ffpkg ]] || {
+[[ $# -le 1 && ($action == deploy || $action == undeploy) ]] || {
+    echo "usage: tools/deploy.sh [undeploy]" >&2
+    exit 2
+}
+[[ $action == undeploy || $format == folder || $format == ffpfsc || $format == ffpkg ]] || {
     echo "DEPLOY_FORMAT must be folder, ffpfsc, or ffpkg" >&2
     exit 2
 }
@@ -29,11 +35,7 @@ password=${PS5_FTP_PASSWORD:-codex}
     exit 2
 }
 command -v make >/dev/null || { echo "missing required command: make" >&2; exit 2; }
-
-build_target=$format
-[[ $format == folder ]] && build_target=app
-echo "==> [deploy] Building $format"
-make -C "$root" --no-print-directory "$build_target"
+command -v python3 >/dev/null || { echo "missing required command: python3" >&2; exit 2; }
 
 title_id=$(python3 - "$root/sce_sys/param.json" <<'PY'
 import json, re, sys
@@ -45,6 +47,90 @@ print(title_id)
 PY
 )
 base_url="ftp://$host:$port/data/homebrew"
+
+if [[ $action == undeploy ]]; then
+    printf '==> [undeploy] Title: %s\n' "$title_id"
+    printf '==> [undeploy] Folder: %s/%s/\n' "$base_url" "$title_id"
+    printf '==> [undeploy] Images: %s/%s.{ffpkg,ffpfsc}\n' "$base_url" "$title_id"
+
+    if [[ ${DEPLOY_DRY_RUN:-0} == 1 ]]; then
+        echo "==> [undeploy] Dry run complete; no network request was sent"
+        exit 0
+    fi
+
+    python3 - "$host" "$port" "$user" "$password" "$title_id" <<'PY'
+from ftplib import FTP, error_perm
+from posixpath import join
+import sys
+
+host, port, user, password, title_id = sys.argv[1:]
+homebrew_root = "/data/homebrew"
+
+
+def reply_code(error):
+    return str(error).split(maxsplit=1)[0]
+
+
+def list_names(ftp, path):
+    previous = ftp.pwd()
+    ftp.cwd(path)
+    try:
+        return [name for name, _ in ftp.mlsd() if name not in {".", ".."}]
+    finally:
+        ftp.cwd(previous)
+
+
+def validate_name(name):
+    if not name or name in {".", ".."} or "/" in name or "\r" in name or "\n" in name:
+        raise RuntimeError(f"unsafe FTP entry name: {name!r}")
+
+
+def remove_entry(ftp, path):
+    try:
+        # ftpsrv implements DELE with POSIX remove(), which safely unlinks files,
+        # symlinks, and empty directories before recursion is considered.
+        ftp.delete(path)
+        print(f"Removed: {path}")
+        return True
+    except error_perm as error:
+        message = str(error)
+        if reply_code(error) == "550" and "No such file or directory" in message:
+            return False
+        if reply_code(error) != "550" or "Directory not empty" not in message:
+            raise
+
+    for name in list_names(ftp, path):
+        validate_name(name)
+        remove_entry(ftp, join(path, name))
+    ftp.rmd(path)
+    print(f"Removed directory: {path}")
+    return True
+
+
+with FTP() as ftp:
+    ftp.connect(host, int(port), timeout=15)
+    ftp.login(user, password)
+    removed = remove_entry(ftp, join(homebrew_root, title_id))
+    for suffix in ("ffpkg", "ffpfsc"):
+        removed |= remove_entry(ftp, join(homebrew_root, f"{title_id}.{suffix}"))
+        removed |= remove_entry(ftp, join(homebrew_root, f".{title_id}.{suffix}.upload"))
+    try:
+        ftp.quit()
+    except (EOFError, OSError):
+        pass
+
+if removed:
+    print(f"Undeployment complete: {title_id}")
+else:
+    print(f"Nothing staged for {title_id}")
+PY
+    exit 0
+fi
+
+build_target=$format
+[[ $format == folder ]] && build_target=app
+echo "==> [deploy] Building $format"
+make -C "$root" --no-print-directory "$build_target"
 
 if [[ $format == folder ]]; then
     artifact="$root/dist/$title_id"

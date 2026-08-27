@@ -10,7 +10,7 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$patterns = @("*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.ld", "*.ps1", "*.yml", "*.yaml", "*.sh")
+$patterns = @("*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.ld", "*.py", "*.ps1", "*.yml", "*.yaml", "*.sh")
 $files = @(& git -C $root ls-files --cached --others --exclude-standard -- @patterns |
     Where-Object { Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf })
 $files += @(
@@ -19,6 +19,7 @@ $files += @(
     ".clang-tidy",
     ".gitattributes",
     ".gitignore",
+    ".env.example",
     "Makefile",
     "tooling/prospero-clang18",
     "tooling/native/runtime/api-surface.txt",

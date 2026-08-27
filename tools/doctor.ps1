@@ -1,58 +1,34 @@
 <#
-  ps5-native-app-boilerplate - Read-only prerequisite checker.
+  ps5-native-app-boilerplate - Windows prerequisite-check frontend.
   Copyright (C) 2026 BlackBearReloaded
   SPDX-License-Identifier: GPL-3.0-or-later
 
-  Verifies the native host toolchain, dependency bootstrap, and runtime.
+  Runs the canonical read-only Linux/WSL doctor so both host entry points report
+  the same required and optional tools.
 #>
 
 #requires -Version 5.1
 $ErrorActionPreference = "Stop"
+
+function Fail([string]$Message) {
+    throw "ps5-native-app-boilerplate: $Message"
+}
+
+function Convert-ToWslPath([string]$Path) {
+    $absolute = [IO.Path]::GetFullPath($Path)
+    if ($absolute -notmatch '^([A-Za-z]):\\(.*)$') {
+        Fail "The repository must be on a Windows drive visible to WSL."
+    }
+    return "/mnt/$($Matches[1].ToLowerInvariant())/$($Matches[2].Replace('\', '/'))"
+}
+
+if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+    Fail "WSL was not found. Install WSL and a Linux distribution first."
+}
+
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$failed = $false
-
-function Report([string]$Name, [bool]$Passed, [string]$Detail) {
-    $script:failed = $script:failed -or -not $Passed
-    $status = if ($Passed) { "OK" } else { "MISSING" }
-    Write-Host ("[{0}] {1}: {2}" -f $status, $Name, $Detail)
+$doctor = Convert-ToWslPath (Join-Path $root "tools/doctor.sh")
+& wsl.exe --exec bash $doctor
+if ($LASTEXITCODE -ne 0) {
+    Fail "One or more Linux/WSL prerequisites are missing."
 }
-
-try {
-    $param = Get-Content -LiteralPath (Join-Path $root "sce_sys/param.json") -Raw |
-        ConvertFrom-Json
-    Report "sce_sys/param.json" $true "version $($param.contentVersion)"
-} catch {
-    Report "sce_sys/param.json" $false $_.Exception.Message
-}
-
-$wslExists = $null -ne (Get-Command wsl.exe -ErrorAction SilentlyContinue)
-Report "WSL" $wslExists $(if ($wslExists) { "wsl.exe found" } else { "wsl.exe not found" })
-if ($wslExists) {
-    & wsl.exe --exec sh -lc "test -x /usr/bin/clang-18 && test -x /usr/bin/clang++"
-    Report "Native C/C++ compiler" ($LASTEXITCODE -eq 0) "Clang 18 and Clang++ in WSL"
-    & wsl.exe --exec sh -lc "test -x /usr/bin/wget && test -x /usr/bin/unzip && test -x /usr/bin/apt-get && test -x /usr/bin/dpkg-deb"
-    Report "Native dependency bootstrap" ($LASTEXITCODE -eq 0) "wget, unzip, apt-get, and dpkg-deb in WSL"
-}
-
-$git = Get-Command git -ErrorAction SilentlyContinue
-Report "Git" ($null -ne $git) $(if ($git) { $git.Source } else { "required only for optional MkPFS bootstrap" })
-
-$libc = Join-Path $root "runtime/libc.prx"
-$expectedLibcHash = "E6FF45D16ADF687855CC3B33B0C8A4132B6504360B221E0A34C7E99FB3BA0036"
-$libcReady = Test-Path -LiteralPath $libc -PathType Leaf
-if ($libcReady) {
-    $libcReady = (Get-FileHash -LiteralPath $libc -Algorithm SHA256).Hash -eq $expectedLibcHash
-    Report "Generated clean-room libc.prx" $libcReady $libc
-} else {
-    Write-Host "[GENERATED] Clean-room libc.prx: make will create $libc"
-}
-
-$nativeBuilder = Join-Path $root "tooling/native/libc_builder.cpp"
-Report "Clean-room libc source" (Test-Path -LiteralPath $nativeBuilder -PathType Leaf) $nativeBuilder
-
-if ($failed) {
-    Write-Error "One or more prerequisites are missing. See docs/GETTING_STARTED.md."
-    exit 1
-}
-
-Write-Host "All native build prerequisites are ready."

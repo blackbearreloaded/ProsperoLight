@@ -5,8 +5,9 @@
 
 Build modern C++20 homebrew applications for PlayStation 5 from Linux, WSL, or
 Windows. The repository root is a complete graphical Hello World skeleton:
-fork it, edit `src/main.cpp`, and build a deployable title. C sources and C
-libraries remain supported at explicit ABI boundaries.
+create a repository from the template, edit `src/main.cpp`, and build a
+deployable title. C sources and C libraries remain supported at explicit ABI
+boundaries.
 
 The application and all repository-owned build tools are native C/C++. LLVM
 handles ordinary linking; a small project-owned converter emits PS5 metadata
@@ -47,6 +48,29 @@ compatibility.
 
 ## Quick start
 
+### Create a project from the template
+
+For a new application, select **Use this template** on GitHub, then choose
+**Create a new repository**. This creates an independent repository with a
+clean history. The same workflow is available through the GitHub CLI:
+
+```bash
+gh repo create my-ps5-app \
+  --template blackbearreloaded/ps5-native-app-boilerplate \
+  --public \
+  --clone
+```
+
+Use `--private` instead of `--public` when appropriate. Fork this repository
+only when preparing a contribution back to the boilerplate. A direct clone is
+best reserved for temporary local experiments because it retains the
+boilerplate remote and history.
+
+The checked-in skeleton deliberately uses the development identity
+`PPSA99999`, with concept code `99999`. Keep it for a single local development
+copy; assign a unique identity before distributing an app or deploying
+multiple projects derived from this template.
+
 ### Prerequisites
 
 On Ubuntu, Debian, or WSL install Git, Make, Python 3 with virtual-environment
@@ -67,14 +91,21 @@ the repository neither bundles nor downloads that encoder. Packaging tools are
 fetched into `.deps/` automatically when their Make targets are requested.
 `make ffpkg` additionally requires the .NET SDK 8 or newer to build UFS2Tool.
 
-The first build fetches the pinned public PS5 payload SDK and native zlib
-archive into the ignored `.deps/native/` cache, then generates the clean-room
-`runtime/libc.prx` from source.
+The first build fetches the pinned public PS5 payload SDK and zlib 1.3.2 source
+archives, verifies both digests, compiles zlib into the ignored
+`.deps/native/` cache, then generates the clean-room `runtime/libc.prx` from
+source. Check the host first with `make doctor`.
 
 ### Build the template
 
-1. Give the application a unique title ID, content ID, and name in
-   [`sce_sys/param.json`](sce_sys/param.json).
+1. Initialize a distinct identity. The command coordinates title ID, concept
+   ID, content ID, name, and category in [`sce_sys/param.json`](sce_sys/param.json):
+
+   ```bash
+   make init TITLE_ID=PPSA12345 APP_NAME="My Native App"
+   ```
+
+   Add `APP_CATEGORY=media` for a Media-area application.
 2. Build:
 
    ```bash
@@ -101,16 +132,35 @@ For a short development loop, build and update the title folder under
 make deploy PS5_HOST=192.168.1.100
 ```
 
+Remove only this title's staged folder and same-ID image artifacts when the
+development copy is no longer needed:
+
+```bash
+make undeploy PS5_HOST=192.168.1.100
+```
+
 The default FTP port is `2121`. Each file is uploaded under a hidden temporary
 name and promoted only after its transfer completes; `eboot.bin` and
 `sce_sys/param.json` are published last. Use `DEPLOY_FORMAT=ffpfsc` or
 `DEPLOY_FORMAT=ffpkg` when an image is specifically required. Launching and
-closing the app remain explicit manual steps. See [Deployment](docs/DEPLOYMENT.md).
+closing the app remain explicit manual steps. `undeploy` does not unregister a
+Shell entry. See [Deployment](docs/DEPLOYMENT.md).
+
+For values used repeatedly on one workstation, copy the tracked example to the
+hidden, ignored local configuration and edit it:
+
+```bash
+cp .env.example .env
+```
+
+GNU Make reads `.env`; it is appropriate for host addresses and build choices,
+not app identity or release metadata. Keep those in `sce_sys/param.json`.
 
 Run `make help` to list the focused targets. `make deps` only prefetches native
 dependencies, `make libc` forces runtime reproduction, `make lint` runs
-clang-format and clang-tidy, and `make packages` emits the folder, `.ffpkg`,
-and `.ffpfsc` forms. On Windows PowerShell, `./build.ps1` and
+clang-format and clang-tidy, `make test` runs the offline tooling checks, and
+`make packages` emits the folder, `.ffpkg`, and `.ffpfsc` forms. On Windows
+PowerShell, `./build.ps1` and
 `./tools/rebuild-libc.ps1` remain equivalent supported entry points.
 
 Read [Getting started](docs/GETTING_STARTED.md) before the first build.
@@ -123,8 +173,10 @@ Edit `sce_sys/param.json` to define the app identity, Games/Media category, and
 PS5-format release version. Every C or C++ file under `src/` is compiled
 automatically; optional build inputs use documented Make variables. The
 hardware-proven
-graphical skeleton is [`src/main.cpp`](src/main.cpp); replace or extend it directly
-after forking the repository.
+graphical skeleton is [`src/main.cpp`](src/main.cpp); edit its short scene and
+entry point after creating a project. The reusable VideoOut setup and bitmap
+font live in `src/demo_renderer.*` so application logic does not start inside a
+large platform implementation file.
 
 `contentVersion` is also the Git tag and GitHub Release version. Use its exact
 `NN.NNN.NNN` value without a `v` prefix; the release workflow rejects drift.
@@ -196,15 +248,19 @@ remains tracked in `runtime/libc.prx.sha256`.
 ## Repository layout
 
 ```text
-src/main.cpp                  Modern C++20 graphical Hello World skeleton
+src/main.cpp                  Concise Modern C++20 app entry point and scene
+src/demo_renderer.*           Reusable CPU VideoOut and bitmap-font demo support
 assets/                       Optional files mounted at /app0/assets/
 sce_sys/param.json            App identity, metadata, and release version
 sce_sys/                      Icon, backgrounds, and selection audio
 Makefile                      Linux/WSL build, lint, dependency, package, and deploy targets
+.env.example                  Copyable, ignored local Make defaults
 build.ps1                     Windows PowerShell build entry point
 tools/build.sh                Native Linux/WSL build orchestrator
-tools/deploy.sh               Folder and image FTP deployment helper
-tools/doctor.ps1              Read-only prerequisite check
+tools/deploy.sh               FTP deployment and title-scoped cleanup helper
+tools/doctor.sh               Canonical read-only Linux/WSL prerequisite check
+tools/doctor.ps1              Windows frontend for the same doctor
+tools/init-project.sh         Coordinated param.json identity initializer
 tools/inspect.ps1             Static ELF/FSELF validator
 tools/prepare-assets.ps1      Presentation conversion and validation
 tools/setup-pacbrew-dependencies.sh  Isolated PacBrew sysroot and flag resolver
@@ -212,6 +268,7 @@ tooling/native/               C++ linker converter, allocation bridge, C ABI CRT
 runtime/libc.prx.sha256       Expected digest for the generated loader shim
 tools/rebuild-libc.sh         Linux/WSL deterministic shim reproduction check
 tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
+tests/                        Host-only metadata and deployment regression tests
 ```
 
 ## Documentation
@@ -225,8 +282,9 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 | [Build output formats](docs/FFPKG.md) | Folder, `.ffpkg`, and `.ffpfsc` generation |
 | [Native build tooling](docs/NATIVE_TOOLING.md) | LLVM boundary and C++ converter/FSELF commands |
 | [Clean-room runtime shim](docs/RUNTIME_SHIM.md) | Design, hashes, compatibility, and deterministic reproduction |
-| [Deployment](docs/DEPLOYMENT.md) | FTP image deployment and smoke testing |
+| [Deployment](docs/DEPLOYMENT.md) | FTP staging, title-scoped cleanup, and smoke testing |
 | [Platform constraints](docs/PLATFORM_NOTES.md) | Loader, filesystem, presentation, and capability boundaries |
+| [Capability recipes](docs/RECIPES.md) | Focused patterns for storage, input, networking, AudioOut, SDL, and native libraries |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common setup, build, packaging, and launcher failures |
 | [Contributing](CONTRIBUTING.md) | Change requirements and release checks |
 
@@ -241,6 +299,7 @@ tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
 | [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) | Optional compressed `.ffpfsc` generation |
 | [sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG) | Public `.ffpkg` procedure used as a format reference |
 | [LLVM/Clang](https://github.com/llvm/llvm-project) | Native compiler |
+| [zlib](https://zlib.net/) | Pinned source-built compression library used by the host FSELF tool |
 | [Microsoft DirectXTex](https://github.com/microsoft/DirectXTex) | `texconv` presentation-image preparation |
 | [FFmpeg](https://ffmpeg.org/) | Developer-supplied selection-audio preparation |
 | [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) | Directory-style deployment and hardware validation |

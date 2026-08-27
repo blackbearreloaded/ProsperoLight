@@ -22,6 +22,17 @@ Change these fields together when creating a new application:
 Keep `titleId`, `conceptId`, and `contentId` stable for updates to one installed
 application. Use a new identity only when the result should be a separate title.
 
+The supported initializer coordinates those values and the displayed name:
+
+```bash
+make init TITLE_ID=PPSA12345 APP_NAME="My Native App"
+make init TITLE_ID=PPSA12346 APP_NAME="My Media App" APP_CATEGORY=media
+```
+
+It derives the 16-character content suffix from the app name unless
+`CONTENT_SUFFIX` is supplied. It does not change `contentVersion`,
+`masterVersion`, storage sizing, or unrelated metadata.
+
 ## One version everywhere
 
 This project does not use Semantic Versioning. `contentVersion` is the only
@@ -110,6 +121,17 @@ Deployment uses a separate set of Make variables:
 
 These values affect only `make deploy`; they are not application metadata and
 are never copied into the built title. See [Deployment](DEPLOYMENT.md).
+
+Frequently used local build and deployment values may be kept in an ignored
+hidden file:
+
+```bash
+cp .env.example .env
+```
+
+The file uses ordinary GNU Make `NAME=value` syntax. Do not put title identity
+or release versions there: `param.json` remains the single source of truth for
+the application. Do not commit credentials; `.env` is ignored by Git.
 
 ## Persistent configuration
 

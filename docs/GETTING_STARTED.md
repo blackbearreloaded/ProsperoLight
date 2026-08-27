@@ -21,12 +21,18 @@ Confirm the expected compiler exists:
 /usr/bin/clang-18 --version
 ```
 
+From the repository root, run the read-only host check:
+
+```bash
+make doctor
+```
+
 ## 2. Native dependencies
 
 The first build downloads the pinned public
-[PS5 payload SDK](https://github.com/ps5-payload-dev/sdk) and a native static
-zlib package into `.deps/native/`. It verifies the SDK archive digest and
-extracts both dependencies without administrator privileges.
+[PS5 payload SDK](https://github.com/ps5-payload-dev/sdk) and the upstream zlib
+1.3.2 source archive into `.deps/native/`. It verifies both archive digests and
+compiles a private static zlib without administrator privileges.
 
 Nothing is installed globally. Bare `make` invokes this bootstrapper
 automatically and later builds reuse the ignored cache. To prefetch without
@@ -79,8 +85,14 @@ procedure.
 
 ## 5. Choose a unique app identity
 
-Edit [`sce_sys/param.json`](../sce_sys/param.json). Change these fields
-together:
+Use the initializer to change the coordinated fields together:
+
+```bash
+make init TITLE_ID=PPSA12345 APP_NAME="My Native App"
+```
+
+For a Media-area app, add `APP_CATEGORY=media`. The command preserves the
+existing PS5-format versions and rewrites the identity fields shown below:
 
 ```json
 {
@@ -102,7 +114,8 @@ together:
 
 The title ID must be unique among applications already registered on your
 console. `contentId` must contain the same title ID and end with exactly 16
-uppercase letters or digits.
+uppercase letters or digits. Override the generated suffix with
+`CONTENT_SUFFIX=MYNATIVEAPP00001` when needed.
 
 The template includes an original BlackBear presentation set. The easiest way
 to give the app its own identity is:
@@ -121,8 +134,9 @@ The generated console files are:
 
 `-Background` intentionally generates both images from one source. To provide
 different artwork, use `-SelectionBackground` and `-LaunchBackground` instead.
-`sce_sys/pic0.png` and `pic1.png` are editable previews; the build deploys only
-the DDS files. A PNG renamed to `.dds` is not sufficient.
+Editable sources are retained as `sce_sys/background-source.png` and
+`launch-background-source.png`; derived 4K PNG previews are not tracked. The
+build deploys only the DDS files. A PNG renamed to `.dds` is not sufficient.
 
 The normal directory-promotion path displays `titleName` as Shell-rendered text
 over this artwork. Retail custom-font Game Hub logos and descriptions are
@@ -150,11 +164,13 @@ changing category or release versions.
 From Linux or WSL in the repository root:
 
 ```bash
+make test
 make lint
 make
 ```
 
-Only `make` is required for a normal folder build. It fetches missing native
+Only `make` is required for a normal folder build. `make test` is an offline
+host-tool regression suite. The normal build fetches missing native
 dependencies, generates and verifies `runtime/libc.prx`, and builds the root
 application. Linting remains an explicit development check.
 

@@ -102,11 +102,12 @@ different module under the same configuration.
 
 ## Reproduce it
 
-Requirements are Linux or WSL with `clang++`, `apt-get`, and `dpkg-deb`.
-Windows users may use PowerShell 5.1 plus WSL. On first use, the build downloads
-and extracts a native static
-zlib package into `.deps/native/`; later reproductions work from that cache. No
-C# runtime, external host project, or reference module is required.
+Requirements are Linux or WSL with Clang, LLVM archive tools, Make, `tar`, and
+`wget`. Windows users may use PowerShell 5.1 plus WSL. On first use, the build
+downloads the pinned zlib 1.3.2 source archive, verifies its SHA-256, and
+compiles a private static library under `.deps/native/`; later reproductions
+work from that cache. No C# runtime, external host project, or reference module
+is required.
 
 From the repository root:
 

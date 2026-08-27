@@ -2,14 +2,15 @@
 
 ## Native build dependencies
 
-The application build uses LLVM/Clang/lld and the public
+The application build uses LLVM/Clang/lld, zlib 1.3.2, and the public
 [PS5 payload SDK](https://github.com/ps5-payload-dev/sdk). The bootstrapper
 downloads SDK v0.42 after verifying SHA-256
 `8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da`.
-It also downloads the Linux/WSL distribution's native `zlib1g-dev` package and links
-its static archive. Both are extracted under ignored `.deps/native/`, retain
-their upstream licenses, and are not distributed by this repository. No Sony
-SDK file is included.
+It downloads zlib 1.3.2 from the upstream source archive after verifying
+SHA-256 `bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16`
+and compiles its static archive locally. Both dependencies remain under ignored
+`.deps/native/`, retain their upstream licenses, and are not distributed by
+this repository. No Sony SDK file is included.
 
 Target C++ compilation uses the LLVM libc++ headers distributed by the public
 SDK. Those headers retain the Apache-2.0 WITH LLVM-exception license recorded

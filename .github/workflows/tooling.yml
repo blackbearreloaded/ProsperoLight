@@ -43,7 +43,7 @@ jobs:
       - name: Install native toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang-18 clang-format-18 clang-tidy-18 lld-18 make pkg-config unzip wget
+          sudo apt-get install --yes clang-18 clang-format-18 clang-tidy-18 lld-18 make pkg-config tar unzip wget
 
       - name: Read app identity and version
         shell: bash
@@ -61,6 +61,9 @@ jobs:
 
       - name: Lint source and metadata
         run: make lint
+
+      - name: Run host-only regression tests
+        run: make test
 
       - name: Reproduce clean-room runtime shim
         run: make libc

@@ -69,9 +69,9 @@ the loader's normal procedure after replacement.
 
 The converter deliberately creates no mipmaps. Supply artwork with the correct
 1:1 and 16:9 aspect ratios; resizing does not invent a good crop. Editable
-previews are kept as `pic0.png` and `pic1.png`; the legacy `-Background`
-shorthand also keeps `background-source.png`. Only `icon0.png`, `pic0.dds`, and
-`pic1.dds` are deployed.
+sources are kept as `background-source.png` and
+`launch-background-source.png`. The derived 4K PNG intermediates are discarded;
+only `icon0.png`, `pic0.dds`, and `pic1.dds` are deployed.
 
 ## Prepare selection music
 

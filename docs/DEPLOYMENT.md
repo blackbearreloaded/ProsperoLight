@@ -36,7 +36,7 @@ Keeping `/data/homebrew/<TITLE_ID>/` itself in place preserves ShadowMountPlus's
 existing nullfs source while updating what the next launch reads. Fully close
 the application before deploying and do not launch it until the command
 finishes. Files removed from the local build are not deleted remotely; clean
-the title directory manually when an exact mirror is required.
+the title directory with `make undeploy` when an exact reset is required.
 
 Select an image or a non-default port with Make variables:
 
@@ -61,12 +61,37 @@ Supported variables are:
 | `PS5_FTP_PASSWORD` | `codex` | FTP password |
 | `DEPLOY_DRY_RUN` | `0` | Use `1` to build and print the target without networking |
 
+For repeated local work, copy `.env.example` to the ignored `.env` file and
+set `PS5_HOST`, `FTP_PORT`, and `DEPLOY_FORMAT` there. Command-line Make values
+still override file defaults.
+
 For example, validate local packaging and the resolved destination without
 contacting a console:
 
 ```bash
 make deploy PS5_HOST=192.0.2.1 DEPLOY_DRY_RUN=1
 ```
+
+## Remove the staged development copy
+
+Fully close the application, then remove the current `titleId` from the FTP
+staging area:
+
+```bash
+make undeploy PS5_HOST=192.168.1.100
+```
+
+The command validates `sce_sys/param.json`, recursively removes only
+`/data/homebrew/<TITLE_ID>/`, and deletes exact same-ID `.ffpkg` and `.ffpfsc`
+files plus interrupted-upload temporary images. It never deletes the
+`/data/homebrew` root or another title. Preview the resolved targets without a
+network request by adding `DEPLOY_DRY_RUN=1`.
+
+This is deliberately named **undeploy**, not uninstall: FTP removal does not
+unregister the title from the PS5 Shell database. A stale home-screen entry may
+remain until the loader refreshes or dedicated, separately authorized cleanup
+tooling unregisters it. The command fails if the FTP server cannot enumerate a
+directory safely or if an active mount prevents removal.
 
 ## Recommended edit-test loop
 

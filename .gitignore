@@ -4,6 +4,9 @@
 
 .local/
 .deps/
+.env
+__pycache__/
+*.pyc
 build/
 dist/
 **/bin/

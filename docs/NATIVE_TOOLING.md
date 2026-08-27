@@ -24,7 +24,9 @@ Native third-party libraries are allowed when they solve a standard problem
 and the build can acquire and link them reproducibly. zlib is used directly by
 the FSELF tool; LLVM/lld handles standard object linking. This boundary keeps
 the repository free of managed build tooling without reimplementing mature
-native libraries such as zlib or OpenSSL.
+native libraries such as zlib or OpenSSL. zlib 1.3.2 is downloaded from its
+fixed upstream archive, SHA-256 verified, and compiled into `.deps/native/`;
+the build no longer depends on a changing distribution package.
 
 ## Files
 
