@@ -179,8 +179,45 @@ entry point after creating a project. The reusable VideoOut setup and bitmap
 font live in `src/demo_renderer.*` so application logic does not start inside a
 large platform implementation file.
 
-`contentVersion` is also the Git tag and GitHub Release version. Use its exact
-`NN.NNN.NNN` value without a `v` prefix; the release workflow rejects drift.
+### Versioning from `param.json`
+
+[`sce_sys/param.json`](sce_sys/param.json) is the only release-version source;
+there is no `project.json` or separate Semantic Version. The relevant structure
+is:
+
+```json
+{
+  "titleId": "PPSA99999",
+  "conceptId": "99999",
+  "contentId": "UP9000-PPSA99999_00-HELLOWORLD000001",
+  "contentVersion": "01.000.000",
+  "masterVersion": "01.00"
+}
+```
+
+- `contentVersion` is the application version, Git tag, and GitHub Release name.
+  It must use `NN.NNN.NNN` exactly, without a `v` prefix. Increment it for each
+  release; this project does not assign Semantic Versioning meaning to its
+  fields.
+- `masterVersion` is the compatible release baseline. Keep `01.00` unless a
+  release intentionally changes that compatibility baseline.
+- `titleId`, `conceptId`, and `contentId` identify the application rather than
+  its version. Keep them stable for updates to the same installed title; change
+  them together when creating a separate application.
+- `sdkVersion` and `requiredSystemSoftwareVersion` are loader/platform metadata,
+  not project release numbers.
+
+For a release, update `contentVersion`, commit the exact source, run the local
+gates, then tag and push that same commit:
+
+```bash
+git tag 01.002.003
+git push origin 01.002.003
+```
+
+The workflow rejects a tag that differs from `contentVersion` and publishes the
+verified folder, FFPKG, FFPFSC, `libc.prx`, and checksums under that version. See
+[Application configuration](docs/CONFIGURATION.md) for every metadata field.
 
 The target uses C++20 with exceptions and RTTI disabled. Allocation-free
 facilities such as `std::array`, `std::span`, and `std::string_view` are
