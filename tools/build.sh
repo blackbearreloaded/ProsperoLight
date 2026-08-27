@@ -177,8 +177,9 @@ for source in "${sources[@]}"; do
 done
 
 PS5_PAYLOAD_SDK="$sdk_root" sh "$root/tooling/prospero-clang18" \
-    -std=c11 -O2 -Wall -Wextra -ffunction-sections -fdata-sections \
-    -c "$native/app_crt.c" -o "$build/obj/app_crt.o"
+    -std=c++20 -O2 -Wall -Wextra -fno-exceptions -fno-rtti \
+    -ffunction-sections -fdata-sections \
+    -c "$native/app_crt.cpp" -o "$build/obj/app_crt.o"
 
 PS5_PAYLOAD_SDK="$sdk_root" sh "$root/tooling/prospero-clang18" \
     -std=c++20 -O2 -Wall -Wextra -fno-exceptions -fno-rtti \

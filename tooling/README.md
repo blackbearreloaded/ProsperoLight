@@ -5,7 +5,7 @@ thin platform-specific orchestrators. No C# or .NET runtime is required.
 
 The root build performs four native stages:
 
-1. `prospero-clang18` compiles application sources and `native/app_crt.c`.
+1. `prospero-clang18` compiles application sources and `native/app_crt.cpp`.
 2. LLVM lld resolves objects, static archives, public SDK import stubs,
    constructors, TLS, and unwind information into an intermediate PIE.
 3. `native/ps5-native-tool` converts that PIE to the PS5 ELF layout and wraps

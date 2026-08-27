@@ -323,7 +323,7 @@ tools/prepare-assets.ps1      Presentation conversion and validation
 tools/prepare-assets.sh       WSL Bash frontend for presentation conversion
 tools/validate-assets.sh      Portable Linux/WSL presentation validator
 tools/setup-pacbrew-dependencies.sh  Isolated PacBrew sysroot and flag resolver
-tooling/native/               C++ linker converter, allocation bridge, C ABI CRT, FSELF, and runtime builder
+tooling/native/               C++ linker converter, allocation bridge, startup runtime, FSELF, and runtime builder
 runtime/libc.prx.sha256       Expected digest for the generated loader shim
 tools/rebuild-libc.sh         Linux/WSL deterministic shim reproduction check
 tools/rebuild-libc.ps1        Windows deterministic shim reproduction check

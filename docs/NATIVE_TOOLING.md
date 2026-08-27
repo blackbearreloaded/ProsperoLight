@@ -32,7 +32,7 @@ the build no longer depends on a changing distribution package.
 
 | File | Purpose |
 | --- | --- |
-| `tooling/native/app_crt.c` | Native process startup and constructor handling |
+| `tooling/native/app_crt.cpp` | Native C++ process startup and constructor handling |
 | `tooling/native/app_cpp_runtime.cpp` | Minimal `new`/`delete` bridge to `malloc`, `free`, and `posix_memalign` |
 | `tooling/native/app-symbols.map` | Keeps replacement allocation operators internal to the application |
 | `tooling/native/ps5-pie.ld` | Non-overlapping intermediate PIE layout |
