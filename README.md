@@ -44,7 +44,7 @@ compatibility.
 | Presentation | Replaceable icon, 4K BC7 backgrounds, and ATRAC9 selection audio |
 | Third-party libraries | Optional pinned PacBrew sysroot with declarative static linking |
 | Root skeleton | C++20 graphical Hello World with RAII, bounded views, unique ownership, CPU-rendered text, shapes, and packaged data |
-| Validation | Host prerequisite checks and static ELF/FSELF inspection before release |
+| Validation | C++ unit tests, host integration tests, prerequisites, and static ELF/FSELF inspection |
 
 ## Quick start
 
@@ -95,7 +95,9 @@ fetched into `.deps/` automatically when their Make targets are requested.
 The first build fetches the pinned public PS5 payload SDK and zlib 1.3.2 source
 archives, verifies both digests, compiles zlib into the ignored
 `.deps/native/` cache, then generates the clean-room `runtime/libc.prx` from
-source. Check the host first with `make doctor`.
+source. Host unit tests similarly fetch a verified GoogleTest release into
+`.deps/test/`; GoogleTest is never linked into PS5 output. Check the host first
+with `make doctor`.
 
 ### Build the template
 
@@ -159,8 +161,8 @@ not app identity or release metadata. Keep those in `sce_sys/param.json`.
 
 Run `make help` to list the focused targets. `make deps` only prefetches native
 dependencies, `make libc` forces runtime reproduction, `make lint` runs
-clang-format and clang-tidy, `make test` runs the offline tooling checks, and
-`make packages` emits the folder, `.ffpkg`, and `.ffpfsc` forms. On Windows
+clang-format and clang-tidy, `make test` runs the host unit and integration
+suites, and `make packages` emits the folder, `.ffpkg`, and `.ffpfsc` forms. On Windows
 PowerShell, `./build.ps1` and
 `./tools/rebuild-libc.ps1` remain equivalent supported entry points.
 
@@ -325,7 +327,7 @@ tooling/native/               C++ linker converter, allocation bridge, C ABI CRT
 runtime/libc.prx.sha256       Expected digest for the generated loader shim
 tools/rebuild-libc.sh         Linux/WSL deterministic shim reproduction check
 tools/rebuild-libc.ps1        Windows deterministic shim reproduction check
-tests/                        Host-only metadata and deployment regression tests
+tests/                        Host-native C++ unit and tooling integration tests
 ```
 
 ## Documentation
@@ -333,6 +335,7 @@ tests/                        Host-only metadata and deployment regression tests
 | Document | Purpose |
 | --- | --- |
 | [Getting started](docs/GETTING_STARTED.md) | Host setup, first configuration, build, and output inspection |
+| [Testing](docs/TESTING.md) | Unit, host integration, and PS5 hardware-validation practices |
 | [Application configuration](docs/CONFIGURATION.md) | `param.json`, release tags, Games/Media category, sources, and libraries |
 | [Presentation assets](docs/PRESENTATION_ASSETS.md) | Icon, selection/launch images, ATRAC9 conversion, and format limits |
 | [PacBrew dependencies](docs/PACBREW.md) | Third-party PS5 libraries, selection, caching, and limits |
@@ -356,6 +359,7 @@ tests/                        Host-only metadata and deployment regression tests
 | [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) | Optional compressed `.ffpfsc` generation |
 | [sinajet/PSFFPKG](https://github.com/sinajet/PSFFPKG) | Public `.ffpkg` procedure used as a format reference |
 | [LLVM/Clang](https://github.com/llvm/llvm-project) | Native compiler |
+| [GoogleTest](https://github.com/google/googletest) | Pinned host-only C++ unit-test framework |
 | [zlib](https://zlib.net/) | Pinned source-built compression library used by the host FSELF tool |
 | [Microsoft DirectXTex](https://github.com/microsoft/DirectXTex) | `texconv` presentation-image preparation |
 | [FFmpeg](https://ffmpeg.org/) | Developer-supplied selection-audio preparation |

@@ -34,6 +34,9 @@ The first build downloads the pinned public
 1.3.2 source archive into `.deps/native/`. It verifies both archive digests and
 compiles a private static zlib without administrator privileges.
 
+`make test-unit` downloads and verifies GoogleTest 1.17.0 into `.deps/test/`.
+It is used only for Linux/WSL host tests and is never linked into PS5 output.
+
 Nothing is installed globally. Bare `make` invokes this bootstrapper
 automatically and later builds reuse the ignored cache. To prefetch without
 building:
@@ -177,10 +180,12 @@ make lint
 make
 ```
 
-Only `make` is required for a normal folder build. `make test` is an offline
-host-tool regression suite. The normal build fetches missing native
+Only `make` is required for a normal folder build. `make test` runs the C++
+GoogleTest and host tooling integration suites; use `make test-unit` or
+`make test-integration` to run one layer. The normal build fetches missing native
 dependencies, generates and verifies `runtime/libc.prx`, and builds the root
-application. Linting remains an explicit development check.
+application. Linting remains an explicit development check. See
+[Testing](TESTING.md) for test boundaries and PS5 validation practices.
 
 Windows PowerShell remains supported:
 

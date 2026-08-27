@@ -5,7 +5,8 @@ developer.
 
 Before opening a change:
 
-1. Run `make test` and `make lint`.
+1. Run `make test` and `make lint`; add a focused unit or integration regression
+   for behavior changed by the patch.
 2. Run `make`; it must reproduce the clean-room `runtime/libc.prx` digest.
 3. Confirm the build reports zero static FSELF errors.
 4. Do not commit `.env`, `build/`, `dist/`, `.local/`, proprietary PRXs, game files, SDK

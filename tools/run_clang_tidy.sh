@@ -23,6 +23,13 @@ mapfile -d '' host_sources < <(find "$root/tooling/native" -maxdepth 1 \
 "$tidy" "${host_sources[@]}" --quiet --warnings-as-errors='*' -- \
     -std=c++20 -I"$zlib"
 
+gtest=$(bash "$root/tools/setup-test-dependencies.sh")
+mapfile -d '' test_sources < <(find "$root/tests" -maxdepth 1 -type f -name '*.cpp' -print0)
+if (( ${#test_sources[@]} )); then
+    "$tidy" "${test_sources[@]}" --quiet --warnings-as-errors='*' -- \
+        -std=c++20 -I"$root/src" -isystem "$gtest/googletest/include"
+fi
+
 mapfile -d '' app_c_sources < <(find "$root/src" -type f -name '*.c' -print0)
 app_c_sources+=("$root/tooling/native/app_crt.c")
 "$tidy" "${app_c_sources[@]}" --quiet --warnings-as-errors='*' -- \

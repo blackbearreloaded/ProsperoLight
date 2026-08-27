@@ -62,8 +62,11 @@ jobs:
       - name: Lint source and metadata
         run: make lint
 
-      - name: Run host-only regression tests
-        run: make test
+      - name: Run host GoogleTest suite
+        run: make test-unit
+
+      - name: Run host integration tests
+        run: make test-integration
 
       - name: Reproduce clean-room runtime shim
         run: make libc

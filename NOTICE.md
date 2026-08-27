@@ -21,6 +21,14 @@ The project’s PS5 ELF converter and FSELF writer are independently authored
 GPL-3.0-or-later code. SharpProspero was a useful public format reference during
 development but is not fetched, copied, linked, or required by the build.
 
+## Host test dependency
+
+The host unit-test target downloads
+[GoogleTest](https://github.com/google/googletest) 1.17.0 after verifying
+SHA-256 `65fab701d9829d38cb77c14acdc431d2108bfdbf8979e40eb8ae567edf10b27c`.
+It remains under ignored `.deps/test/`, retains its BSD-3-Clause license, and
+is not linked into any PS5 application, runtime, or package artifact.
+
 ## Optional PacBrew dependencies
 
 When selected through `PACBREW_*` build variables, the build downloads the prebuilt ports image

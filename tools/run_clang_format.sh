@@ -14,7 +14,7 @@ if [[ -z $formatter ]]; then
 fi
 [[ -n $formatter ]] || { echo "clang-format is required" >&2; exit 2; }
 
-mapfile -d '' sources < <(find "$root/src" "$root/tooling/native" -type f \
+mapfile -d '' sources < <(find "$root/src" "$root/tooling/native" "$root/tests" -type f \
     \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \) \
     -print0)
 if [[ ${1:-} == --check ]]; then
