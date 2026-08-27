@@ -113,18 +113,20 @@ jobs:
           set -euo pipefail
           cd release
           shopt -s nullglob
-          images=(PPSA*.ffpfsc)
-          ufs_images=(PPSA*.ffpkg)
-          app_dirs=(PPSA*/)
+          images=(dist/PPSA*.ffpfsc)
+          ufs_images=(dist/PPSA*.ffpkg)
+          app_dirs=(dist/PPSA*/)
           runtime="runtime/libc.prx"
           if (( ${#images[@]} != 1 || ${#ufs_images[@]} != 1 || ${#app_dirs[@]} != 1 )) || [[ ! -f $runtime ]]; then
             echo "Expected one FFPFSC image, one FFPKG image, one app folder, and libc.prx." >&2
             exit 1
           fi
-          title_id="${app_dirs[0]%/}"
+          title_id="${app_dirs[0]#dist/}"
+          title_id="${title_id%/}"
           folder_archive="${title_id}-folder.zip"
-          python3 -m zipfile -c "$folder_archive" "$title_id"
-          sha256sum "${images[0]}" "${ufs_images[0]}" "$folder_archive" > SHA256SUMS
+          (cd dist && python3 -m zipfile -c "../$folder_archive" "$title_id")
+          sha256sum "${images[0]}" "${ufs_images[0]}" "$folder_archive" |
+            sed 's#  dist/#  #' > SHA256SUMS
           sha256sum "$runtime" | sed 's#  runtime/libc.prx#  libc.prx#' >> SHA256SUMS
           echo "image=${images[0]}" >> "$GITHUB_OUTPUT"
           echo "ufs_image=${ufs_images[0]}" >> "$GITHUB_OUTPUT"
