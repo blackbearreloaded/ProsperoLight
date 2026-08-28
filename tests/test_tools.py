@@ -38,6 +38,16 @@ class ToolTests(unittest.TestCase):
             "#define pthread_setname_np ps5_pthread_setname_noop", compatibility
         )
 
+    def test_stream_opens_pad_after_decoder_loading_worker_stops(self):
+        source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        early_loading = source.index(
+            "start_connection_loading(&loading, NULL, 0, mode->hdr, NULL)"
+        )
+        early_loading_stop = source.index("stop_connection_loading();", early_loading)
+        pad_init = source.index("controller_ready = ps5_controller_init(&controller)")
+        self.assertLess(early_loading, early_loading_stop)
+        self.assertLess(early_loading_stop, pad_init)
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),

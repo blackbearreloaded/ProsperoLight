@@ -1859,6 +1859,9 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
                         options ? options->stream_resolution : MOONLIGHT_STREAM_RESOLUTION_1080P,
                         options ? options->hdr_enabled : 0u);
 
+    controller.user_service_result = -1;
+    controller.user_result = -1;
+    controller.pad_init_result = -1;
     controller.handle = -1;
     controller.arrival_result = -1;
     controller.removal_result = -1;
@@ -1872,16 +1875,7 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         return -1;
     lan_http_report_set_host(host);
 
-    controller_ready = ps5_controller_init(&controller) == 0;
-    snprintf(notification.message, sizeof(notification.message),
-             "Moonlight controller init: ready=%d user_service=%08x user=%08x pad_init=%08x "
-             "handle=%08x launch_mask=%x",
-             controller_ready, (uint32_t)controller.user_service_result,
-             (uint32_t)controller.user_result, (uint32_t)controller.pad_init_result,
-             (uint32_t)controller.handle, controller_ready ? 1 : 0);
-    (void)lan_http_report_text(notification.message);
-    result = start_connection_loading(&loading, NULL, 0, mode->hdr,
-                                      controller_ready ? &controller : NULL);
+    result = start_connection_loading(&loading, NULL, 0, mode->hdr, NULL);
     if (result != 0)
         goto done;
 
@@ -2054,6 +2048,14 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     stream_config.colorSpace = mode->hdr ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
     stream_config.colorRange = COLOR_RANGE_LIMITED;
     stream_config.encryptionFlags = ENCFLG_NONE;
+    controller_ready = ps5_controller_init(&controller) == 0;
+    snprintf(notification.message, sizeof(notification.message),
+             "Moonlight controller init: ready=%d user_service=%08x user=%08x pad_init=%08x "
+             "handle=%08x launch_mask=%x",
+             controller_ready, (uint32_t)controller.user_service_result,
+             (uint32_t)controller.user_result, (uint32_t)controller.pad_init_result,
+             (uint32_t)controller.handle, controller_ready ? 1 : 0);
+    (void)lan_http_report_text(notification.message);
     result = start_connection_loading(&loading, frame_memory, frame_size, mode->hdr,
                                       controller_ready ? &controller : NULL);
     snprintf(notification.message, sizeof(notification.message),
