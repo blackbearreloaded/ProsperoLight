@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <stddef.h>
+#include <stdarg.h>
 #include <atomic>
 #include <stdint.h>
 #include <stdio.h>
@@ -1584,6 +1585,32 @@ static void connection_stage_starting(int stage)
     (void)lan_http_report_text(receipt);
 }
 
+static void connection_stage_complete(int stage)
+{
+    char receipt[256];
+
+    snprintf(receipt, sizeof(receipt), "Moonlight connection stage complete %d: %s", stage,
+             LiGetStageName(stage));
+    (void)lan_http_report_text(receipt);
+}
+
+static void connection_log(const char *format, ...)
+{
+    char message[320];
+    char receipt[352];
+    va_list arguments;
+    size_t length;
+
+    va_start(arguments, format);
+    (void)vsnprintf(message, sizeof(message), format, arguments);
+    va_end(arguments);
+    length = strlen(message);
+    while (length && (message[length - 1] == '\n' || message[length - 1] == '\r'))
+        message[--length] = '\0';
+    snprintf(receipt, sizeof(receipt), "Moonlight[C] %s", message);
+    (void)lan_http_report_text(receipt);
+}
+
 static void connection_stage_failed(int stage, int error)
 {
     char receipt[256];
@@ -1631,11 +1658,11 @@ static void connection_set_hdr_mode(bool enabled)
 
 static CONNECTION_LISTENER_CALLBACKS moonlight_connection_callbacks = {
     .stageStarting = connection_stage_starting,
-    .stageComplete = nullptr,
+    .stageComplete = connection_stage_complete,
     .stageFailed = connection_stage_failed,
     .connectionStarted = connection_started,
     .connectionTerminated = connection_ended,
-    .logMessage = nullptr,
+    .logMessage = connection_log,
     .rumble = nullptr,
     .connectionStatusUpdate = nullptr,
     .setHdrMode = connection_set_hdr_mode,
