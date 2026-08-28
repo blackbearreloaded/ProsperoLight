@@ -31,16 +31,16 @@ settings.
    DualSense input.
 5. Toggle the metrics overlay with `Select + R1`, then return using
    `Select + L1`. Confirm no debug text is left in the launcher.
-6. In Notepad or another harmless text field, press `Select + Triangle`, submit
-   a non-secret test string with the native PS5 keyboard, and confirm the text
-   plus Enter reach the host. Then repeat privately at Windows sign-in with the
-   real password and confirm no text appears in diagnostics or persistent
-   storage.
+6. At Windows sign-in, press `Select + Triangle` and confirm the Windows
+   On-Screen Keyboard toggles and a PS5 notification appears. Press
+   `Select + Square` for mouse mode, click the on-screen keys privately, and
+   confirm the password is never present in ProsperoLight diagnostics or
+   storage. Toggle both keyboard and controller mode off again.
 7. Launch and stop a non-Desktop Sunshine application. Repeat a launch after
    returning to the launcher; a failed or stalled session must return with a
    useful error rather than remain black.
-8. Test mouse emulation by holding and releasing `Options`, then return to
-   controller mode. Confirm both modes still accept input.
+8. Test mouse emulation using `Select + Square`, then return to controller
+   mode with the same shortcut. Confirm both modes still accept input.
 9. If the host supports them, test HEVC and HDR separately. Verify image,
    audio, input, cleanup, and recovery; do not treat HDR audio-only output as a
    pass.

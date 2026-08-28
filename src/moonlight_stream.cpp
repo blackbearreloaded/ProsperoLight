@@ -22,7 +22,6 @@
 #include "moonlight_stream.hpp"
 #include "moonlight_config.hpp"
 #include "moonlight_stream_input.hpp"
-#include "radio_ime.hpp"
 #include "lan_http_report.hpp"
 #include "native_agc_present.hpp"
 #include "gamestream/certgen.h"
@@ -275,11 +274,10 @@ typedef struct ps5_controller_state
     controller_event_t last_event;
     controller_event_t mouse_event;
     uint64_t last_event_us;
-    uint64_t options_down_us, next_mouse_motion_us;
+    uint64_t next_mouse_motion_us;
     uint8_t connected_count;
     uint8_t connected_count_valid;
     int announced;
-    int options_down_valid;
     int mouse_mode;
     std::atomic<int> requested_stop;
     ps5_pad_sample_t sample_batch[PS5_PAD_SAMPLE_CAPACITY];
@@ -1424,37 +1422,38 @@ static void ps5_controller_set_mouse_mode(ps5_controller_state_t *state, int ena
         state->last_event_us = 0;
     }
     snprintf(notification.message, sizeof(notification.message),
-             "ProsperoLight: %s mode enabled. Hold Options to switch to %s.",
+             "ProsperoLight: %s mode enabled. Select + Square switches to %s.",
              state->mouse_mode ? "Mouse" : "Controller",
              state->mouse_mode ? "controller" : "mouse");
     (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
     (void)lan_http_report_text(notification.message);
 }
 
-static void ps5_keyboard_submit(const char *text, void *)
+static void ps5_toggle_windows_keyboard(void)
 {
-    int text_result = 0;
-    int enter_down_result = 0;
-    int enter_up_result = 0;
+    const short left_windows = (short)(0x8000u | 0x5bu);
+    const short left_control = (short)(0x8000u | 0xa2u);
+    const short letter_o = (short)(0x8000u | 0x4fu);
+    int errors = 0;
 
-    if (text != NULL && text[0] != '\0')
-        text_result = LiSendUtf8TextEvent(text, (unsigned int)strlen(text));
-    if (text_result == 0)
-    {
-        enter_down_result = LiSendKeyboardEvent(0x0d, KEY_ACTION_DOWN, 0);
-        enter_up_result = LiSendKeyboardEvent(0x0d, KEY_ACTION_UP, 0);
-    }
+    errors += LiSendKeyboardEvent(left_windows, KEY_ACTION_DOWN, 0) != 0;
+    errors += LiSendKeyboardEvent(left_control, KEY_ACTION_DOWN, MODIFIER_META) != 0;
+    errors += LiSendKeyboardEvent(letter_o, KEY_ACTION_DOWN, MODIFIER_META | MODIFIER_CTRL) != 0;
+    errors += LiSendKeyboardEvent(letter_o, KEY_ACTION_UP, MODIFIER_META | MODIFIER_CTRL) != 0;
+    errors += LiSendKeyboardEvent(left_control, KEY_ACTION_UP, MODIFIER_META) != 0;
+    errors += LiSendKeyboardEvent(left_windows, KEY_ACTION_UP, 0) != 0;
     snprintf(notification.message, sizeof(notification.message),
-             text_result == 0 && enter_down_result == 0 && enter_up_result == 0
-                 ? "ProsperoLight: Text sent to Windows."
-                 : "ProsperoLight: Could not send text to Windows.");
+             errors == 0 ? "ProsperoLight: Windows keyboard toggled."
+                         : "ProsperoLight: Could not toggle the Windows keyboard.");
     (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
+    (void)lan_http_report_text(notification.message);
 }
 
 static void ps5_controller_poll(ps5_controller_state_t *state)
 {
     static const uint32_t hud_chord = PS5_PAD_BUTTON_TOUCH_PAD | PS5_PAD_BUTTON_R1;
     static const uint32_t keyboard_chord = PS5_PAD_BUTTON_TOUCH_PAD | PS5_PAD_BUTTON_TRIANGLE;
+    static const uint32_t mouse_chord = PS5_PAD_BUTTON_TOUCH_PAD | PS5_PAD_BUTTON_SQUARE;
     static const controller_event_t neutral_event = {};
     int count;
 
@@ -1489,7 +1488,6 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
         controller_event_t event;
         uint32_t raw_buttons = sample->buttons;
         uint32_t mouse_buttons;
-        uint64_t sample_time_us;
         int mouse_toggle;
         int intercepted = (raw_buttons & PS5_PAD_BUTTON_INTERCEPTED) != 0;
         int neutral = !sample->connected || intercepted;
@@ -1503,24 +1501,12 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
             state->connected_count = sample->connected_count;
             state->connected_count_valid = 1;
             state->last_raw_buttons = 0;
-            state->options_down_valid = 0;
             ps5_controller_release_mouse_buttons(state);
         }
         if (neutral)
             raw_buttons = 0;
-        sample_time_us = sample->timestamp_us ? sample->timestamp_us : monotonic_us();
-        if ((raw_buttons & PS5_PAD_BUTTON_OPTIONS) != 0 &&
-            (state->last_raw_buttons & PS5_PAD_BUTTON_OPTIONS) == 0)
-        {
-            state->options_down_us = sample_time_us;
-            state->options_down_valid = 1;
-        }
-        mouse_toggle = state->options_down_valid && moonlight_stream_mouse_toggle_released(
-                                                        state->last_raw_buttons, raw_buttons,
-                                                        state->options_down_us, sample_time_us);
-        if ((state->last_raw_buttons & PS5_PAD_BUTTON_OPTIONS) != 0 &&
-            (raw_buttons & PS5_PAD_BUTTON_OPTIONS) == 0)
-            state->options_down_valid = 0;
+        mouse_toggle = moonlight_stream_mouse_toggle_requested(raw_buttons) &&
+                       !moonlight_stream_mouse_toggle_requested(state->last_raw_buttons);
 
         if (moonlight_stream_disconnect_requested(raw_buttons))
         {
@@ -1534,17 +1520,11 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
             sample->buttons &= ~hud_chord;
         if (moonlight_stream_keyboard_requested(raw_buttons) &&
             !moonlight_stream_keyboard_requested(state->last_raw_buttons))
-        {
-            if (!radio_ime_request_password("Windows sign-in", "Enter your Windows password",
-                                            ps5_keyboard_submit, NULL))
-            {
-                snprintf(notification.message, sizeof(notification.message),
-                         "ProsperoLight: PS5 keyboard is unavailable.");
-                (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
-            }
-        }
+            ps5_toggle_windows_keyboard();
         if (moonlight_stream_keyboard_requested(raw_buttons))
             sample->buttons &= ~keyboard_chord;
+        if (moonlight_stream_mouse_toggle_requested(raw_buttons))
+            sample->buttons &= ~mouse_chord;
 
         event = ps5_controller_map_sample(sample, neutral);
         mouse_buttons = neutral ? 0 : sample->buttons;
@@ -1850,7 +1830,6 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     int identity_initialized = 0;
     int session_started = 0;
     int controller_ready = 0;
-    int ime_ready = 0;
     int first_frame_timed_out = 0;
     int terminated = 0;
     int reported_error = 0;
@@ -2117,13 +2096,6 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         goto done;
     }
     connection_active = 1;
-    ime_ready = radio_ime_init();
-    if (!ime_ready)
-    {
-        snprintf(notification.message, sizeof(notification.message),
-                 "ProsperoLight: PS5 keyboard is unavailable for this stream.");
-        (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
-    }
     first_frame_wait_start_us = monotonic_us();
     if (options && options->synthetic_motion)
         synthetic_motion_next_us = monotonic_us();
@@ -2148,8 +2120,6 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         }
         if (controller_ready)
             ps5_controller_poll(&controller);
-        if (ime_ready)
-            radio_ime_poll();
         if (std::atomic_load_explicit(&renderer.presented, std::memory_order_relaxed) == 0 &&
             monotonic_us() - first_frame_wait_start_us >= FIRST_VIDEO_FRAME_TIMEOUT_US)
         {
@@ -2229,11 +2199,6 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     (void)lan_http_report_text(notification.message);
 
 done:
-    if (ime_ready)
-    {
-        radio_ime_shutdown();
-        ime_ready = 0;
-    }
     if (result != 0 && !controller.requested_stop)
     {
         if (std::atomic_load_explicit(&loading.timed_out, std::memory_order_relaxed))

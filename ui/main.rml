@@ -136,7 +136,7 @@
                         <span class="setting-name">HDR</span><span id="setting-hdr-help" class="setting-help">Experimental 1080p HEVC Main10 / BT.2020 PQ</span>
                         <span id="setting-hdr-value" class="setting-value">Off / SDR</span>
                     </button>
-                    <span id="settings-note" class="settings-note">In stream: Select+Triangle keyboard; Select+R1 stats; Select+L1 return.</span>
+                    <span id="settings-note" class="settings-note">Stream shortcuts: Select+Triangle keyboard; Select+Square mouse; Select+R1 stats; Select+L1 return.</span>
                 </section>
 
                 <section id="screen-diagnostics" class="screen hidden">

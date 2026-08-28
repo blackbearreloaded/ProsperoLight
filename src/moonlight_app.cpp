@@ -1042,11 +1042,8 @@ void MoonlightApp::UpdateSettings()
                 ? "1440p decode is proven; live Sunshine validation is next"
                 : "1080p60 live Sunshine path is hardware accepted");
     SetText(document_, "settings-note",
-            config_.hdr_enabled
-                ? "HDR session. Select+Triangle keyboard; Select+R1 stats; Select+L1 return."
-            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P
-                ? "4K60 session. Select+Triangle keyboard; Select+R1 stats; Select+L1 return."
-                : "In stream: Select+Triangle keyboard; Select+R1 stats; Select+L1 return.");
+            "Stream shortcuts: Select+Triangle keyboard; Select+Square mouse; Select+R1 stats; "
+            "Select+L1 return.");
 }
 
 void MoonlightApp::HandleInput(const radio_input_event_t &event)
