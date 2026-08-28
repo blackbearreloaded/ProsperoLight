@@ -139,12 +139,13 @@ mistaken for the current application.
 
 ## Smoke test
 
-The default skeleton hides the splash screen, renders the Hello World frame,
-loads `/app0/assets/banner.txt`, and remains alive. Close it through the
-home-screen interface.
+For ProsperoLight, use the fresh-title validation sequence in
+[VALIDATION.md](VALIDATION.md): open the launcher, pair once, launch Desktop,
+verify video/audio/input, toggle metrics and return-to-launcher shortcuts, then
+exercise a non-Desktop app. A failed stream must return to the launcher with a
+useful message rather than leave a black screen.
 
-The skeleton intentionally keeps `main` alive. Do not return from `main` or
-call an exit function unless the target loader and application lifecycle
-explicitly support that path.
+The application intentionally remains alive while the launcher or a stream is
+active. Close it through the home-screen interface before updating its folder.
 
 If launch fails, see [Troubleshooting](TROUBLESHOOTING.md).
