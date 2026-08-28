@@ -67,9 +67,11 @@ The public SDK's libc++ headers provide zero-cost vocabulary types and
 `std::unique_ptr`; the build does not link the full libc++, libc++abi, or unwind
 archives. Repository-owned replacement allocation operators use the clean-room
 runtime for small objects and anonymous page mappings for allocations of 64 KiB
-or more. This keeps expanded RmlUi textures out of the bounded libc heap. The
-operators are localized before PS5 conversion, so they do not become
-loader-visible application exports.
+or more. All returned storage is at least 32-byte aligned because optimized
+RmlUi constructors use aligned AVX stores. This keeps expanded RmlUi textures
+out of the bounded libc heap without weakening the platform allocation
+contract. The operators are localized before PS5 conversion, so they do not
+become loader-visible application exports.
 
 Throwing `new` deliberately traps on allocation failure. Nothrow allocation
 returns `nullptr`. Prefer value semantics and allocation-free RAII in steady

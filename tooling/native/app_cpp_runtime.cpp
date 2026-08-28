@@ -29,15 +29,18 @@ namespace
 // and place bulk buffers in page-backed anonymous mappings.
 constexpr std::size_t kMappedAllocationThreshold = 64 * 1024;
 constexpr std::size_t kDirectMemoryPageSize = 0x4000;
+constexpr std::size_t kAllocationAlignment = 32;
 constexpr std::uint64_t kAllocationMagic = UINT64_C(0x50524F535045524F);
 constexpr int kProtectionReadWrite = 3;
 constexpr int kMapPrivateAnonymous = 0x1002;
 
-struct alignas(std::max_align_t) AllocationHeader
+struct alignas(kAllocationAlignment) AllocationHeader
 {
     std::uint64_t magic;
     std::size_t mapped_size;
 };
+
+static_assert(sizeof(AllocationHeader) == kAllocationAlignment);
 
 [[nodiscard]] void *allocate(std::size_t size) noexcept
 {
@@ -61,7 +64,9 @@ struct alignas(std::max_align_t) AllocationHeader
     }
     else
     {
-        header = static_cast<AllocationHeader *>(malloc(total));
+        void *storage = nullptr;
+        if (posix_memalign(&storage, kAllocationAlignment, total) == 0)
+            header = static_cast<AllocationHeader *>(storage);
     }
     if (!header)
         return nullptr;
