@@ -107,6 +107,9 @@ if ($null -eq $procParam) { $errors.Add("PT_SCE_PROCPARAM is missing.") }
 if ($null -eq $linkingLoad) { $errors.Add("The flags-zero linking LOAD is missing.") }
 foreach ($load in $mappedLoads) {
     if ($load.Align -ne 0x4000) { $errors.Add("Mapped LOAD $($load.Index) is not 0x4000 aligned.") }
+    if (($load.Offset % $load.Align) -ne ($load.Address % $load.Align)) {
+        $errors.Add("Mapped LOAD $($load.Index) has incongruent file offset and address.")
+    }
     if ($load.MemorySize -lt $load.FileSize) { $errors.Add("LOAD $($load.Index) has memsz smaller than filesz.") }
     if ($load.Flags -notin @(1, 4, 6)) { $errors.Add("LOAD $($load.Index) has unsupported flags $($load.Flags).") }
 }

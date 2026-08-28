@@ -12,10 +12,9 @@ designed to keep decoded video on the GPU until presentation.
 
 ## Current port status
 
-The port builds as a native PS5 application from this repository. Hardware
-smoke validation is still required for this new title before treating the port
-as a release candidate. The current identity is `PPSA77003`, content version
-`01.000.007`, and title `ProsperoLight`.
+The port builds and passes a native PS5 launch/close smoke test from this
+repository. The current identity is `PPSA77003`, content version `01.000.007`,
+and title `ProsperoLight`.
 
 This fresh title has its own PS5 application data. Pair it once after
 installation; existing pairing data from another title is intentionally not
