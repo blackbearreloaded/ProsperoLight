@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* LAN-only development telemetry. Keep this off the decode/present hot path. */
+/* LAN-only development telemetry. Disabled in normal builds. */
 
 #include "lan_http_report.hpp"
 
@@ -12,6 +12,11 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#ifndef PROSPEROLIGHT_LAN_TELEMETRY
+#define PROSPEROLIGHT_LAN_TELEMETRY 0
+#endif
+
+#if PROSPEROLIGHT_LAN_TELEMETRY
 #define REPORT_PORT 8767
 #define NET_IPV4(a, b, c, d)                                                                       \
     ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
@@ -62,9 +67,11 @@ static int send_all(int socket, const void *data, size_t length)
     }
     return 0;
 }
+#endif
 
 void lan_http_report_set_host(const char *host)
 {
+#if PROSPEROLIGHT_LAN_TELEMETRY
     unsigned a, b, c, d;
     char extra;
 
@@ -75,10 +82,14 @@ void lan_http_report_set_host(const char *host)
         return;
     report_address = NET_IPV4(a, b, c, d);
     snprintf(report_host, sizeof(report_host), "%u.%u.%u.%u", a, b, c, d);
+#else
+    (void)host;
+#endif
 }
 
 int lan_http_report_text(const char *message)
 {
+#if PROSPEROLIGHT_LAN_TELEMETRY
     char request[256];
     size_t message_length;
     int request_length;
@@ -114,4 +125,8 @@ int lan_http_report_text(const char *message)
         result = send_all(socket, message, message_length);
     (void)sceNetSocketClose(socket);
     return result == 0 ? 0 : -4;
+#else
+    (void)message;
+    return 0;
+#endif
 }

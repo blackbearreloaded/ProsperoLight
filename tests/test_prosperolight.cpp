@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+#include "lan_http_report.hpp"
 #include "moonlight_stream_input.hpp"
 #include "moonlight_stream_keyboard.hpp"
 #include "moonlight_config.hpp"
@@ -50,6 +51,12 @@ extern "C"
 
 namespace
 {
+TEST(LanTelemetry, NormalBuildIsAnImmediateNoOp)
+{
+    lan_http_report_set_host("203.0.113.1");
+    EXPECT_EQ(lan_http_report_text("must not open a socket"), 0);
+}
+
 TEST(StreamShortcuts, SelectL1ReturnsToLauncher)
 {
     EXPECT_TRUE(

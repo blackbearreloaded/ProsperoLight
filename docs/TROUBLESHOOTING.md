@@ -110,6 +110,16 @@ Nothing is installed globally by these optional bootstrappers.
 - The launcher includes the failed TCP stage and numeric error in its refresh
   message. Preserve that text when reporting a failure.
 
+## Launching a stream stays black before the Connecting screen
+
+Normal and release builds keep the optional LAN telemetry sink disabled. Older
+development builds tried to open TCP port `8767` on the selected Sunshine host
+before decoder setup; a silently filtered connection could block before the
+loading renderer and `Select + L1` monitor were available.
+
+Only diagnostics workstations running the telemetry receiver should build with
+`LAN_TELEMETRY=1`. Never enable it in a distributed package.
+
 ## Pairing says that Sunshine has an active session
 
 Sunshine only permits pairing while its server state is idle. A host can remain

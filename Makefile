@@ -7,7 +7,9 @@ SHELL := /bin/bash
 
 -include .env
 
+LAN_TELEMETRY ?= 0
 APP_DEFINITIONS ?= SDL_MAIN_HANDLED SDL_STATIC_LIB USING_GENERATED_CONFIG_H RMLUI_STATIC_LIB
+APP_DEFINITIONS += PROSPEROLIGHT_LAN_TELEMETRY=$(LAN_TELEMETRY)
 APP_INCLUDE_PATHS ?= vendor/ps5/sdl/include vendor/ps5/rmlui/include include src src/gamestream platform/ps5 third_party/moonlight-common-c/src third_party/moonlight-common-c/enet/include third_party/moonlight-common-c/nanors third_party/moonlight-common-c/nanors/deps third_party/moonlight-common-c/nanors/deps/obl third_party/mbedtls/include third_party/opus/include
 APP_STATIC_ARCHIVES ?= vendor/ps5/sdl/lib/libSDL2.a vendor/ps5/rmlui/lib/librmlui.a vendor/ps5/freetype/lib/libfreetype.a build/stream-deps/libmoonlight-common-c.a build/stream-deps/libopus.a build/stream-deps/libmbedtls.a build/stream-deps/libmbedx509.a build/stream-deps/libmbedcrypto.a vendor/ps5/sdk/lib/libunwind.a vendor/ps5/sdk/lib/libcxx.a vendor/ps5/sdk/lib/libcxxabi.a
 APP_RUNTIME_MODULES ?=
@@ -76,6 +78,7 @@ test-unit: $(HOST_UNIT_TEST) $(HOST_RUNTIME_TEST)
 
 $(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_config.hpp \
 		include/moonlight_stream_input.hpp src/moonlight_config.cpp \
+		include/lan_http_report.hpp src/lan_http_report.cpp \
 		tools/setup-test-dependencies.sh | test-deps
 	@printf '%s\n' '==> [test-unit] Compiling the host-native GoogleTest binary'
 	@mkdir -p -- $(@D)
@@ -88,7 +91,7 @@ $(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_config.hpp \
 			-c "$$gtest/googletest/src/gtest_main.cc" -o $(@D)/gtest-main.o; \
 		$(HOST_CXX) $(HOST_TEST_CXXFLAGS) -pthread -Iinclude \
 			-isystem "$$gtest/googletest/include" \
-			tests/test_prosperolight.cpp src/moonlight_config.cpp \
+			tests/test_prosperolight.cpp src/moonlight_config.cpp src/lan_http_report.cpp \
 			$(@D)/gtest-all.o $(@D)/gtest-main.o \
 			$(HOST_TEST_LDFLAGS) -o $@
 
@@ -211,6 +214,7 @@ help:
 	  'make undeploy PS5_HOST=<address>  Remove this title from /data/homebrew' \
 	  'Build variables:     APP_DEFINITIONS, APP_INCLUDE_PATHS, APP_STATIC_ARCHIVES, APP_RUNTIME_MODULES' \
 	  'PacBrew variables:   PACBREW_PACKAGES, PACBREW_INCLUDE_PATHS, PACBREW_STATIC_ARCHIVES' \
+	  'Diagnostics:         LAN_TELEMETRY=1 enables the optional port-8767 development sink' \
 	  'Deploy variables:    FTP_PORT=2121, DEPLOY_FORMAT=folder|ffpfsc|ffpkg, DEPLOY_DRY_RUN=0|1' \
 	  'Local defaults:      Copy .env.example to the ignored .env file' \
 	  'make clean           Remove build/, dist/, and generated libc.prx' \

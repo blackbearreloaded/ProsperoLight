@@ -141,3 +141,12 @@ The folder candidate was deployed to `PPSA77003`; the launch request was
 accepted and both payload and FTP services remained healthy after cleanup.
 This Windows session could not capture Chiaki's render window, so the 82%
 opacity and revised placement still require direct TV/Chiaki visual acceptance.
+
+Content version `01.000.025` disables the optional blocking TCP telemetry sink
+in normal builds. A `01.000.024` reproduction entered a black frame before the
+Connecting renderer, produced no first-stage receipt, remained alive until an
+explicit title-aware close, and left FTP, klog, and loader services healthy.
+The first stream-stage action was a synchronous port-8767 telemetry connection
+with no deadline. The production build now compiles that path to an immediate
+no-op; `LAN_TELEMETRY=1` is reserved for bounded diagnostics with a receiver
+already running.
