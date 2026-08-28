@@ -12,6 +12,7 @@
 #define MOONLIGHT_PS5_PAD_L1        UINT32_C(0x000400)
 #define MOONLIGHT_PS5_PAD_R1        UINT32_C(0x000800)
 #define MOONLIGHT_PS5_PAD_OPTIONS   UINT32_C(0x000008)
+#define MOONLIGHT_PS5_PAD_TRIANGLE  UINT32_C(0x001000)
 #define MOONLIGHT_PS5_PAD_SELECT    UINT32_C(0x100000)
 
 #define MOONLIGHT_MOUSE_EMULATION_LONG_PRESS_US UINT64_C(750000)
@@ -28,6 +29,13 @@ static inline int moonlight_stream_hud_toggle_requested(uint32_t buttons)
 {
     const uint32_t mask = MOONLIGHT_PS5_PAD_SELECT |
                           MOONLIGHT_PS5_PAD_R1;
+    return (buttons & mask) == mask;
+}
+
+static inline int moonlight_stream_keyboard_requested(uint32_t buttons)
+{
+    const uint32_t mask = MOONLIGHT_PS5_PAD_SELECT |
+                          MOONLIGHT_PS5_PAD_TRIANGLE;
     return (buttons & mask) == mask;
 }
 

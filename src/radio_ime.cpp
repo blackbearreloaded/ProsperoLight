@@ -12,10 +12,15 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
 
 #define SCE_SYSMODULE_IME_DIALOG UINT16_C(0x0096)
 #define SCE_COMMON_DIALOG_ALREADY_INITIALIZED UINT32_C(0x80B80002)
-#define IME_TEXT_CHARACTERS 39U
+#define IME_TEXT_CHARACTERS 127U
+#define IME_OPTION_NO_AUTO_CAPITALIZATION UINT32_C(0x00000002)
+#define IME_OPTION_PASSWORD UINT32_C(0x00000004)
+#define IME_OPTION_NO_LEARNING UINT32_C(0x00000020)
+#define IME_OPTION_DISABLE_COPY_PASTE UINT32_C(0x00000080)
 
 typedef struct
 {
@@ -62,15 +67,35 @@ extern "C"
 static bool module_loaded;
 static bool requested;
 static bool active;
-static uint32_t started_at;
+static uint64_t started_at;
 static char initial_text[IME_TEXT_CHARACTERS * 4U + 1U];
 static char requested_placeholder[96];
 static char requested_title[64];
+static uint32_t requested_option;
+static int32_t requested_enter_label;
 static uint16_t text_buffer[IME_TEXT_CHARACTERS + 1U];
 static uint16_t placeholder[96];
 static uint16_t title[64];
 static radio_ime_result_fn result_callback;
 static void *result_user_data;
+
+static uint64_t monotonic_milliseconds(void)
+{
+    struct timespec now = {};
+    (void)clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * UINT64_C(1000) + (uint64_t)now.tv_nsec / UINT64_C(1000000);
+}
+
+static void clear_sensitive_text(void)
+{
+    volatile unsigned char *initial = (volatile unsigned char *)initial_text;
+    volatile unsigned char *utf16 = (volatile unsigned char *)text_buffer;
+
+    for (size_t index = 0; index < sizeof(initial_text); ++index)
+        initial[index] = 0;
+    for (size_t index = 0; index < sizeof(text_buffer); ++index)
+        utf16[index] = 0;
+}
 
 static void utf8_to_utf16(const char *source, uint16_t *output, size_t capacity)
 {
@@ -179,20 +204,39 @@ bool radio_ime_init(void)
     return true;
 }
 
-bool radio_ime_request(const char *value, const char *dialog_title, const char *dialog_placeholder,
-                       radio_ime_result_fn callback, void *user_data)
+static bool request_with_option(const char *value, const char *dialog_title,
+                                const char *dialog_placeholder, uint32_t option,
+                                int32_t enter_label, radio_ime_result_fn callback, void *user_data)
 {
     if (active || requested || !module_loaded)
         return false;
+    clear_sensitive_text();
     SDL_strlcpy(initial_text, value != NULL ? value : "", sizeof(initial_text));
     SDL_strlcpy(requested_title, dialog_title != NULL ? dialog_title : "Text entry",
                 sizeof(requested_title));
     SDL_strlcpy(requested_placeholder, dialog_placeholder != NULL ? dialog_placeholder : "",
                 sizeof(requested_placeholder));
+    requested_option = option;
+    requested_enter_label = enter_label;
     result_callback = callback;
     result_user_data = user_data;
     requested = true;
     return true;
+}
+
+bool radio_ime_request(const char *value, const char *dialog_title, const char *dialog_placeholder,
+                       radio_ime_result_fn callback, void *user_data)
+{
+    return request_with_option(value, dialog_title, dialog_placeholder, 0, 2, callback, user_data);
+}
+
+bool radio_ime_request_password(const char *dialog_title, const char *dialog_placeholder,
+                                radio_ime_result_fn callback, void *user_data)
+{
+    const uint32_t option = IME_OPTION_NO_AUTO_CAPITALIZATION | IME_OPTION_PASSWORD |
+                            IME_OPTION_NO_LEARNING | IME_OPTION_DISABLE_COPY_PASTE;
+    return request_with_option("", dialog_title, dialog_placeholder, option, 3, callback,
+                               user_data);
 }
 
 bool radio_ime_busy(void)
@@ -206,6 +250,10 @@ static void start_requested(void)
     if (sceUserServiceGetForegroundUser(&user_id) < 0)
     {
         requested = false;
+        clear_sensitive_text();
+        requested_option = 0;
+        result_callback = NULL;
+        result_user_data = NULL;
         return;
     }
     utf8_to_utf16(initial_text, text_buffer, sizeof(text_buffer) / sizeof(text_buffer[0]));
@@ -215,7 +263,8 @@ static void start_requested(void)
 
     param.user_id = user_id;
     param.type = 0;
-    param.enter_label = 2;
+    param.enter_label = requested_enter_label;
+    param.option = requested_option;
     param.max_text_length = IME_TEXT_CHARACTERS;
     param.input_text_buffer = text_buffer;
     param.horizontal_alignment = 1;
@@ -223,8 +272,10 @@ static void start_requested(void)
     param.placeholder = placeholder;
     param.title = title;
     active = sceImeDialogInit(&param, NULL) == 0;
-    started_at = SDL_GetTicks();
+    started_at = monotonic_milliseconds();
     requested = false;
+    if (!active)
+        clear_sensitive_text();
 }
 
 void radio_ime_poll(void)
@@ -235,7 +286,7 @@ void radio_ime_poll(void)
         return;
 
     const int status = sceImeDialogGetStatus();
-    if (status == 1 || (status == 0 && SDL_GetTicks() - started_at < 1000U))
+    if (status == 1 || (status == 0 && monotonic_milliseconds() - started_at < 1000U))
         return;
     if (status == 2)
     {
@@ -245,9 +296,16 @@ void radio_ime_poll(void)
             char text[IME_TEXT_CHARACTERS * 4U + 1U];
             utf16_to_utf8(text_buffer, text, sizeof(text));
             result_callback(text, result_user_data);
+            volatile unsigned char *sensitive = (volatile unsigned char *)text;
+            for (size_t index = 0; index < sizeof(text); ++index)
+                sensitive[index] = 0;
         }
         sceImeDialogTerm();
     }
+    clear_sensitive_text();
+    requested_option = 0;
+    result_callback = NULL;
+    result_user_data = NULL;
     active = false;
 }
 
@@ -256,6 +314,11 @@ void radio_ime_cancel(void)
     requested = false;
     if (active)
         sceImeDialogAbort();
+    else
+        clear_sensitive_text();
+    requested_option = 0;
+    result_callback = NULL;
+    result_user_data = NULL;
 }
 
 void radio_ime_shutdown(void)
@@ -266,4 +329,6 @@ void radio_ime_shutdown(void)
         sceSysmoduleUnloadModule(SCE_SYSMODULE_IME_DIALOG);
         module_loaded = false;
     }
+    active = false;
+    clear_sensitive_text();
 }

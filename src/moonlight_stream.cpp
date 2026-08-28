@@ -22,6 +22,7 @@
 #include "moonlight_stream.hpp"
 #include "moonlight_config.hpp"
 #include "moonlight_stream_input.hpp"
+#include "radio_ime.hpp"
 #include "lan_http_report.hpp"
 #include "native_agc_present.hpp"
 #include "gamestream/certgen.h"
@@ -1430,24 +1431,30 @@ static void ps5_controller_set_mouse_mode(ps5_controller_state_t *state, int ena
     (void)lan_http_report_text(notification.message);
 }
 
-static void ps5_controller_report_live(const ps5_controller_state_t *state, int read_result)
+static void ps5_keyboard_submit(const char *text, void *)
 {
-    char receipt[256];
+    int text_result = 0;
+    int enter_down_result = 0;
+    int enter_up_result = 0;
 
-    snprintf(receipt, sizeof(receipt),
-             "Moonlight controller live: polls=%u read=%d samples=%u empty=%u errors=%u "
-             "generation=%u disconnected=%u intercepted=%u events=%u send_errors=%u "
-             "raw=%08x observed=%08x mapped=%08x mouse=%d",
-             state->polls, read_result, state->samples, state->empty_reads, state->read_errors,
-             state->connected_count, state->disconnected_samples, state->intercepted_samples,
-             state->events, state->send_errors, state->last_raw_buttons,
-             state->observed_raw_buttons, state->observed_moonlight_buttons, state->mouse_mode);
-    (void)lan_http_report_text(receipt);
+    if (text != NULL && text[0] != '\0')
+        text_result = LiSendUtf8TextEvent(text, (unsigned int)strlen(text));
+    if (text_result == 0)
+    {
+        enter_down_result = LiSendKeyboardEvent(0x0d, KEY_ACTION_DOWN, 0);
+        enter_up_result = LiSendKeyboardEvent(0x0d, KEY_ACTION_UP, 0);
+    }
+    snprintf(notification.message, sizeof(notification.message),
+             text_result == 0 && enter_down_result == 0 && enter_up_result == 0
+                 ? "ProsperoLight: Text sent to Windows."
+                 : "ProsperoLight: Could not send text to Windows.");
+    (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
 }
 
 static void ps5_controller_poll(ps5_controller_state_t *state)
 {
     static const uint32_t hud_chord = PS5_PAD_BUTTON_TOUCH_PAD | PS5_PAD_BUTTON_R1;
+    static const uint32_t keyboard_chord = PS5_PAD_BUTTON_TOUCH_PAD | PS5_PAD_BUTTON_TRIANGLE;
     static const controller_event_t neutral_event = {};
     int count;
 
@@ -1458,8 +1465,6 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
     if (count < 0)
     {
         ++state->read_errors;
-        if (state->polls == 1 || state->polls % 250 == 0)
-            ps5_controller_report_live(state, count);
         return;
     }
     if (count == 0)
@@ -1472,15 +1477,12 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
         }
         else
             ps5_controller_send(state, &state->last_event);
-        if (state->polls == 1 || state->polls % 1000 == 0)
-            ps5_controller_report_live(state, count);
         return;
     }
     state->samples += (uint32_t)count;
     if ((uint32_t)count > state->max_batch)
         state->max_batch = (uint32_t)count;
 
-    int raw_changed = 0;
     for (int index = 0; index < count; ++index)
     {
         ps5_pad_sample_t *sample = &state->sample_batch[index];
@@ -1506,9 +1508,6 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
         }
         if (neutral)
             raw_buttons = 0;
-        if (raw_buttons != state->last_raw_buttons)
-            raw_changed = 1;
-
         sample_time_us = sample->timestamp_us ? sample->timestamp_us : monotonic_us();
         if ((raw_buttons & PS5_PAD_BUTTON_OPTIONS) != 0 &&
             (state->last_raw_buttons & PS5_PAD_BUTTON_OPTIONS) == 0)
@@ -1533,6 +1532,19 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
             native_agc_set_hud_enabled(!native_agc_hud_enabled());
         if (moonlight_stream_hud_toggle_requested(raw_buttons))
             sample->buttons &= ~hud_chord;
+        if (moonlight_stream_keyboard_requested(raw_buttons) &&
+            !moonlight_stream_keyboard_requested(state->last_raw_buttons))
+        {
+            if (!radio_ime_request_password("Windows sign-in", "Enter your Windows password",
+                                            ps5_keyboard_submit, NULL))
+            {
+                snprintf(notification.message, sizeof(notification.message),
+                         "ProsperoLight: PS5 keyboard is unavailable.");
+                (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
+            }
+        }
+        if (moonlight_stream_keyboard_requested(raw_buttons))
+            sample->buttons &= ~keyboard_chord;
 
         event = ps5_controller_map_sample(sample, neutral);
         mouse_buttons = neutral ? 0 : sample->buttons;
@@ -1570,8 +1582,6 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
             }
         }
     }
-    if (raw_changed || state->polls == 1 || state->polls % 1000 == 0)
-        ps5_controller_report_live(state, count);
 }
 
 static void ps5_controller_stop(ps5_controller_state_t *state)
@@ -1840,6 +1850,7 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     int identity_initialized = 0;
     int session_started = 0;
     int controller_ready = 0;
+    int ime_ready = 0;
     int first_frame_timed_out = 0;
     int terminated = 0;
     int reported_error = 0;
@@ -2106,6 +2117,13 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         goto done;
     }
     connection_active = 1;
+    ime_ready = radio_ime_init();
+    if (!ime_ready)
+    {
+        snprintf(notification.message, sizeof(notification.message),
+                 "ProsperoLight: PS5 keyboard is unavailable for this stream.");
+        (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
+    }
     first_frame_wait_start_us = monotonic_us();
     if (options && options->synthetic_motion)
         synthetic_motion_next_us = monotonic_us();
@@ -2130,6 +2148,8 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         }
         if (controller_ready)
             ps5_controller_poll(&controller);
+        if (ime_ready)
+            radio_ime_poll();
         if (std::atomic_load_explicit(&renderer.presented, std::memory_order_relaxed) == 0 &&
             monotonic_us() - first_frame_wait_start_us >= FIRST_VIDEO_FRAME_TIMEOUT_US)
         {
@@ -2209,6 +2229,11 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     (void)lan_http_report_text(notification.message);
 
 done:
+    if (ime_ready)
+    {
+        radio_ime_shutdown();
+        ime_ready = 0;
+    }
     if (result != 0 && !controller.requested_stop)
     {
         if (std::atomic_load_explicit(&loading.timed_out, std::memory_order_relaxed))

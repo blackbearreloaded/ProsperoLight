@@ -63,6 +63,13 @@ TEST(StreamShortcuts, SelectR1TogglesMetrics)
     EXPECT_FALSE(moonlight_stream_hud_toggle_requested(MOONLIGHT_PS5_PAD_R1));
 }
 
+TEST(StreamShortcuts, SelectTriangleOpensKeyboard)
+{
+    EXPECT_TRUE(
+        moonlight_stream_keyboard_requested(MOONLIGHT_PS5_PAD_SELECT | MOONLIGHT_PS5_PAD_TRIANGLE));
+    EXPECT_FALSE(moonlight_stream_keyboard_requested(MOONLIGHT_PS5_PAD_TRIANGLE));
+}
+
 TEST(StreamShortcuts, OptionsReleaseAfterLongPressTogglesMouseMode)
 {
     constexpr uint64_t started_at = 1000;
