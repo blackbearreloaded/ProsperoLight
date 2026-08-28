@@ -59,3 +59,10 @@ The tested `eboot.bin` SHA-256 is
 No application fatal signal appeared in the bounded kernel log, and FTP, klog,
 and loader services remained reachable after close. Pairing and physical-pad
 focus traversal remain explicit manual gates for this fresh application data.
+
+Content version `01.000.013` was also exercised against Sunshine state
+`SUNSHINE_SERVER_BUSY` with active app ID `881448767`. The launcher remained
+online, labeled the host `BUSY`, disabled pairing before opening the PIN modal,
+and displayed the unpaired-client recovery instruction without clipping. Its
+tested `eboot.bin` SHA-256 is
+`aaa47276ba5844e6aee625ed7def176149631a92ea950ec3e82eba8d80eaf7f9`.

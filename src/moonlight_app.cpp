@@ -580,6 +580,15 @@ void MoonlightApp::TogglePairing()
         SetText(document_, "host-action-status", "Sunshine must be online before pairing");
         return;
     }
+    if (!backend_.paired && backend_.current_app_id)
+    {
+        char text[192];
+        std::snprintf(text, sizeof(text),
+                      "App %d is active. Stop it on the original client, then Refresh.",
+                      backend_.current_app_id);
+        SetText(document_, "host-action-status", text);
+        return;
+    }
     if (!backend_.paired)
     {
         const int result = moonlight_backend_pair_start(host);
@@ -798,7 +807,8 @@ void MoonlightApp::UpdateHost()
     SetClass(document_, "host-detail-ready", "offline", !backend_.online || !backend_.paired);
     SetClass(document_, "footer-status", "offline", !backend_.online || !backend_.paired);
     SetClass(document_, "pair-host", "action-danger", backend_.paired != 0);
-    SetClass(document_, "pair-host", "disabled", backend_.online == 0);
+    SetClass(document_, "pair-host", "disabled",
+             backend_.online == 0 || (!backend_.paired && backend_.current_app_id != 0));
 
     if (!selected_host)
     {
@@ -838,19 +848,30 @@ void MoonlightApp::UpdateHost()
     {
         SetText(document_, "host-status", "ONLINE / NOT PAIRED");
         SetText(document_, "host-detail-pairing", "Pairing required");
-        SetText(document_, "host-detail-ready", "PAIRING REQUIRED");
-        SetText(document_, "footer-status", "PAIRING REQUIRED");
-        SetText(document_, "host-card-action", "PAIR");
-        SetText(document_, "pair-host-label", "Pair PC");
-        if (backend_.result != 0 && backend_.error[0])
+        if (backend_.current_app_id)
         {
-            std::snprintf(text, sizeof(text), "Pairing failed: %s", backend_.error);
+            SetText(document_, "host-detail-ready", "ACTIVE SESSION");
+            SetText(document_, "footer-status", "SUNSHINE BUSY");
+            SetText(document_, "host-card-action", "BUSY");
+            SetText(document_, "pair-host-label", "Pair unavailable");
+            std::snprintf(text, sizeof(text),
+                          "App %d is active. Stop it on the original client, then Refresh.",
+                          backend_.current_app_id);
             SetText(document_, "host-action-status", text);
         }
         else
         {
+            SetText(document_, "host-detail-ready", "PAIRING REQUIRED");
+            SetText(document_, "footer-status", "PAIRING REQUIRED");
+            SetText(document_, "host-card-action", "PAIR");
+            SetText(document_, "pair-host-label", "Pair PC");
             SetText(document_, "host-action-status",
                     "Select Pair PC, then enter the onscreen PIN in Sunshine");
+        }
+        if (backend_.result != 0 && backend_.error[0])
+        {
+            std::snprintf(text, sizeof(text), "Pairing failed: %s", backend_.error);
+            SetText(document_, "host-action-status", text);
         }
         return;
     }
@@ -1086,9 +1107,21 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
     case RADIO_INPUT_SQUARE:
         if (backend_.current_app_id)
         {
-            if (screen_ != Screen::Games)
-                SetScreen(Screen::Games);
-            StopActiveApp();
+            if (!backend_.paired)
+            {
+                char text[192];
+                SetScreen(Screen::Hosts);
+                std::snprintf(text, sizeof(text),
+                              "Not paired: stop the active app on its original client or in "
+                              "Sunshine.");
+                SetText(document_, "host-action-status", text);
+            }
+            else
+            {
+                if (screen_ != Screen::Games)
+                    SetScreen(Screen::Games);
+                StopActiveApp();
+            }
         }
         else if (screen_ == Screen::Games)
         {

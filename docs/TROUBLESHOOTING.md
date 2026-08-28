@@ -110,6 +110,15 @@ Nothing is installed globally by these optional bootstrappers.
 - The launcher includes the failed TCP stage and numeric error in its refresh
   message. Preserve that text when reporting a failure.
 
+## Pairing says that Sunshine has an active session
+
+Sunshine only permits pairing while its server state is idle. A host can remain
+busy after video disconnects because the launched application is still active.
+An unpaired client cannot authenticate the HTTPS Stop request. Stop the app from
+the Moonlight client that launched it or from Sunshine, then refresh
+ProsperoLight and pair. Once paired, ProsperoLight can stop the active app with
+Square or the Games-screen action.
+
 ## The icon, background, or selection audio does not update
 
 - Run `make`; both the Make and PowerShell builds validate the tracked
