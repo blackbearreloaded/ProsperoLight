@@ -101,3 +101,15 @@ H.264 video, stereo audio, and input, and presented at least 3,600 decoded
 frames with `pending=0`. ShadowMount recorded a normal title stop with no new
 crash candidate, and FTP, klog, and loader services remained reachable after
 cleanup.
+
+Content version `01.000.021` adds password-safe native PS5 text entry during a
+stream. The frozen candidate at commit `a608b67` launched, rendered the paired
+launcher, resumed the H.264 Desktop stream, and opened PS5 common-dialog title
+`NPXS40093` when the targeted `Select + Triangle` chord was sent. Cancelling
+the dialog sent no text; the existing `Select + L1` shortcut then returned to
+the launcher, and the title closed normally. FTP, klog, and loader services
+remained reachable after teardown. The tested `eboot.bin` SHA-256 is
+`a7c0c7bb03d605c738d1db531b4923109e555fccc247bc144fc65bc8f09881b7`.
+This is a `partial-pass`: native password-dialog launch, cancellation, and
+stream recovery are hardware-proven, while text-plus-Enter delivery and an
+actual private Windows sign-in remain the operator acceptance step.
