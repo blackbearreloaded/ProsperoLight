@@ -90,6 +90,13 @@ for source in "${sources[@]}"; do
     source_flags=()
     if [[ "$source" == "$root/platform/ps5/ps5_sockets.c" ]]; then
         source_flags=(-DPS5_SOCKET_ADAPTER_IMPLEMENTATION)
+    elif [[ "$source" == "$common/nanors/deps/obl/oblas_lite.c" ]]; then
+        # Clang 18 hides these declarations for the PS5 target. The upstream
+        # functions remain target-attributed and runtime-dispatched.
+        source_flags=(
+            -D__AVX512F__ -D__AVX512BW__ -D__AVX512DQ__
+            -D__AVX512VL__ -D__GFNI__
+        )
     fi
     "$cc" "${flags[@]}" "${source_flags[@]}" "${includes[@]}" -c "$source" -o "$object"
     objects+=("$object")
