@@ -38,6 +38,14 @@ class ToolTests(unittest.TestCase):
             "#define pthread_setname_np ps5_pthread_setname_noop", compatibility
         )
 
+    def test_release_build_disables_blocking_lan_telemetry(self):
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn("LAN_TELEMETRY ?= 0", makefile)
+        self.assertIn(
+            "APP_DEFINITIONS += PROSPEROLIGHT_LAN_TELEMETRY=$(LAN_TELEMETRY)",
+            makefile,
+        )
+
     def test_stream_opens_pad_after_decoder_loading_worker_stops(self):
         source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
         early_loading = source.index(

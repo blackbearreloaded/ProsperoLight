@@ -150,3 +150,18 @@ The first stream-stage action was a synchronous port-8767 telemetry connection
 with no deadline. The production build now compiles that path to an immediate
 no-op; `LAN_TELEMETRY=1` is reserved for bounded diagnostics with a receiver
 already running.
+
+The frozen `f3ad73f` candidate passed the corresponding hardware gate with no
+listener on port `8767`. It started and presented H.264 1080p Desktop twice in
+one process, returned through `Select + L1`, then survived a complete title
+close/reopen and resumed the Sunshine-reported running Desktop session. Sunshine
+recorded a client connection, disconnection, and completed encoder teardown for
+each observed session. The title processes stopped normally and FTP, klog, and
+loader services remained reachable. The tested `eboot.bin` SHA-256 is
+`1a184f009fb138579644e3195ab5e2a7958f3c4db10306f50e9c7906b37b9fcc`.
+
+The same run selected Steam after returning from Desktop. ProsperoLight returned
+to the launcher instead of hanging; Sunshine identified the independent host
+failure as `steam://open/bigpicture` being denied by the Windows service
+account. Fixing that Sunshine application command remains a host-configuration
+task, not a client lifecycle failure.
