@@ -45,6 +45,6 @@ the remaining RmlUi-generated circles and bordered shapes. Their exact-size
 TGA renders prevent the horizontal geometry seams seen on the PS5 software
 renderer while retaining editable vector masters.
 
-`prosperolight-moon.png` is the true-alpha master for the ProsperoLight header
-mark, extracted from the supplied app artwork. `prosperolight-moon.tga` is its
-56 x 56 top-origin BGRA runtime copy for the accepted native texture loader.
+`prosperolight-icon.tga` is a 56 x 56 top-origin runtime miniature generated
+directly from `sce_sys/icon0.png`, so the ProsperoLight header and launcher tile
+use the same artwork.

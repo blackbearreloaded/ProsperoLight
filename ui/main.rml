@@ -6,7 +6,7 @@
     <body>
         <div id="app-shell">
             <header id="header">
-                <span id="brand-mark"><img class="prosperolight-brand-icon" src="icons/prosperolight-moon.tga" width="56" height="56" alt=""/></span>
+                <span id="brand-mark"><img class="prosperolight-brand-icon" src="icons/prosperolight-icon.tga" width="56" height="56" alt=""/></span>
                 <span id="brand-name">ProsperoLight</span>
                 <span id="brand-version">v@PROSPEROLIGHT_VERSION@</span>
                 <span id="page-title">Your PCs</span>
