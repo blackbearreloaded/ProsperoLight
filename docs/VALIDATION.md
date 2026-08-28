@@ -32,8 +32,8 @@ settings.
 5. Toggle the metrics overlay with `Select + R1`, then return using
    `Select + L1`. Confirm no debug text is left in the launcher.
 6. At Windows sign-in, press `Select + Triangle` and confirm ProsperoLight's
-   stream keyboard and a PS5 notification appear. Use the D-pad and Cross to
-   enter private text, Triangle for Shift, Square for Backspace, and Options
+   stream keyboard appears without a PS5 notification. Use the D-pad and Cross
+   to enter private text, Triangle for Shift, Square for Backspace, and Options
    for Enter. Confirm the password is never present in ProsperoLight
    diagnostics or storage. Toggle the keyboard off again.
 7. Launch and stop a non-Desktop Sunshine application. Repeat a launch after
@@ -121,10 +121,19 @@ appear at the secure sign-in screen. This is a failed acceptance result for
 that approach; Windows documents opening its Accessibility menu at sign-in
 rather than relying on the desktop OSK shortcut.
 
-Content version `01.000.023` therefore renders a password-safe keyboard inside
+Content version `01.000.023` therefore rendered a password-safe keyboard inside
 the existing AGC stream overlay and sends each selected key through Moonlight's
 ordinary keyboard event path. Host tests cover layout navigation, shifted
 labels, and all stream shortcut chords. The frozen candidate `eboot.bin`
 SHA-256 is
 `d6d32540483262394695fffa0c302ef5192b90fa10d2066be9abe6c4cb717225`.
-Its PS5 display and private sign-in acceptance remain pending.
+On PS5 the overlay opened without interrupting video and D-pad navigation moved
+its selection. The operator subsequently confirmed that private Windows sign-in
+typing worked perfectly. This is a `pass` for the input path.
+
+Content version `01.000.024` moves the keyboard into the upper-center safe
+region and enlarges its key labels. It also removes the keyboard toggle
+notification, raises panel opacity to 82%, and adds the previously missing
+backtick/tilde key. A host regression test proves that the layout contains all
+printable US-ASCII characters. The frozen candidate `eboot.bin` SHA-256 is
+`f5a7e8bf655141dfa53dae455bd1c2d11ba07339485d9fe32d8586e98933baf2`.

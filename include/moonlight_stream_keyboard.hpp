@@ -41,6 +41,7 @@ inline constexpr moonlight_keyboard_key moonlight_keyboard_keys[] = {
     {"0", ")", 0x30, moonlight_keyboard_action::key},
     {"-", "_", 0xbd, moonlight_keyboard_action::key},
     {"=", "+", 0xbb, moonlight_keyboard_action::key},
+    {"`", "~", 0xc0, moonlight_keyboard_action::key},
 
     {"q", "Q", 0x51, moonlight_keyboard_action::key},
     {"w", "W", 0x57, moonlight_keyboard_action::key},
@@ -86,8 +87,8 @@ inline constexpr moonlight_keyboard_key moonlight_keyboard_keys[] = {
     {"CLOSE", "CLOSE", 0, moonlight_keyboard_action::close},
 };
 
-inline constexpr uint8_t moonlight_keyboard_row_offsets[] = {0, 12, 25, 36, 46, 51};
-inline constexpr uint32_t moonlight_keyboard_key_count = 51;
+inline constexpr uint8_t moonlight_keyboard_row_offsets[] = {0, 13, 26, 37, 47, 52};
+inline constexpr uint32_t moonlight_keyboard_key_count = 52;
 inline constexpr uint32_t moonlight_keyboard_row_count = 5;
 
 static_assert(sizeof(moonlight_keyboard_keys) / sizeof(moonlight_keyboard_keys[0]) ==

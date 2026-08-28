@@ -36,9 +36,12 @@
 #define HUD_Y_BYTES (HUD_WIDTH * HUD_HEIGHT)
 #define HUD_UV_BYTES (HUD_WIDTH * (HUD_HEIGHT / 2u))
 #define HUD_SURFACE_BYTES (HUD_Y_BYTES + HUD_UV_BYTES)
-#define KEYBOARD_WIDTH 1184u
-#define KEYBOARD_HEIGHT 416u
+#define KEYBOARD_WIDTH 1120u
+#define KEYBOARD_HEIGHT 400u
 #define KEYBOARD_X ((DISPLAY_WIDTH - KEYBOARD_WIDTH) / 2u)
+#define KEYBOARD_Y 180u
+#define KEYBOARD_GLYPH_WIDTH 18u
+#define KEYBOARD_GLYPH_HEIGHT 18u
 #define KEYBOARD_Y_BYTES (KEYBOARD_WIDTH * KEYBOARD_HEIGHT)
 #define KEYBOARD_UV_BYTES (KEYBOARD_WIDTH * (KEYBOARD_HEIGHT / 2u))
 #define KEYBOARD_SURFACE_BYTES (KEYBOARD_Y_BYTES + KEYBOARD_UV_BYTES)
@@ -199,10 +202,11 @@ static void flush_gpu_data(const void *address, size_t bytes)
     __asm__ volatile("mfence" ::: "memory");
 }
 
-static void overlay_draw_text(uint8_t *luma, uint32_t width, uint32_t height, const char *text,
-                              uint32_t x, uint32_t y, uint8_t value)
+static void overlay_draw_text_scaled(uint8_t *luma, uint32_t width, uint32_t height,
+                                     const char *text, uint32_t x, uint32_t y, uint8_t value,
+                                     uint32_t glyph_width, uint32_t glyph_height)
 {
-    while (*text && x + HUD_GLYPH_WIDTH <= width && y + HUD_GLYPH_HEIGHT <= height)
+    while (*text && x + glyph_width <= width && y + glyph_height <= height)
     {
         uint8_t character = (uint8_t)*text++;
         const uint8_t *glyph;
@@ -210,20 +214,27 @@ static void overlay_draw_text(uint8_t *luma, uint32_t width, uint32_t height, co
         if (character < 0x20u || character > 0x7fu)
             character = '?';
         glyph = hud_font + (character - 0x20u) * 8u;
-        for (uint32_t row = 0; row < HUD_GLYPH_HEIGHT; ++row)
+        for (uint32_t row = 0; row < glyph_height; ++row)
         {
-            uint32_t source_row = row * 8u / HUD_GLYPH_HEIGHT;
+            uint32_t source_row = row * 8u / glyph_height;
 
-            for (uint32_t bit = 0; bit < HUD_GLYPH_WIDTH; ++bit)
+            for (uint32_t bit = 0; bit < glyph_width; ++bit)
             {
-                uint32_t source_bit = bit * 8u / HUD_GLYPH_WIDTH;
+                uint32_t source_bit = bit * 8u / glyph_width;
 
                 if (glyph[source_row] & (uint8_t)(1u << source_bit))
                     luma[(y + row) * width + x + bit] = value;
             }
         }
-        x += HUD_GLYPH_WIDTH;
+        x += glyph_width;
     }
+}
+
+static void overlay_draw_text(uint8_t *luma, uint32_t width, uint32_t height, const char *text,
+                              uint32_t x, uint32_t y, uint8_t value)
+{
+    overlay_draw_text_scaled(luma, width, height, text, x, y, value, HUD_GLYPH_WIDTH,
+                             HUD_GLYPH_HEIGHT);
 }
 
 static void refresh_hud_surface(uint8_t *surface, const native_agc_metrics_t *metrics,
@@ -292,17 +303,19 @@ static void refresh_keyboard_surface(uint8_t *surface, uint32_t selected, int sh
 {
     static const uint32_t margin = 18u;
     static const uint32_t gap = 8u;
-    static const uint32_t row_height = 58u;
-    static const uint32_t first_row_y = 52u;
+    static const uint32_t row_height = 54u;
+    static const uint32_t first_row_y = 70u;
     uint8_t *luma = surface;
     uint8_t text_luma = hdr ? 143u : 245u;
 
     memset(luma, 44, KEYBOARD_Y_BYTES);
     memset(surface + KEYBOARD_Y_BYTES, 128, KEYBOARD_UV_BYTES);
+    overlay_draw_text(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT, "ProsperoLight keyboard", margin, 10u,
+                      text_luma);
     overlay_draw_text(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT,
-                      "ProsperoLight keyboard   X: type   Square: backspace   Triangle: shift   "
-                      "Options: enter   Circle: close",
-                      margin, 18u, text_luma);
+                      "Cross: type   Square: backspace   Triangle: shift   Options: enter   "
+                      "Circle: close",
+                      margin, 32u, text_luma);
 
     for (uint32_t row = 0; row < moonlight_keyboard_row_count; ++row)
     {
@@ -318,7 +331,7 @@ static void refresh_keyboard_surface(uint8_t *surface, uint32_t selected, int sh
             uint32_t index = start + column;
             uint32_t x = row_x + column * (key_width + gap);
             const char *label = moonlight_keyboard_label(index, shifted != 0);
-            uint32_t label_width = (uint32_t)strlen(label) * HUD_GLYPH_WIDTH;
+            uint32_t label_width = (uint32_t)strlen(label) * KEYBOARD_GLYPH_WIDTH;
             uint8_t fill = index == selected ? (hdr ? 112u : 168u) : (hdr ? 60u : 72u);
 
             if (moonlight_keyboard_keys[index].action == moonlight_keyboard_action::shift &&
@@ -326,9 +339,10 @@ static void refresh_keyboard_surface(uint8_t *surface, uint32_t selected, int sh
                 fill = hdr ? 92u : 136u;
             overlay_fill_rect(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT, x, y, key_width, row_height,
                               fill);
-            overlay_draw_text(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT, label,
-                              x + (key_width - label_width) / 2u,
-                              y + (row_height - HUD_GLYPH_HEIGHT) / 2u, text_luma);
+            overlay_draw_text_scaled(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT, label,
+                                     x + (key_width - label_width) / 2u,
+                                     y + (row_height - KEYBOARD_GLYPH_HEIGHT) / 2u, text_luma,
+                                     KEYBOARD_GLYPH_WIDTH, KEYBOARD_GLYPH_HEIGHT);
         }
     }
 }
@@ -467,7 +481,7 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
                         uint32_t surface_height, uint32_t visible_width, uint32_t visible_height,
                         int64_t render_marker, uint32_t *word_count, int hdr, int draw_overlay,
                         uint32_t overlay_width, uint32_t overlay_height, uint32_t overlay_x,
-                        uint32_t overlay_y)
+                        uint32_t overlay_y, float overlay_alpha)
 {
     static const uint16_t target_offsets[16] = {0x318, 0x31b, 0x31c, 0x31d, 0x31e, 0x31f,
                                                 0x321, 0x323, 0x324, 0x325, 0x390, 0x398,
@@ -645,10 +659,10 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
             {0x112, 0, float_bits(overlay_y + overlay_height * .5f)},
             {0x113, 0, float_bits(1)},
             {0x114, 0, 0},
-            {0x105, 0, float_bits(.5f)},
-            {0x106, 0, float_bits(.5f)},
-            {0x107, 0, float_bits(.5f)},
-            {0x108, 0, float_bits(.5f)},
+            {0x105, 0, float_bits(overlay_alpha)},
+            {0x106, 0, float_bits(overlay_alpha)},
+            {0x107, 0, float_bits(overlay_alpha)},
+            {0x108, 0, float_bits(overlay_alpha)},
             /* src * constant alpha + dst * (1 - constant alpha) */
             {0x1e0, 0, 0x40001413u},
         };
@@ -898,8 +912,8 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     uint32_t overlay_width = draw_keyboard ? KEYBOARD_WIDTH : HUD_WIDTH;
     uint32_t overlay_height = draw_keyboard ? KEYBOARD_HEIGHT : HUD_HEIGHT;
     uint32_t overlay_x = draw_keyboard ? KEYBOARD_X : overlay_inset_x + HUD_X;
-    uint32_t overlay_y = draw_keyboard ? DISPLAY_HEIGHT - overlay_inset_y - KEYBOARD_HEIGHT - 24u
-                                       : overlay_inset_y + HUD_Y;
+    uint32_t overlay_y = draw_keyboard ? KEYBOARD_Y : overlay_inset_y + HUD_Y;
+    float overlay_alpha = draw_keyboard ? .82f : .5f;
     unsigned render_waits;
     int32_t result;
     char receipt[512];
@@ -944,7 +958,7 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
                           presenter.vertex_shader, presenter.pixel_shader,
                           presenter.hud_pixel_shader, source, source_bytes, pitch, surface_height,
                           visible_width, visible_height, render_marker, &words, hdr, draw_overlay,
-                          overlay_width, overlay_height, overlay_x, overlay_y);
+                          overlay_width, overlay_height, overlay_x, overlay_y, overlay_alpha);
     if (result == 0)
     {
         for (render_waits = 0; render_waits < 120; ++render_waits)

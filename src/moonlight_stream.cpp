@@ -1459,11 +1459,6 @@ static void ps5_controller_set_keyboard_mode(ps5_controller_state_t *state, int 
         state->last_event_us = 0;
     native_agc_set_keyboard_state(state->keyboard_mode, state->keyboard_selected,
                                   state->keyboard_shifted);
-    snprintf(notification.message, sizeof(notification.message),
-             "ProsperoLight: Keyboard %s. Select + Triangle toggles it.",
-             state->keyboard_mode ? "opened" : "closed");
-    (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
-    (void)lan_http_report_text(notification.message);
 }
 
 static void ps5_controller_activate_keyboard_key(ps5_controller_state_t *state)

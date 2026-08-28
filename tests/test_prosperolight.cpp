@@ -88,20 +88,40 @@ TEST(StreamShortcuts, MouseAxisHasDeadzoneAndDirection)
 
 TEST(StreamKeyboard, NavigationWrapsAndPreservesAValidColumn)
 {
-    EXPECT_EQ(moonlight_keyboard_move(0, -1, 0), 11u);
-    EXPECT_EQ(moonlight_keyboard_move(11, 1, 0), 0u);
-    EXPECT_EQ(moonlight_keyboard_move(11, 0, 1), 23u);
-    EXPECT_EQ(moonlight_keyboard_move(50, 0, 1), 4u);
+    EXPECT_EQ(moonlight_keyboard_move(0, -1, 0), 12u);
+    EXPECT_EQ(moonlight_keyboard_move(12, 1, 0), 0u);
+    EXPECT_EQ(moonlight_keyboard_move(12, 0, 1), 25u);
+    EXPECT_EQ(moonlight_keyboard_move(51, 0, 1), 4u);
 }
 
 TEST(StreamKeyboard, ShiftedLabelsMatchTheSentVirtualKeys)
 {
     EXPECT_STREQ(moonlight_keyboard_label(0, false), "1");
     EXPECT_STREQ(moonlight_keyboard_label(0, true), "!");
-    EXPECT_STREQ(moonlight_keyboard_label(12, false), "q");
-    EXPECT_STREQ(moonlight_keyboard_label(12, true), "Q");
-    EXPECT_EQ(moonlight_keyboard_keys[12].virtual_key, 0x51u);
-    EXPECT_EQ(moonlight_keyboard_keys[46].action, moonlight_keyboard_action::shift);
+    EXPECT_STREQ(moonlight_keyboard_label(12, false), "`");
+    EXPECT_STREQ(moonlight_keyboard_label(12, true), "~");
+    EXPECT_STREQ(moonlight_keyboard_label(13, false), "q");
+    EXPECT_STREQ(moonlight_keyboard_label(13, true), "Q");
+    EXPECT_EQ(moonlight_keyboard_keys[13].virtual_key, 0x51u);
+    EXPECT_EQ(moonlight_keyboard_keys[47].action, moonlight_keyboard_action::shift);
+}
+
+TEST(StreamKeyboard, CoversEveryPrintableUsAsciiPasswordCharacter)
+{
+    for (int character = 0x20; character <= 0x7e; ++character)
+    {
+        bool found = character == ' ';
+
+        for (uint32_t index = 0; !found && index < moonlight_keyboard_key_count; ++index)
+        {
+            const char *normal = moonlight_keyboard_keys[index].normal;
+            const char *shifted = moonlight_keyboard_keys[index].shifted;
+
+            found = (normal[0] == character && normal[1] == '\0') ||
+                    (shifted[0] == character && shifted[1] == '\0');
+        }
+        EXPECT_TRUE(found) << "Missing printable ASCII character " << character;
+    }
 }
 
 TEST(Configuration, DefaultsMatchLauncherDefaults)
