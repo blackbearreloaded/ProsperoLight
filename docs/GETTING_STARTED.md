@@ -11,7 +11,7 @@ Install the compiler, linker, Make, Python, and download/archive tools:
 
 ```bash
 sudo apt update
-sudo apt install clang-18 clang-format-18 clang-tidy-18 curl git lld-18 make \
+sudo apt install clang-18 clang-format-18 clang-tidy-18 cmake curl git lld-18 make \
   pkg-config python3 python3-pip python3-venv tar unzip wget
 ```
 
@@ -28,6 +28,12 @@ make doctor
 ```
 
 ## 2. Native dependencies
+
+Initialize the pinned streaming dependencies after cloning:
+
+```bash
+git submodule update --init --recursive
+```
 
 The first build downloads the pinned public
 [PS5 payload SDK](https://github.com/ps5-payload-dev/sdk) and the upstream zlib
@@ -59,9 +65,9 @@ The normal folder build needs no managed runtime or external host project.
 Repository-owned tools are compiled from C/C++ source automatically.
 
 The root application is C++20. It uses the libc++ headers already present in
-the fetched public SDK while keeping exceptions and RTTI disabled. The build
-links a small project-owned allocation bridge rather than the complete libc++
-runtime; see [Native build tooling](NATIVE_TOOLING.md).
+the fetched public SDK. RmlUi-facing translation units retain exceptions and
+RTTI for ABI compatibility; the project startup/runtime bridge disables both.
+See [Native build tooling](NATIVE_TOOLING.md).
 
 Compressed `.ffpfsc` output uses Python 3.9 or newer with `venv` support. The
 build fetches MkPFS and installs it into an ignored virtual environment under

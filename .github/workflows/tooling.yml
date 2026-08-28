@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -43,7 +45,7 @@ jobs:
       - name: Install native toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang-18 clang-format-18 clang-tidy-18 lld-18 make pkg-config tar unzip wget
+          sudo apt-get install --yes clang-18 clang-format-18 clang-tidy-18 cmake lld-18 make pkg-config tar unzip wget
 
       - name: Read app identity and version
         shell: bash
@@ -80,7 +82,7 @@ jobs:
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ps5-native-app-boilerplate-${{ github.sha }}
+          name: prosperolight-${{ github.sha }}
           path: |
             dist/${{ env.TITLE_ID }}/
             dist/${{ env.TITLE_ID }}.ffpkg
@@ -106,7 +108,7 @@ jobs:
         run: >-
           gh run download "$GITHUB_RUN_ID"
           --repo "$GITHUB_REPOSITORY"
-          --name "ps5-native-app-boilerplate-$GITHUB_SHA"
+          --name "prosperolight-$GITHUB_SHA"
           --dir release
 
       - name: Prepare release assets
@@ -154,5 +156,5 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --generate-notes \
-              --title "PS5 Native App Boilerplate $GITHUB_REF_NAME"
+              --title "ProsperoLight $GITHUB_REF_NAME"
           fi

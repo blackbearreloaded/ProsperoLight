@@ -8,9 +8,10 @@ make lint
 make app
 ```
 
-`make test` contains focused GoogleTest coverage for the stream input
-shortcuts and Python regression coverage for identity and safe deploy path
-resolution. These tests do not require a console or a Sunshine host.
+`make test` contains focused GoogleTest coverage for stream input shortcuts,
+configuration defaults, host-list updates, and failure fallback. Python
+regressions cover identity and safe deploy path resolution. These tests do not
+require a console or a Sunshine host.
 
 `make lint` checks formatting, static analysis, shell syntax, PS5 metadata,
 assets, and accidental local-path leaks. `make check` is the combined host

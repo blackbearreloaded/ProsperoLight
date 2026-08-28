@@ -1,13 +1,11 @@
-# Radio Browser UI
+# ProsperoLight UI
 
-Static RmlUi/RCSS assets for the first PS5 UI pass. The default preview state is
-`browse`; `boot`, `empty`, and `error` are included as alternate panels for the
-future controller/UI bridge to activate by moving `is-active`.
+Static RmlUi/RCSS assets for the controller-first Sunshine host, application,
+settings, and diagnostics views.
 
 ## Files
 
-- `main.rml` — controller-first structure and mock station content.
-- `styles/app.rcss` — 10-foot layout, signal-themed palette, spatial focus, and
-  the persistent player strip.
+- `main.rml` — launcher structure and runtime-populated view containers.
+- `styles/app.rcss` — 10-foot moonlit layout and controller focus states.
 
-No networking, audio, image assets, or runtime behavior is assumed here.
+Runtime behavior is owned by the C++ application layer.

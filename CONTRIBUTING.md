@@ -1,7 +1,6 @@
 # Contributing
 
-Keep the boilerplate small, reproducible, and useful to a first-time native-app
-developer.
+Keep ProsperoLight reproducible and preserve the native boilerplate workflow.
 
 Before opening a change:
 
