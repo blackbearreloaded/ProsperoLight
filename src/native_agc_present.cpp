@@ -1,0 +1,1049 @@
+/*
+ * ps5-native-app-boilerplate - ProsperoLight component.
+ * Copyright (C) 2026 BlackBearReloaded
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+/* Foreground native AGC presentation of a Videodec2 AVC8 caller buffer. */
+
+#include "native_agc_present.h"
+#include "lan_http_report.h"
+
+#include <stddef.h>
+#include <atomic>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#define DISPLAY_WIDTH 1920u
+#define DISPLAY_HEIGHT 1080u
+#define TV_SAFE_INSET_X 64u
+#define TV_SAFE_INSET_Y 36u
+#define FRAMEBUFFER_BYTES 0xa00000u
+#define FRAMEBUFFER_POOL_BYTES (FRAMEBUFFER_BYTES * 2u)
+#define FRAMEBUFFER_ALIGNMENT 0x200000u
+#define SHADER_STATIC_BYTES 0x10000u
+#define HUD_WIDTH 672u
+#define HUD_HEIGHT 112u
+#define HUD_X 16u
+#define HUD_Y 16u
+#define HUD_TEXT_X 16u
+#define HUD_GLYPH_WIDTH 10u
+#define HUD_GLYPH_HEIGHT 10u
+#define HUD_LINE_HEIGHT 13u
+#define HUD_SURFACE_OFFSET SHADER_STATIC_BYTES
+#define HUD_Y_BYTES (HUD_WIDTH * HUD_HEIGHT)
+#define HUD_UV_BYTES (HUD_WIDTH * (HUD_HEIGHT / 2u))
+#define HUD_SURFACE_BYTES (HUD_Y_BYTES + HUD_UV_BYTES)
+#define SHADER_MEMORY_BYTES 0x2c000u
+#define HDR_HUD_SHADER_CODE_OFFSET 0xd000u
+#define HUD_REFRESH_FRAMES 15u
+#define DIRECT_MEMORY_TYPE 12
+#define MAP_PROTECTION 0x33
+#define VIDEO_OUT_PIXEL_FORMAT_SDR UINT64_C(0x8000000000000000)
+#define VIDEO_OUT_PIXEL_FORMAT_HDR UINT64_C(0x8100070422000000)
+#define LOADING_PITCH 1920u
+#define LOADING_SURFACE_HEIGHT 1088u
+#define LOADING_VISIBLE_HEIGHT 1080u
+
+static_assert((DISPLAY_WIDTH - TV_SAFE_INSET_X * 2u) * 9u ==
+                  (DISPLAY_HEIGHT - TV_SAFE_INSET_Y * 2u) * 16u,
+              "TV-safe viewport must remain 16:9");
+
+typedef struct agc_register
+{
+    uint16_t offset;
+    uint16_t pad;
+    uint32_t value;
+} agc_register_t;
+
+typedef struct agc_command_buffer
+{
+    uint32_t *bottom;
+    uint32_t *top;
+    uint32_t *up;
+    uint32_t *down;
+    uintptr_t callback;
+    void *user_data;
+    uint32_t reserved_dwords;
+    uint32_t pad;
+} agc_command_buffer_t;
+
+typedef struct agc_submit_description
+{
+    void *words;
+    uint32_t word_count;
+    uint8_t flag;
+    uint8_t pad[3];
+} agc_submit_description_t;
+
+typedef struct video_buffer
+{
+    void *data;
+    void *metadata;
+    void *reserved0;
+    void *reserved1;
+} video_buffer_t;
+
+typedef struct video_attribute
+{
+    uint8_t reserved[80];
+} video_attribute_t;
+
+extern "C"
+{
+    int64_t sceKernelGetDirectMemorySize(void);
+    int32_t sceKernelAllocateDirectMemory(int64_t search_start, int64_t search_end, size_t length,
+                                          size_t alignment, int memory_type,
+                                          int64_t *direct_memory_start);
+    int32_t sceKernelMapDirectMemory(void **address, size_t length, int protection, int flags,
+                                     int64_t direct_memory_start, size_t alignment);
+    int32_t sceKernelMunmap(void *address, size_t length);
+    int32_t sceKernelReleaseDirectMemory(int64_t direct_memory_start, size_t length);
+    int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index, const void *param);
+    int sceVideoOutClose(int32_t handle);
+    int sceVideoOutSetFlipRate(int32_t handle, int32_t rate);
+    void sceVideoOutSetBufferAttribute2(video_attribute_t *attribute, uint64_t pixel_format,
+                                        uint32_t tiling_mode, uint32_t width, uint32_t height,
+                                        uint64_t option, uint32_t dcc_control,
+                                        uint64_t dcc_clear_color);
+    int sceVideoOutRegisterBuffers2(int32_t handle, int32_t set_index, int32_t buffer_index_start,
+                                    video_buffer_t *buffers, int32_t buffer_count,
+                                    video_attribute_t *attribute, int32_t category, void *option);
+    int sceVideoOutUnregisterBuffers(int32_t handle, int32_t set_index);
+    int sceVideoOutSubmitFlip(int32_t handle, int32_t buffer_index, uint32_t flip_mode,
+                              int64_t flip_argument);
+    int sceVideoOutIsFlipPending(int32_t handle);
+    int sceVideoOutWaitVblank(int32_t handle);
+    int sceVideoOutGetFlipStatus(int32_t handle, void *status);
+
+    int32_t sceAgcInit(void *state, uint32_t size);
+    int32_t sceAgcCreateShader(void **shader, void *header, void *code);
+    int32_t sceAgcLinkShaders(void *cx, void *uc, void *reserved, void *vertex_shader,
+                              void *pixel_shader, uint32_t primitive_type);
+    void *sceAgcGetRegisterDefaults(void);
+    uint32_t *sceAgcDcbSetCxRegistersIndirect(void *command, const void *registers, uint32_t count);
+    uint32_t *sceAgcDcbSetShRegistersIndirect(void *command, const void *registers, uint32_t count);
+    uint32_t *sceAgcDcbSetUcRegistersIndirect(void *command, const void *registers, uint32_t count);
+    uint32_t *sceAgcCbSetShRegisterRangeDirect(void *command, uint32_t offset,
+                                               const uint32_t *values, uint32_t count);
+    uint32_t *sceAgcDcbDrawIndexAuto(void *command, uint32_t count, uint64_t modifier);
+    uint32_t *sceAgcDcbSetFlip(void *command, uint32_t handle, int buffer_index, uint32_t flip_mode,
+                               int64_t flip_argument);
+    int32_t sceAgcDriverSubmitDcb(void *description);
+    int32_t sceAgcSuspendPoint(void);
+    uint32_t sceAgcDriverGetWaitRenderingPacketSizeInDwords(void);
+    uint32_t sceAgcDriverWaitUntilSafeForRendering(uint32_t **command, uint32_t packet_size,
+                                                   uint32_t reserved, uint32_t handle,
+                                                   int buffer_index);
+}
+#ifdef NATIVE_AGC_EXTERNAL_SOURCE
+#define NATIVE_AGC_ASSET(path) "../../assets/private/" path
+#else
+#define NATIVE_AGC_ASSET(path) "assets/private/" path
+#endif
+
+#define EMBED_ASSET(symbol, path)                                                                  \
+    __asm__(".section .rodata\n"                                                                   \
+            ".global " #symbol "_start\n" #symbol "_start:\n"                                      \
+            ".incbin \"" NATIVE_AGC_ASSET(path) "\"\n"                                             \
+                                                ".global " #symbol "_end\n" #symbol "_end:\n"      \
+                                                ".text\n");                                        \
+    extern const uint8_t symbol##_start[];                                                         \
+    extern const uint8_t symbol##_end[]
+
+EMBED_ASSET(native_agc_geometry_header, "geometry.header.bin");
+EMBED_ASSET(native_agc_geometry_code, "geometry.text.bin");
+EMBED_ASSET(native_agc_pixel_header, "pixel.header.bin");
+EMBED_ASSET(native_agc_pixel_code, "pixel.text.linear-buffer.bin");
+EMBED_ASSET(native_agc_pixel_hdr_code, "pixel.text.p010-passthrough.bin");
+EMBED_ASSET(native_agc_resources, "netflix-video-resources.bin");
+
+static const uint8_t hud_font[96 * 8] = {
+#include "native_hud_font.inc"
+};
+
+static std::atomic<int> tv_safe_area = 1;
+
+static uint8_t agc_out_of_space(agc_command_buffer_t *buffer, uint32_t words, void *user_data)
+{
+    (void)buffer;
+    (void)words;
+    (void)user_data;
+    return 0;
+}
+
+static uint32_t float_bits(float value)
+{
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static void flush_gpu_data(const void *address, size_t bytes)
+{
+    const auto *at = static_cast<const uint8_t *>(address);
+    const uint8_t *end = at + bytes;
+
+    for (; at < end; at += 64)
+        __asm__ volatile("clflush (%0)" : : "r"(at) : "memory");
+    __asm__ volatile("mfence" ::: "memory");
+}
+
+static void hud_draw_text(uint8_t *luma, const char *text, uint32_t x, uint32_t y, uint8_t value)
+{
+    while (*text && x + HUD_GLYPH_WIDTH <= HUD_WIDTH)
+    {
+        uint8_t character = (uint8_t)*text++;
+        const uint8_t *glyph;
+
+        if (character < 0x20u || character > 0x7fu)
+            character = '?';
+        glyph = hud_font + (character - 0x20u) * 8u;
+        for (uint32_t row = 0; row < HUD_GLYPH_HEIGHT; ++row)
+        {
+            uint32_t source_row = row * 8u / HUD_GLYPH_HEIGHT;
+
+            for (uint32_t bit = 0; bit < HUD_GLYPH_WIDTH; ++bit)
+            {
+                uint32_t source_bit = bit * 8u / HUD_GLYPH_WIDTH;
+
+                if (glyph[source_row] & (uint8_t)(1u << source_bit))
+                    luma[(y + row) * HUD_WIDTH + x + bit] = value;
+            }
+        }
+        x += HUD_GLYPH_WIDTH;
+    }
+}
+
+static void refresh_hud_surface(uint8_t *surface, const native_agc_metrics_t *metrics,
+                                uint32_t video_width, uint32_t video_height, int hdr)
+{
+    uint8_t *luma = surface;
+    char line[96];
+    uint64_t decode_us = metrics->decode_average_us;
+    uint8_t text_luma = hdr ? 143u : 255u;
+
+    memset(luma, 76, HUD_Y_BYTES);
+    memset(surface + HUD_Y_BYTES, 128, HUD_UV_BYTES);
+
+    snprintf(line, sizeof(line), "Video stream: %ux%u %u.%02u FPS (Codec: %s)", video_width,
+             video_height, metrics->total_fps_x100 / 100u, metrics->total_fps_x100 % 100u,
+             metrics->video_codec ? "HEVC" : "H.264");
+    hud_draw_text(luma, line, HUD_TEXT_X, 4, text_luma);
+    hud_draw_text(luma, "Decoder: SceVideodec2 hardware", HUD_TEXT_X, 4 + HUD_LINE_HEIGHT,
+                  text_luma);
+    snprintf(line, sizeof(line), "Incoming frame rate from network: %u.%02u FPS",
+             metrics->incoming_fps_x100 / 100u, metrics->incoming_fps_x100 % 100u);
+    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 2u, text_luma);
+    snprintf(line, sizeof(line), "Rendering frame rate: %u.%02u FPS",
+             metrics->rendering_fps_x100 / 100u, metrics->rendering_fps_x100 % 100u);
+    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 3u, text_luma);
+    snprintf(line, sizeof(line), "Frames dropped by your network connection: %u.%02u%%",
+             metrics->network_drop_percent_x100 / 100u, metrics->network_drop_percent_x100 % 100u);
+    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 4u, text_luma);
+    if (metrics->rtt_valid)
+        snprintf(line, sizeof(line), "Average network latency: %u ms (variance: %u ms)",
+                 metrics->rtt_ms, metrics->rtt_variance_ms);
+    else
+        snprintf(line, sizeof(line), "Average network latency: N/A");
+    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 5u, text_luma);
+    snprintf(line, sizeof(line), "Host processing latency min/max/average: %u.%u/%u.%u/%u.%u ms",
+             metrics->host_min_tenths_ms / 10u, metrics->host_min_tenths_ms % 10u,
+             metrics->host_max_tenths_ms / 10u, metrics->host_max_tenths_ms % 10u,
+             metrics->host_average_tenths_ms / 10u, metrics->host_average_tenths_ms % 10u);
+    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 6u, text_luma);
+    snprintf(line, sizeof(line), "Average decoding time: %llu.%02llu ms",
+             (unsigned long long)(decode_us / 1000u),
+             (unsigned long long)((decode_us % 1000u) / 10u));
+    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 7u, text_luma);
+}
+
+static int shader_resource_offset(void *shader, unsigned kind, uint32_t *offset)
+{
+    uint8_t *layout = *(uint8_t **)((uint8_t *)shader + 8);
+    uint16_t *counts;
+    uint16_t *entries;
+
+    if (!layout || kind >= 4)
+        return -1;
+    counts = (uint16_t *)(layout + 46);
+    if (!counts[kind])
+        return -1;
+    entries = *(uint16_t **)(layout + 8 + kind * sizeof(void *));
+    *offset = entries[0] & 0x7fffu;
+    return 0;
+}
+
+static int copy_asset(void *destination, size_t capacity, const uint8_t *start, const uint8_t *end)
+{
+    uintptr_t start_address = (uintptr_t)start;
+    uintptr_t end_address = (uintptr_t)end;
+    size_t bytes;
+
+    if (end_address < start_address)
+        return -1;
+    bytes = (size_t)(end_address - start_address);
+
+    if (bytes > capacity)
+        return -1;
+    memcpy(destination, start, bytes);
+    return 0;
+}
+
+static int prepare_resources(uint8_t *resources, int hdr)
+{
+    uint32_t *header = (uint32_t *)resources;
+    uint32_t table_offsets[2] = {header[1], header[3]};
+    static const uint32_t table_counts[2] = {2, 8};
+    uint32_t *limited_offset = (uint32_t *)(resources + 0x500);
+    uint32_t *limited_scale = (uint32_t *)(resources + 0x600);
+    uint32_t *sample_scale = (uint32_t *)(resources + 0x700);
+
+    if (limited_offset[0] != 0x3d802008u || limited_offset[1] != 0x3d802008u ||
+        limited_offset[2] != 0x3d802008u || limited_scale[0] != 0x3f957abdu ||
+        limited_scale[1] != 0x3f922492u || limited_scale[2] != 0x3f922492u ||
+        sample_scale[0] != 0x42801f88u)
+        return -1;
+
+    if (!hdr)
+    {
+        limited_offset[0] = limited_offset[1] = limited_offset[2] = 0x3d808081u;
+        limited_scale[0] = 0x3f950a85u;
+        limited_scale[1] = limited_scale[2] = 0x3f91b6dbu;
+        sample_scale[0] = 0x3f800000u;
+    }
+
+    for (uint32_t table = 0; table < 2; ++table)
+    {
+        uint32_t *entry = (uint32_t *)(resources + table_offsets[table]);
+        for (uint32_t index = 0; index < table_counts[table]; ++index, entry += 4)
+        {
+            uintptr_t address = (uintptr_t)resources + entry[0];
+            entry[0] = (uint32_t)address;
+            entry[1] = (entry[1] & 0xffff0000u) | (uint32_t)(address >> 32);
+        }
+    }
+    return 0;
+}
+
+static void bind_pixel_source(agc_command_buffer_t *command, uint8_t *resources, const void *source,
+                              size_t y_bytes, size_t uv_bytes, const void *pixel_cb)
+{
+    uint32_t descriptor[30] = {};
+    uintptr_t uv = (uintptr_t)source + y_bytes;
+    uint32_t *header = (uint32_t *)resources;
+    uintptr_t table = (uintptr_t)resources + header[3];
+
+    descriptor[0] = (uint32_t)(uintptr_t)source;
+    descriptor[1] = (uint32_t)((uintptr_t)source >> 32);
+    descriptor[2] = (uint32_t)y_bytes;
+    descriptor[3] = 0x31016facu;
+    descriptor[5] = 0x00700000u;
+    descriptor[8] = (uint32_t)uv;
+    descriptor[9] = (uint32_t)(uv >> 32);
+    descriptor[10] = (uint32_t)uv_bytes;
+    descriptor[11] = 0x31016facu;
+    descriptor[13] = 0x00700000u;
+    descriptor[16] = descriptor[20] = 0x00000092u;
+    descriptor[17] = descriptor[21] = 0x00fff000u;
+    descriptor[18] = descriptor[22] = 0x09500000u;
+    descriptor[24] = (uint32_t)(uintptr_t)pixel_cb;
+    descriptor[25] = (uint32_t)((uintptr_t)pixel_cb >> 32) | (16u << 16);
+    descriptor[26] = 4;
+    descriptor[27] = 0x0004dfacu;
+    descriptor[28] = (uint32_t)table;
+    descriptor[29] = (uint32_t)(table >> 32);
+    sceAgcCbSetShRegisterRangeDirect(command, 0x0c, descriptor, 30);
+}
+
+static void bind_main10_source(agc_command_buffer_t *command, uint8_t *resources,
+                               const void *source, size_t y_bytes, const void *pixel_cb)
+{
+    uint32_t descriptor[30] = {};
+    uintptr_t uv = (uintptr_t)source + y_bytes;
+    uint32_t *header = (uint32_t *)resources;
+    uintptr_t table = (uintptr_t)resources + header[3];
+
+    descriptor[0] = (uint32_t)((uintptr_t)source >> 8);
+    descriptor[1] = 0xc0700000u | (uint32_t)((uintptr_t)source >> 40);
+    descriptor[2] = 0x010dc1dfu;
+    descriptor[3] = 0x90000204u;
+    descriptor[5] = 0x00700000u;
+    descriptor[8] = (uint32_t)(uv >> 8);
+    descriptor[9] = 0xc1700000u | (uint32_t)(uv >> 40);
+    descriptor[10] = 0x0086c0efu;
+    descriptor[11] = 0x9000022cu;
+    descriptor[13] = 0x00700000u;
+    descriptor[16] = descriptor[20] = 0x00000092u;
+    descriptor[17] = descriptor[21] = 0x00fff000u;
+    descriptor[18] = descriptor[22] = 0x09500000u;
+    descriptor[24] = (uint32_t)(uintptr_t)pixel_cb;
+    descriptor[25] = (uint32_t)((uintptr_t)pixel_cb >> 32) | (16u << 16);
+    descriptor[26] = 3;
+    descriptor[27] = 0x0004dfacu;
+    descriptor[28] = (uint32_t)table;
+    descriptor[29] = (uint32_t)(table >> 32);
+    sceAgcCbSetShRegisterRangeDirect(command, 0x0c, descriptor, 30);
+}
+
+static int render_frame(int video, int buffer_index, void *target, uint8_t *memory,
+                        void *vertex_shader, void *pixel_shader, void *hud_pixel_shader,
+                        const void *source, size_t source_bytes, uint32_t pitch,
+                        uint32_t surface_height, uint32_t visible_width, uint32_t visible_height,
+                        int64_t render_marker, uint32_t *word_count, int hdr, int draw_hud)
+{
+    static const uint16_t target_offsets[16] = {0x318, 0x31b, 0x31c, 0x31d, 0x31e, 0x31f,
+                                                0x321, 0x323, 0x324, 0x325, 0x390, 0x398,
+                                                0x3a0, 0x3a8, 0x3b0, 0x3b8};
+    static const uint32_t geometry_constants[16] = {
+        /* The recovered Netflix quad originally overscanned 32 source pixels
+         * on the left and 16 on the bottom. Keep its native bounds but fit
+         * the complete decoded frame to the selected AGC viewport. */
+        0x3fa24ce6, 0, 0,          0x3e2f0fdd, 0, 0x3fa21449, 0, 0x3e111049,
+        0,          0, 0xbf800000, 0x80000000, 0, 0,          0, 0x3f800000};
+    static const uint32_t pixel_constants[16] = {
+        0x3f800000, 0x3f800000, 0x3f800000, 0, 0x3fed844d, 0xbe3fd0d0, 0, 0,
+        0,          0xbeefad6d, 0x3fc9930c, 0, 0,          0,          0, 0};
+    static const uint32_t hdr_pixel_constants[12] = {0x3f800000, 0x3f800000, 0x3f800000, 0,
+                                                     0,          0xbe28809d, 0x3ff0d1b7, 0,
+                                                     0x3fbcbfb1, 0xbf124433, 0,          0};
+    agc_register_t *cx = (agc_register_t *)(memory + 0x7000);
+    uint8_t *geometry_cb = memory + 0x7800;
+    uint8_t *pixel_cb = memory + 0x7900;
+    uint8_t *hud_pixel_cb = memory + 0x7a00;
+    agc_register_t *hud_state = (agc_register_t *)(memory + 0x7b00);
+    uint8_t *resources = memory + 0xc000;
+    uint32_t *words = (uint32_t *)(memory + 0x8000);
+    agc_command_buffer_t command = {};
+    agc_submit_description_t submit = {};
+    uint32_t descriptor[30] = {};
+    void *defaults = sceAgcGetRegisterDefaults();
+    agc_register_t **blocks;
+    uint32_t default_count;
+    uint32_t cx_count = 16;
+    uint32_t slot;
+    size_t component_bytes = hdr ? sizeof(uint16_t) : 1u;
+    size_t y_bytes = (size_t)pitch * surface_height * component_bytes;
+    size_t uv_bytes = (size_t)pitch * ((surface_height + 1u) / 2u) * component_bytes;
+    uint32_t inset_x =
+        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_X : 0u;
+    uint32_t inset_y =
+        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_Y : 0u;
+
+    if (!defaults || visible_width == 0 || visible_height == 0 || visible_width > pitch ||
+        visible_height > surface_height || (pitch & 1u) != 0 || y_bytes > UINT32_MAX ||
+        uv_bytes > UINT32_MAX || y_bytes + uv_bytes > source_bytes)
+        return -1;
+
+    blocks = *(agc_register_t ***)defaults;
+    default_count = *(uint32_t *)((uint8_t *)defaults + 0x20);
+    for (uint32_t index = 0; index < 16; ++index)
+    {
+        cx[index] = (agc_register_t){target_offsets[index], 0, 0};
+        for (uint32_t candidate = 0; blocks && blocks[0] && candidate < default_count; ++candidate)
+        {
+            if (blocks[0][candidate].offset == target_offsets[index])
+            {
+                cx[index].value = blocks[0][candidate].value;
+                break;
+            }
+        }
+    }
+
+    cx[0].value = (uint32_t)((uintptr_t)target >> 8);
+    cx[1].value &= 0xfc001fffu;
+    cx[2].value = (cx[2].value & ~(0x7cu | 0x700u | 0x1800u | 0x10000000u | 0x10000u | 0x8000u |
+                                   0x40000u | 0x4000u)) |
+                  (hdr ? 0x24u : 0x28u) | 0x8000u;
+    cx[3].value &= ~(0x7000u | 0x18000u);
+    cx[4].value = (cx[4].value & ~(0x60u | 0x0cu | 0x00100200u | 0x80000u)) | 0x48u;
+    cx[5].value = cx[6].value = cx[9].value = 0;
+    cx[10].value = (cx[10].value & 0xffffff00u) | (uint32_t)((uintptr_t)target >> 40);
+    cx[11].value &= 0xffffff00u;
+    cx[12].value &= 0xffffff00u;
+    cx[13].value &= 0xffffff00u;
+    cx[14].value = (DISPLAY_HEIGHT - 1u) | ((DISPLAY_WIDTH - 1u) << 14);
+    cx[15].value = (cx[15].value & ~(0x1fffu | 0x7c000u | 0x03000000u | 0x44000000u)) | 0x6c000u |
+                   0x01000000u | 0x44000000u;
+
+#define ADD_REG(register_offset, register_value)                                                   \
+    do                                                                                             \
+    {                                                                                              \
+        cx[cx_count++] = (agc_register_t){(register_offset), 0, (register_value)};                 \
+    } while (0)
+    ADD_REG(0x10f, float_bits((DISPLAY_WIDTH - inset_x * 2u) * .5f));
+    ADD_REG(0x110, float_bits(DISPLAY_WIDTH * .5f));
+    ADD_REG(0x111, float_bits((DISPLAY_HEIGHT - inset_y * 2u) * -.5f));
+    ADD_REG(0x112, float_bits(DISPLAY_HEIGHT * .5f));
+    ADD_REG(0x113, float_bits(1));
+    ADD_REG(0x114, 0);
+    ADD_REG(0x0b4, 0);
+    ADD_REG(0x0b5, float_bits(1));
+    ADD_REG(0x2fa, float_bits(1));
+    ADD_REG(0x2fb, float_bits(1));
+    ADD_REG(0x2fc, float_bits(1));
+    ADD_REG(0x2fd, float_bits(1));
+    ADD_REG(0x090, 0x80000000u);
+    ADD_REG(0x091, DISPLAY_WIDTH | (DISPLAY_HEIGHT << 16));
+    ADD_REG(0x08e, 0x0f);
+#undef ADD_REG
+
+    memcpy(geometry_cb, geometry_constants, sizeof(geometry_constants));
+    if (hdr)
+    {
+        memcpy(pixel_cb, hdr_pixel_constants, sizeof(hdr_pixel_constants));
+    }
+    else
+    {
+        memcpy(pixel_cb, pixel_constants, sizeof(pixel_constants));
+        ((uint32_t *)pixel_cb)[12] = float_bits((float)visible_width);
+        ((uint32_t *)pixel_cb)[13] = float_bits((float)visible_height);
+        ((uint32_t *)pixel_cb)[14] = pitch;
+        ((uint32_t *)pixel_cb)[15] = pitch / 2u;
+    }
+
+    command.bottom = words;
+    command.top = words + 0x4000u / sizeof(*words);
+    command.up = words;
+    command.down = command.top;
+    command.callback = (uintptr_t)agc_out_of_space;
+
+    sceAgcDriverWaitUntilSafeForRendering(&command.up,
+                                          sceAgcDriverGetWaitRenderingPacketSizeInDwords(), 0,
+                                          (uint32_t)video, buffer_index);
+
+    {
+        agc_register_t *link_cx = (agc_register_t *)(memory + 0x5000);
+        agc_register_t *combined_sh = (agc_register_t *)(memory + 0x6800);
+        agc_register_t *vs_cx = *(agc_register_t **)((uint8_t *)vertex_shader + 24);
+        agc_register_t *ps_cx = *(agc_register_t **)((uint8_t *)pixel_shader + 24);
+        agc_register_t *vs_sh = *(agc_register_t **)((uint8_t *)vertex_shader + 32);
+        agc_register_t *ps_sh = *(agc_register_t **)((uint8_t *)pixel_shader + 32);
+        uint32_t vs_cx_count = *((uint8_t *)vertex_shader + 91);
+        uint32_t ps_cx_count = *((uint8_t *)pixel_shader + 91);
+        uint32_t vs_sh_count = *((uint8_t *)vertex_shader + 92);
+        uint32_t ps_sh_count = *((uint8_t *)pixel_shader + 92);
+
+        memcpy(cx + cx_count, link_cx, 34 * sizeof(*cx));
+        cx_count += 34;
+        memcpy(cx + cx_count, vs_cx, vs_cx_count * sizeof(*cx));
+        cx_count += vs_cx_count;
+        memcpy(cx + cx_count, ps_cx, ps_cx_count * sizeof(*cx));
+        cx_count += ps_cx_count;
+        memcpy(combined_sh, vs_sh, vs_sh_count * sizeof(*combined_sh));
+        memcpy(combined_sh + vs_sh_count, ps_sh, ps_sh_count * sizeof(*combined_sh));
+        sceAgcDcbSetCxRegistersIndirect(&command, cx, cx_count);
+        sceAgcDcbSetUcRegistersIndirect(&command, memory + 0x6000, 3);
+        sceAgcDcbSetShRegistersIndirect(&command, combined_sh, vs_sh_count + ps_sh_count);
+    }
+
+    if (shader_resource_offset(vertex_shader, 3, &slot) != 0)
+        return -2;
+    descriptor[0] = (uint32_t)(uintptr_t)geometry_cb;
+    descriptor[1] = (uint32_t)((uintptr_t)geometry_cb >> 32) | (16u << 16);
+    descriptor[2] = 4;
+    descriptor[3] = 0x0004dfacu;
+    {
+        uint32_t *header = (uint32_t *)resources;
+        uintptr_t table = (uintptr_t)resources + header[1];
+        uintptr_t vertex = (uintptr_t)resources + header[2];
+        descriptor[4] = (uint32_t)table;
+        descriptor[5] = (uint32_t)(table >> 32);
+        descriptor[6] = (uint32_t)vertex;
+        descriptor[7] = (uint32_t)(vertex >> 32);
+    }
+    sceAgcCbSetShRegisterRangeDirect(&command, 0x8c + slot, descriptor, 8);
+
+    if (hdr)
+        bind_main10_source(&command, resources, source, y_bytes, pixel_cb);
+    else
+        bind_pixel_source(&command, resources, source, y_bytes, uv_bytes, pixel_cb);
+    sceAgcDcbDrawIndexAuto(&command, 4, 2);
+    if (draw_hud)
+    {
+        const agc_register_t state[11] = {
+            {0x10f, 0, float_bits(HUD_WIDTH * .5f)},
+            {0x110, 0, float_bits(inset_x + HUD_X + HUD_WIDTH * .5f)},
+            {0x111, 0, float_bits(HUD_HEIGHT * -.5f)},
+            {0x112, 0, float_bits(inset_y + HUD_Y + HUD_HEIGHT * .5f)},
+            {0x113, 0, float_bits(1)},
+            {0x114, 0, 0},
+            {0x105, 0, float_bits(.5f)},
+            {0x106, 0, float_bits(.5f)},
+            {0x107, 0, float_bits(.5f)},
+            {0x108, 0, float_bits(.5f)},
+            /* src * constant alpha + dst * (1 - constant alpha) */
+            {0x1e0, 0, 0x40001413u},
+        };
+
+        memcpy(hud_pixel_cb, pixel_constants, sizeof(pixel_constants));
+        ((uint32_t *)hud_pixel_cb)[12] = float_bits((float)HUD_WIDTH);
+        ((uint32_t *)hud_pixel_cb)[13] = float_bits((float)HUD_HEIGHT);
+        ((uint32_t *)hud_pixel_cb)[14] = HUD_WIDTH;
+        ((uint32_t *)hud_pixel_cb)[15] = HUD_WIDTH / 2u;
+        memcpy(hud_state, state, sizeof(state));
+        sceAgcDcbSetCxRegistersIndirect(&command, hud_state, 11);
+        if (hdr)
+        {
+            agc_register_t *hud_ps_sh = *(agc_register_t **)((uint8_t *)hud_pixel_shader + 32);
+            uint32_t hud_ps_sh_count = *((uint8_t *)hud_pixel_shader + 92);
+
+            sceAgcDcbSetShRegistersIndirect(&command, hud_ps_sh, hud_ps_sh_count);
+        }
+        bind_pixel_source(&command, resources, memory + HUD_SURFACE_OFFSET, HUD_Y_BYTES,
+                          HUD_UV_BYTES, hud_pixel_cb);
+        sceAgcDcbDrawIndexAuto(&command, 4, 2);
+    }
+    sceAgcDcbSetFlip(&command, (uint32_t)video, buffer_index, 1, render_marker);
+
+    submit.words = words;
+    submit.word_count = (uint32_t)(command.up - words);
+    *word_count = submit.word_count;
+    flush_gpu_data(memory, SHADER_STATIC_BYTES);
+    {
+        int32_t result = sceAgcDriverSubmitDcb(&submit);
+        if (result == 0)
+            result = sceAgcSuspendPoint();
+        return result;
+    }
+}
+
+typedef struct native_agc_presenter
+{
+    uint8_t *shader_memory;
+    int64_t shader_start;
+    void *framebuffer;
+    int64_t framebuffer_start;
+    void *vertex_shader;
+    void *pixel_shader;
+    void *hud_pixel_shader;
+    int video;
+    uint32_t frame_number;
+    uint8_t hud_was_enabled;
+    uint8_t hdr;
+    uint8_t ready;
+} native_agc_presenter_t;
+
+static native_agc_presenter_t presenter = {
+    .shader_memory = nullptr,
+    .shader_start = -1,
+    .framebuffer = nullptr,
+    .framebuffer_start = -1,
+    .vertex_shader = nullptr,
+    .pixel_shader = nullptr,
+    .hud_pixel_shader = nullptr,
+    .video = -1,
+    .frame_number = 0,
+    .hud_was_enabled = 0,
+    .hdr = 0,
+    .ready = 0,
+};
+static uint64_t agc_state;
+static uint8_t agc_initialized;
+static std::atomic<int> hud_enabled = 1;
+
+void native_agc_set_hud_enabled(int enabled)
+{
+    std::atomic_store_explicit(&hud_enabled, enabled != 0, std::memory_order_relaxed);
+}
+
+int native_agc_hud_enabled(void)
+{
+    return std::atomic_load_explicit(&hud_enabled, std::memory_order_relaxed);
+}
+
+void native_agc_set_tv_safe_area(int enabled)
+{
+    std::atomic_store_explicit(&tv_safe_area, enabled != 0, std::memory_order_relaxed);
+}
+
+static int initialize_presenter(const void *source, size_t source_bytes, uint32_t pitch,
+                                uint32_t surface_height, uint32_t visible_width,
+                                uint32_t visible_height, int hdr)
+{
+    int64_t shader_start = -1;
+    int64_t framebuffer_start = -1;
+    int64_t direct_limit = sceKernelGetDirectMemorySize();
+    int32_t result;
+    int32_t link_result = -1;
+    uint8_t reused = agc_initialized;
+    char receipt[512];
+
+    if (!source || source_bytes == 0 || direct_limit <= 0)
+        return -1;
+
+    result = 0;
+    if (!agc_initialized)
+    {
+        result = sceAgcInit(&agc_state, 8);
+        if (result == 0)
+            agc_initialized = 1;
+    }
+    snprintf(receipt, sizeof(receipt),
+             "Native AGC stage 1: init=%08x reused=%u source=%p bytes=%zx pitch=%u surface=%u "
+             "visible=%ux%u",
+             (uint32_t)result, reused ? 1u : 0u, source, source_bytes, pitch, surface_height,
+             visible_width, visible_height);
+    (void)lan_http_report_text(receipt);
+    if (result != 0)
+        return result;
+
+    result = sceKernelAllocateDirectMemory(0, direct_limit, SHADER_MEMORY_BYTES, 0x4000,
+                                           DIRECT_MEMORY_TYPE, &shader_start);
+    presenter.shader_start = shader_start;
+    if (result == 0)
+        result = sceKernelMapDirectMemory((void **)&presenter.shader_memory, SHADER_MEMORY_BYTES,
+                                          MAP_PROTECTION, 0, shader_start, 0x4000);
+    if (result != 0 || !presenter.shader_memory)
+        return result ? result : -2;
+
+    memset(presenter.shader_memory, 0, SHADER_MEMORY_BYTES);
+    if (copy_asset(presenter.shader_memory, 0x1000, native_agc_geometry_header_start,
+                   native_agc_geometry_header_end) != 0 ||
+        copy_asset(presenter.shader_memory + 0x3700, 0x1000, native_agc_geometry_code_start,
+                   native_agc_geometry_code_end) != 0 ||
+        copy_asset(presenter.shader_memory + 0x1000, 0x1000, native_agc_pixel_header_start,
+                   native_agc_pixel_header_end) != 0 ||
+        copy_asset(presenter.shader_memory + 0x2000, 0x1000,
+                   hdr ? native_agc_pixel_hdr_code_start : native_agc_pixel_code_start,
+                   hdr ? native_agc_pixel_hdr_code_end : native_agc_pixel_code_end) != 0 ||
+        copy_asset(presenter.shader_memory + 0xc000, 0x1000, native_agc_resources_start,
+                   native_agc_resources_end) != 0 ||
+        (hdr && copy_asset(presenter.shader_memory + HDR_HUD_SHADER_CODE_OFFSET, 0x1000,
+                           native_agc_pixel_code_start, native_agc_pixel_code_end) != 0) ||
+        prepare_resources(presenter.shader_memory + 0xc000, hdr) != 0)
+        return -3;
+
+    result = sceAgcCreateShader(&presenter.vertex_shader, presenter.shader_memory,
+                                presenter.shader_memory + 0x3700);
+    if (result == 0)
+        result = sceAgcCreateShader(&presenter.pixel_shader, presenter.shader_memory + 0x1000,
+                                    presenter.shader_memory + 0x2000);
+    if (result == 0 && hdr)
+        result = sceAgcCreateShader(&presenter.hud_pixel_shader, presenter.shader_memory + 0x1000,
+                                    presenter.shader_memory + HDR_HUD_SHADER_CODE_OFFSET);
+    if (result == 0)
+        link_result =
+            sceAgcLinkShaders(presenter.shader_memory + 0x5000, presenter.shader_memory + 0x6000,
+                              NULL, presenter.vertex_shader, presenter.pixel_shader, 6);
+    snprintf(receipt, sizeof(receipt),
+             "Native AGC stage 2: create=%08x link=%08x vs=%p ps=%p hud_ps=%p shader=%p",
+             (uint32_t)result, (uint32_t)link_result, presenter.vertex_shader,
+             presenter.pixel_shader, presenter.hud_pixel_shader, presenter.shader_memory);
+    (void)lan_http_report_text(receipt);
+    if (result != 0 || link_result != 0)
+        return result ? result : link_result;
+
+    presenter.video = sceVideoOutOpen(0xff, 0, 0, NULL);
+    if (presenter.video >= 0)
+        result = sceVideoOutSetFlipRate(presenter.video, 0);
+    else
+        result = presenter.video;
+    if (result == 0)
+        result = sceKernelAllocateDirectMemory(0, direct_limit, FRAMEBUFFER_POOL_BYTES,
+                                               FRAMEBUFFER_ALIGNMENT, DIRECT_MEMORY_TYPE,
+                                               &framebuffer_start);
+    if (result == 0)
+        presenter.framebuffer_start = framebuffer_start;
+    if (result == 0)
+        result =
+            sceKernelMapDirectMemory(&presenter.framebuffer, FRAMEBUFFER_POOL_BYTES, MAP_PROTECTION,
+                                     0, framebuffer_start, FRAMEBUFFER_ALIGNMENT);
+    snprintf(receipt, sizeof(receipt),
+             "Native AGC stage 3: video=%08x framebuffer_rc=%08x framebuffer=%p/%x",
+             (uint32_t)presenter.video, (uint32_t)result, presenter.framebuffer,
+             FRAMEBUFFER_POOL_BYTES);
+    (void)lan_http_report_text(receipt);
+    if (result != 0 || !presenter.framebuffer)
+        return result ? result : -4;
+
+    memset(presenter.framebuffer, 0, FRAMEBUFFER_POOL_BYTES);
+    flush_gpu_data(presenter.framebuffer, FRAMEBUFFER_POOL_BYTES);
+    {
+        video_buffer_t buffers[2] = {
+            {presenter.framebuffer, NULL, NULL, NULL},
+            {(uint8_t *)presenter.framebuffer + FRAMEBUFFER_BYTES, NULL, NULL, NULL}};
+        video_attribute_t attribute = {};
+
+        sceVideoOutSetBufferAttribute2(
+            &attribute, hdr ? VIDEO_OUT_PIXEL_FORMAT_HDR : VIDEO_OUT_PIXEL_FORMAT_SDR, 0,
+            DISPLAY_WIDTH, DISPLAY_HEIGHT, 0, 0, 0);
+        result =
+            sceVideoOutRegisterBuffers2(presenter.video, 0, 0, buffers, 2, &attribute, 0, NULL);
+    }
+    snprintf(receipt, sizeof(receipt),
+             "Native AGC stage 4: register=%08x hdr=%u format=%016llx source=%p target=%p "
+             "same_source=%u",
+             (uint32_t)result, hdr ? 1u : 0u,
+             (unsigned long long)(hdr ? VIDEO_OUT_PIXEL_FORMAT_HDR : VIDEO_OUT_PIXEL_FORMAT_SDR),
+             source, presenter.framebuffer, source == presenter.framebuffer);
+    (void)lan_http_report_text(receipt);
+    if (result != 0)
+        return result;
+
+    presenter.hdr = (uint8_t)(hdr != 0);
+    presenter.ready = 1;
+    return 0;
+}
+
+static int present_frame(const void *source, size_t source_bytes, uint32_t pitch,
+                         uint32_t surface_height, uint32_t visible_width, uint32_t visible_height,
+                         const native_agc_metrics_t *metrics, int hdr)
+{
+    uint64_t status[16] = {};
+    uint32_t frame_number = presenter.frame_number;
+    uint32_t buffer_index = frame_number & 1u;
+    int64_t render_marker = INT64_C(0x4444) + ((int64_t)frame_number << 8);
+    void *target;
+    uint32_t words = 0;
+    int draw_hud = native_agc_hud_enabled() && metrics;
+    unsigned render_waits;
+    int32_t result;
+    char receipt[512];
+
+    if (presenter.ready && presenter.hdr != (uint8_t)(hdr != 0))
+        return -6;
+    if (!presenter.ready)
+    {
+        result = initialize_presenter(source, source_bytes, pitch, surface_height, visible_width,
+                                      visible_height, hdr);
+        if (result != 0)
+            return result;
+    }
+
+    target = (uint8_t *)presenter.framebuffer + buffer_index * FRAMEBUFFER_BYTES;
+    if (draw_hud)
+    {
+        if (!presenter.hud_was_enabled || frame_number % HUD_REFRESH_FRAMES == 0)
+        {
+            refresh_hud_surface(presenter.shader_memory + HUD_SURFACE_OFFSET, metrics,
+                                visible_width, visible_height, hdr);
+            flush_gpu_data(presenter.shader_memory + HUD_SURFACE_OFFSET, HUD_SURFACE_BYTES);
+        }
+    }
+    presenter.hud_was_enabled = (uint8_t)draw_hud;
+    result = render_frame(presenter.video, (int)buffer_index, target, presenter.shader_memory,
+                          presenter.vertex_shader, presenter.pixel_shader,
+                          presenter.hud_pixel_shader, source, source_bytes, pitch, surface_height,
+                          visible_width, visible_height, render_marker, &words, hdr, draw_hud);
+    if (result == 0)
+    {
+        for (render_waits = 0; render_waits < 120; ++render_waits)
+        {
+            if (sceVideoOutGetFlipStatus(presenter.video, status) == 0 &&
+                status[3] == (uint64_t)render_marker)
+                break;
+            sceVideoOutWaitVblank(presenter.video);
+        }
+        if (render_waits == 120)
+            result = -5;
+    }
+    else
+    {
+        render_waits = 0;
+    }
+
+    if (result != 0 || frame_number == 0)
+    {
+        snprintf(receipt, sizeof(receipt),
+                 "Native AGC frame: rc=%08x frame=%u buffer=%u words=%u hdr=%u hud=%u "
+                 "flip_marker=%llx status=%llx waits=%u source=%p target=%p",
+                 (uint32_t)result, frame_number, buffer_index, words, hdr ? 1u : 0u,
+                 draw_hud ? 1u : 0u, (unsigned long long)render_marker,
+                 (unsigned long long)status[3], render_waits, source, target);
+        (void)lan_http_report_text(receipt);
+    }
+
+    if (result == 0)
+        ++presenter.frame_number;
+    return result;
+}
+
+int native_agc_present_nv12(const void *source, size_t source_bytes, uint32_t pitch,
+                            uint32_t surface_height, uint32_t visible_width,
+                            uint32_t visible_height, const native_agc_metrics_t *metrics)
+{
+    return present_frame(source, source_bytes, pitch, surface_height, visible_width, visible_height,
+                         metrics, 0);
+}
+
+int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t pitch,
+                              uint32_t surface_height, uint32_t visible_width,
+                              uint32_t visible_height, const native_agc_metrics_t *metrics)
+{
+    return present_frame(source, source_bytes, pitch, surface_height, visible_width, visible_height,
+                         metrics, 1);
+}
+
+static void loading_set_luma(void *surface, uint32_t x, uint32_t y, uint16_t value, int hdr)
+{
+    size_t index;
+
+    if (x >= LOADING_PITCH || y >= LOADING_VISIBLE_HEIGHT)
+        return;
+    index = (size_t)y * LOADING_PITCH + x;
+    if (hdr)
+        ((uint16_t *)surface)[index] = value;
+    else
+        ((uint8_t *)surface)[index] = (uint8_t)value;
+}
+
+static void loading_draw_disc(void *surface, int center_x, int center_y, int radius, uint16_t value,
+                              int hdr)
+{
+    for (int y = -radius; y <= radius; ++y)
+        for (int x = -radius; x <= radius; ++x)
+            if (x * x + y * y <= radius * radius)
+                loading_set_luma(surface, (uint32_t)(center_x + x), (uint32_t)(center_y + y), value,
+                                 hdr);
+}
+
+static void loading_draw_text(void *surface, const char *text, uint32_t x, uint32_t y,
+                              uint32_t scale, uint16_t value, int hdr)
+{
+    while (*text)
+    {
+        uint8_t character = (uint8_t)*text++;
+        const uint8_t *glyph;
+
+        if (character < 0x20u || character > 0x7fu)
+            character = '?';
+        glyph = hud_font + (character - 0x20u) * 8u;
+        for (uint32_t row = 0; row < 8u; ++row)
+            for (uint32_t bit = 0; bit < 8u; ++bit)
+                if (glyph[row] & (uint8_t)(1u << bit))
+                    for (uint32_t dy = 0; dy < scale; ++dy)
+                        for (uint32_t dx = 0; dx < scale; ++dx)
+                            loading_set_luma(surface, x + bit * scale + dx, y + row * scale + dy,
+                                             value, hdr);
+        x += 8u * scale;
+    }
+}
+
+int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr)
+{
+    static const int dot_offsets[8][2] = {
+        {0, -58}, {41, -41}, {58, 0}, {41, 41}, {0, 58}, {-41, 41}, {-58, 0}, {-41, -41},
+    };
+    const size_t sample_count = (size_t)LOADING_PITCH * LOADING_SURFACE_HEIGHT;
+    const size_t required_bytes = hdr ? sample_count * 3u : sample_count * 3u / 2u;
+    const uint16_t background = hdr ? 80u : 20u;
+    const uint16_t neutral = hdr ? 512u : 128u;
+    const uint16_t dim = hdr ? 180u : 64u;
+    const uint16_t trail = hdr ? 440u : 142u;
+    const uint16_t bright = hdr ? 760u : 235u;
+    const uint16_t text = hdr ? 700u : 220u;
+    const uint32_t active = phase & 7u;
+
+    if (!surface || surface_bytes < required_bytes)
+        return -1;
+
+    if (hdr)
+    {
+        auto *samples = static_cast<uint16_t *>(surface);
+        for (size_t index = 0; index < sample_count; ++index)
+            samples[index] = background;
+        for (size_t index = sample_count; index < sample_count + sample_count / 2u; ++index)
+            samples[index] = neutral;
+    }
+    else
+    {
+        memset(surface, (int)background, sample_count);
+        memset((uint8_t *)surface + sample_count, (int)neutral, sample_count / 2u);
+    }
+
+    for (uint32_t index = 0; index < 8u; ++index)
+    {
+        uint16_t value = dim;
+        int radius = 8;
+
+        if (index == active)
+        {
+            value = bright;
+            radius = 13;
+        }
+        else if (index == ((active + 7u) & 7u))
+        {
+            value = trail;
+            radius = 10;
+        }
+        loading_draw_disc(surface, 960 + dot_offsets[index][0], 432 + dot_offsets[index][1], radius,
+                          value, hdr);
+    }
+    loading_draw_text(surface, "PROSPEROLIGHT", 856u, 548u, 2u, text, hdr);
+    loading_draw_text(surface, "CONNECTING", 800u, 594u, 4u, text, hdr);
+    flush_gpu_data(surface, required_bytes);
+
+    return hdr ? native_agc_present_main10(surface, surface_bytes, LOADING_PITCH,
+                                           LOADING_SURFACE_HEIGHT, LOADING_PITCH,
+                                           LOADING_VISIBLE_HEIGHT, NULL)
+               : native_agc_present_nv12(surface, surface_bytes, LOADING_PITCH,
+                                         LOADING_SURFACE_HEIGHT, LOADING_PITCH,
+                                         LOADING_VISIBLE_HEIGHT, NULL);
+}
+
+int native_agc_present_shutdown(void)
+{
+    unsigned drain_waits = 0;
+    int32_t pending_result = 0;
+    int32_t unregister_result = 0;
+    int32_t close_result = 0;
+    int32_t framebuffer_unmap_result = 0;
+    int32_t framebuffer_release_result = 0;
+    int32_t shader_unmap_result = 0;
+    int32_t shader_release_result = 0;
+    char receipt[512];
+
+    if (presenter.video >= 0)
+    {
+        while (drain_waits < 120 &&
+               (pending_result = sceVideoOutIsFlipPending(presenter.video)) > 0)
+        {
+            sceVideoOutWaitVblank(presenter.video);
+            ++drain_waits;
+        }
+    }
+    if (presenter.video >= 0 && presenter.ready)
+        unregister_result = sceVideoOutUnregisterBuffers(presenter.video, 0);
+    if (presenter.video >= 0)
+        close_result = sceVideoOutClose(presenter.video);
+    if (presenter.framebuffer)
+        framebuffer_unmap_result = sceKernelMunmap(presenter.framebuffer, FRAMEBUFFER_POOL_BYTES);
+    if (presenter.framebuffer_start >= 0)
+        framebuffer_release_result =
+            sceKernelReleaseDirectMemory(presenter.framebuffer_start, FRAMEBUFFER_POOL_BYTES);
+    if (presenter.shader_memory)
+        shader_unmap_result = sceKernelMunmap(presenter.shader_memory, SHADER_MEMORY_BYTES);
+    if (presenter.shader_start >= 0)
+        shader_release_result =
+            sceKernelReleaseDirectMemory(presenter.shader_start, SHADER_MEMORY_BYTES);
+
+    snprintf(receipt, sizeof(receipt),
+             "Native AGC cleanup: pending=%08x waits=%u unregister=%08x close=%08x "
+             "framebuffer=%08x/%08x shader=%08x/%08x",
+             (uint32_t)pending_result, drain_waits, (uint32_t)unregister_result,
+             (uint32_t)close_result, (uint32_t)framebuffer_unmap_result,
+             (uint32_t)framebuffer_release_result, (uint32_t)shader_unmap_result,
+             (uint32_t)shader_release_result);
+    (void)lan_http_report_text(receipt);
+
+    memset(&presenter, 0, sizeof(presenter));
+    presenter.shader_start = -1;
+    presenter.framebuffer_start = -1;
+    presenter.video = -1;
+
+    if (pending_result != 0)
+        return pending_result;
+    if (unregister_result != 0 && (uint32_t)unregister_result != UINT32_C(0x80290009))
+        return unregister_result;
+    if (framebuffer_unmap_result != 0)
+        return framebuffer_unmap_result;
+    if (framebuffer_release_result != 0)
+        return framebuffer_release_result;
+    if (close_result != 0)
+        return close_result;
+    if (shader_unmap_result != 0)
+        return shader_unmap_result;
+    return shader_release_result;
+}

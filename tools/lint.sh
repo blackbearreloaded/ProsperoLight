@@ -18,6 +18,9 @@ checked=0
 for file in "${repository_files[@]}"; do
     [[ -f $file ]] || continue
     case "$file" in
+        vendor/*|third_party/*|assets/*|ui/*)
+            continue
+            ;;
         *.c|*.cc|*.cpp|*.h|*.hpp|*.ld|*.py|*.ps1|*.sh|*.yml|*.yaml|Makefile|.clang-format|.clang-tidy|.env.example)
             header=$(head -n 20 "$file")
             grep -Fq ps5-native-app-boilerplate <<<"$header"
@@ -80,7 +83,8 @@ if not isinstance(title, str) or not title.strip():
 PY
 
 if git grep -n -E 'C:\\Users\\|/home/denis|/mnt/c/Users/denis|\bDenis\b' -- . \
-    ':(exclude)tools/lint.sh'; then
+    ':(exclude)tools/lint.sh' ':(exclude)vendor/**' ':(exclude)third_party/**' \
+    ':(exclude)assets/**'; then
     echo "repository contains a local path or personal-name leak" >&2
     exit 2
 fi

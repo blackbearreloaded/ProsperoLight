@@ -20,3 +20,9 @@ tooling/prospero-clang18 text eol=lf
 *.at9 binary
 *.prx binary
 *.bin binary
+*.a binary
+*.so binary
+
+# Vendored SDK/UI inputs retain upstream line endings and whitespace verbatim.
+vendor/** -text -whitespace
+ui/fonts/** -text -whitespace

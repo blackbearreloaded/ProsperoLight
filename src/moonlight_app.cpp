@@ -1,0 +1,1164 @@
+/*
+ * ps5-native-app-boilerplate - ProsperoLight component.
+ * Copyright (C) 2026 BlackBearReloaded
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+#include "moonlight_app.h"
+#include "moonlight_discovery.h"
+#include "radio_ime.h"
+
+#include <RmlUi/Core/Element.h>
+#include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/StringUtilities.h>
+
+#include <SDL2/SDL.h>
+
+#include <cstdio>
+#include <cstring>
+
+namespace
+{
+
+Rml::Element *Find(Rml::ElementDocument *document, const char *id)
+{
+    return document ? document->GetElementById(id) : nullptr;
+}
+
+void SetText(Rml::ElementDocument *document, const char *id, const char *text)
+{
+    if (Rml::Element *element = Find(document, id))
+        element->SetInnerRML(Rml::StringUtilities::EncodeRml(text ? text : ""));
+}
+
+void SetClass(Rml::ElementDocument *document, const char *id, const char *class_name, bool enabled)
+{
+    if (Rml::Element *element = Find(document, id))
+        element->SetClass(class_name, enabled);
+}
+
+void SetImageSource(Rml::ElementDocument *document, const char *id, const char *source)
+{
+    if (Rml::Element *element = Find(document, id))
+        element->SetAttribute("src", Rml::String(source ? source : ""));
+}
+
+struct FocusList
+{
+    const char *const *ids;
+    unsigned count;
+};
+
+const char *const kHostFocus[] = {"nav-hosts", "nav-games",     "nav-settings", "nav-diagnostics",
+                                  "host-card", "refresh-hosts", "pair-host",    "add-host"};
+const char *const kGameFocus[] = {"nav-hosts",  "nav-games",  "nav-settings", "nav-diagnostics",
+                                  "app-card-0", "app-card-1", "app-card-2",   "app-card-3",
+                                  "app-card-4", "app-card-5", "stop-app",     "back-hosts"};
+const char *const kSettingFocus[] = {
+    "nav-hosts",     "nav-games",          "nav-settings",    "nav-diagnostics",
+    "setting-codec", "setting-resolution", "setting-bitrate", "setting-display-area",
+    "setting-hdr"};
+const char *const kDiagnosticFocus[] = {"nav-hosts", "nav-games", "nav-settings", "nav-diagnostics",
+                                        "back-diagnostics"};
+
+FocusList FocusFor(unsigned screen)
+{
+    switch (screen)
+    {
+    case 0:
+        return {kHostFocus, sizeof(kHostFocus) / sizeof(kHostFocus[0])};
+    case 1:
+        return {kGameFocus, sizeof(kGameFocus) / sizeof(kGameFocus[0])};
+    case 2:
+        return {kSettingFocus, sizeof(kSettingFocus) / sizeof(kSettingFocus[0])};
+    default:
+        return {kDiagnosticFocus, sizeof(kDiagnosticFocus) / sizeof(kDiagnosticFocus[0])};
+    }
+}
+
+bool NormalizeIpv4(const char *text, char output[MOONLIGHT_CONFIG_ADDRESS_SIZE])
+{
+    unsigned a, b, c, d;
+    char extra;
+    if (!text || std::sscanf(text, " %u.%u.%u.%u %c", &a, &b, &c, &d, &extra) != 4 || a > 255 ||
+        b > 255 || c > 255 || d > 255)
+        return false;
+    std::snprintf(output, MOONLIGHT_CONFIG_ADDRESS_SIZE, "%u.%u.%u.%u", a, b, c, d);
+    return true;
+}
+
+const char *CodecName(unsigned codec, unsigned hdr = 0)
+{
+    if (hdr)
+        return "HEVC Main10 HDR";
+    return codec == MOONLIGHT_VIDEO_CODEC_HEVC ? "HEVC Main" : "H.264 High";
+}
+
+void StreamDimensions(unsigned resolution, unsigned &width, unsigned &height)
+{
+    if (resolution == MOONLIGHT_STREAM_RESOLUTION_1440P)
+    {
+        width = 2560;
+        height = 1440;
+    }
+    else if (resolution == MOONLIGHT_STREAM_RESOLUTION_2160P)
+    {
+        width = 3840;
+        height = 2160;
+    }
+    else
+    {
+        width = 1920;
+        height = 1080;
+    }
+}
+
+unsigned NextBitrate(unsigned current)
+{
+    static const unsigned values[] = {20, 40, 80, 100, 150, 200, 300, 400, 500};
+    for (unsigned value : values)
+        if (value > current)
+            return value;
+    return values[0];
+}
+
+} // namespace
+
+bool MoonlightApp::Initialize(Rml::ElementDocument *document)
+{
+    document_ = document;
+    if (!document_)
+        return false;
+    (void)moonlight_config_load(&config_);
+    bitrate_mbps_ = config_.bitrate_mbps;
+    RefreshBackend();
+    if (config_.host_count == 1 && backend_.online && backend_.paired && backend_.app_count)
+    {
+        screen_ = Screen::Games;
+        focus_ = 4;
+    }
+    UpdateScreen();
+    UpdateSettings();
+    UpdateFocus();
+    return true;
+}
+
+void MoonlightApp::ShowStreamError(const char *message)
+{
+    if (!message || !message[0])
+        return;
+    std::snprintf(stream_error_, sizeof(stream_error_), "%s", message);
+    SetScreen(Screen::Games);
+    SetText(document_, "launch-status", stream_error_);
+}
+
+void MoonlightApp::Poll()
+{
+    if (manual_entry_active_ && !radio_ime_busy())
+        manual_entry_active_ = false;
+    PollPairing();
+    PollArtwork();
+}
+
+void MoonlightApp::Shutdown()
+{
+    radio_ime_cancel();
+    FinishArtworkWorker(true);
+    document_ = nullptr;
+}
+
+void MoonlightApp::FinishArtworkWorker(bool clear_cache)
+{
+    if (artwork_worker_active_)
+    {
+        (void)pthread_join(artwork_thread_, nullptr);
+        artwork_worker_active_ = false;
+    }
+    __atomic_store_n(&artwork_worker_state_, 0, __ATOMIC_RELEASE);
+    if (clear_cache)
+        moonlight_backend_clear_app_artwork();
+}
+
+void *MoonlightApp::ArtworkWorker(void *argument)
+{
+    MoonlightApp *app = static_cast<MoonlightApp *>(argument);
+    const int result = moonlight_backend_fetch_app_artwork(
+        app->artwork_host_, app->artwork_https_port_, app->artwork_app_id_);
+    __atomic_store_n(&app->artwork_worker_state_, result == 0 ? 2 : 3, __ATOMIC_RELEASE);
+    return nullptr;
+}
+
+void MoonlightApp::PollArtwork()
+{
+    const uint64_t now = SDL_GetTicks64();
+    if (artwork_worker_active_)
+    {
+        const int state = __atomic_load_n(&artwork_worker_state_, __ATOMIC_ACQUIRE);
+        if (state == 1)
+            return;
+        (void)pthread_join(artwork_thread_, nullptr);
+        artwork_worker_active_ = false;
+        if (state == 2)
+            UpdateGames();
+        artwork_due_ms_ = now + 50;
+    }
+
+    if (screen_ != Screen::Games || !backend_.online || !backend_.paired || !backend_.https_port ||
+        !backend_.app_count)
+        return;
+
+    const unsigned page_start = (selected_app_ / 6) * 6;
+    if (page_start != artwork_page_start_)
+    {
+        moonlight_backend_clear_app_artwork();
+        std::memset(artwork_attempted_, 0, sizeof(artwork_attempted_));
+        artwork_page_start_ = page_start;
+        artwork_next_slot_ = selected_app_ % 6;
+        artwork_due_ms_ = now + 250;
+        UpdateGames();
+        return;
+    }
+    if (now < artwork_due_ms_)
+        return;
+
+    unsigned slot = selected_app_ % 6;
+    if (artwork_attempted_[slot])
+    {
+        for (unsigned offset = 0; offset < 6; ++offset)
+        {
+            slot = (artwork_next_slot_ + offset) % 6;
+            if (!artwork_attempted_[slot])
+                break;
+        }
+        if (artwork_attempted_[slot])
+            return;
+    }
+    const unsigned index = page_start + slot;
+    if (index >= backend_.app_count)
+    {
+        artwork_attempted_[slot] = true;
+        artwork_next_slot_ = (slot + 1) % 6;
+        return;
+    }
+
+    artwork_attempted_[slot] = true;
+    artwork_next_slot_ = (slot + 1) % 6;
+    std::snprintf(artwork_host_, sizeof(artwork_host_), "%s", SelectedHostAddress());
+    artwork_https_port_ = backend_.https_port;
+    artwork_app_id_ = backend_.apps[index].id;
+    __atomic_store_n(&artwork_worker_state_, 1, __ATOMIC_RELEASE);
+    if (pthread_create(&artwork_thread_, nullptr, ArtworkWorker, this) != 0)
+    {
+        __atomic_store_n(&artwork_worker_state_, 3, __ATOMIC_RELEASE);
+        artwork_due_ms_ = now + 250;
+        return;
+    }
+    artwork_worker_active_ = true;
+}
+
+void MoonlightApp::SetScreen(Screen screen)
+{
+    screen_ = screen;
+    focus_ = screen_ == Screen::Games ? (backend_.app_count ? 4 + selected_app_ % 6 : 11) : 4;
+    confirm_unpair_ = false;
+    UpdateScreen();
+    if (screen_ == Screen::Games)
+        UpdateGames();
+    UpdateFocus();
+}
+
+void MoonlightApp::MoveFocus(int direction)
+{
+    const FocusList list = FocusFor(static_cast<unsigned>(screen_));
+    if (!list.count)
+        return;
+    int next = static_cast<int>(focus_) + direction;
+    if (next < 0)
+        next = static_cast<int>(list.count) - 1;
+    if (next >= static_cast<int>(list.count))
+        next = 0;
+    focus_ = static_cast<unsigned>(next);
+    if (screen_ == Screen::Hosts && confirm_unpair_ && focus_ != 6)
+    {
+        confirm_unpair_ = false;
+        UpdateHost();
+    }
+    UpdateFocus();
+}
+
+void MoonlightApp::CycleApp(int direction)
+{
+    if (backend_.app_count < 2)
+        return;
+    if (direction < 0)
+    {
+        selected_app_ = selected_app_ == 0 ? backend_.app_count - 1 : selected_app_ - 1;
+    }
+    else
+    {
+        selected_app_ = (selected_app_ + 1) % backend_.app_count;
+    }
+    focus_ = 4 + selected_app_ % 6;
+    UpdateGames();
+    UpdateFocus();
+}
+
+void MoonlightApp::MoveGameVertical(int direction)
+{
+    if (focus_ < 4)
+    {
+        if (direction > 0 && backend_.app_count)
+        {
+            focus_ = 4 + selected_app_ % 6;
+            UpdateFocus();
+        }
+        else
+        {
+            MoveFocus(direction);
+        }
+        return;
+    }
+
+    const unsigned page_start = (selected_app_ / 6) * 6;
+    if (focus_ <= 9 && backend_.app_count)
+    {
+        const unsigned slot = focus_ - 4;
+        if (direction < 0)
+        {
+            if (slot >= 3)
+            {
+                selected_app_ -= 3;
+                focus_ -= 3;
+                UpdateGames();
+            }
+            else
+            {
+                focus_ = 1;
+            }
+        }
+        else
+        {
+            const unsigned target = page_start + slot + 3;
+            if (slot < 3 && target < backend_.app_count)
+            {
+                selected_app_ = target;
+                focus_ += 3;
+                UpdateGames();
+            }
+            else
+            {
+                focus_ = slot == 0 || slot == 3 ? 10 : 11;
+            }
+        }
+        UpdateFocus();
+        return;
+    }
+
+    if (focus_ == 10 || focus_ == 11)
+    {
+        if (direction < 0 && backend_.app_count)
+        {
+            const unsigned column = focus_ == 10 ? 0 : 2;
+            unsigned target = page_start + 3 + column;
+            if (target >= backend_.app_count)
+                target = page_start + column;
+            if (target >= backend_.app_count)
+                target = backend_.app_count - 1;
+            selected_app_ = target;
+            focus_ = 4 + target - page_start;
+            UpdateGames();
+        }
+        else
+        {
+            focus_ = 1;
+        }
+        UpdateFocus();
+    }
+}
+
+const moonlight_config_host_t *MoonlightApp::SelectedHost() const
+{
+    return config_.host_count && config_.selected_host < config_.host_count
+               ? &config_.hosts[config_.selected_host]
+               : nullptr;
+}
+
+void MoonlightApp::CycleHost(int direction)
+{
+    if (config_.host_count < 2)
+        return;
+    if (direction < 0)
+    {
+        config_.selected_host =
+            config_.selected_host == 0 ? config_.host_count - 1 : config_.selected_host - 1;
+    }
+    else
+    {
+        config_.selected_host = (config_.selected_host + 1) % config_.host_count;
+    }
+    selected_app_ = 0;
+    (void)moonlight_config_save(&config_);
+    RefreshBackend();
+}
+
+void MoonlightApp::Activate()
+{
+    if (focus_ < 4)
+    {
+        SetScreen(static_cast<Screen>(focus_));
+        return;
+    }
+
+    switch (screen_)
+    {
+    case Screen::Hosts:
+        if (focus_ == 4)
+        {
+            if (backend_.online && backend_.paired)
+            {
+                if (backend_.app_count)
+                    SetScreen(Screen::Games);
+                else
+                    SetText(document_, "host-action-status",
+                            "Sunshine returned no launchable apps");
+            }
+            else if (backend_.online)
+                SetText(document_, "host-action-status",
+                        "Choose Pair PC below to connect this client");
+            else
+                SetText(document_, "host-action-status", "Sunshine is currently unreachable");
+        }
+        else if (focus_ == 5)
+            RefreshBackend();
+        else if (focus_ == 6)
+            TogglePairing();
+        else
+            StartManualHostEntry();
+        break;
+    case Screen::Games:
+        if (focus_ >= 4 && focus_ <= 9 && selected_app_ < backend_.app_count)
+        {
+            char text[160];
+            unsigned width, height;
+            if (config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC && !backend_.hevc_supported)
+            {
+                SetText(document_, "launch-status",
+                        "The selected Sunshine PC does not advertise HEVC support.");
+                break;
+            }
+            if (config_.hdr_enabled && !backend_.main10_supported)
+            {
+                SetText(document_, "launch-status",
+                        "The selected Sunshine PC does not advertise HEVC Main10 HDR support.");
+                break;
+            }
+            StreamDimensions(config_.stream_resolution, width, height);
+            stream_error_[0] = '\0';
+            std::snprintf(text, sizeof(text), "%s %s %ux%u@60 stream...",
+                          backend_.current_app_id == backend_.apps[selected_app_].id ? "Resuming"
+                                                                                     : "Starting",
+                          CodecName(config_.video_codec, config_.hdr_enabled), width, height);
+            SetText(document_, "launch-status", text);
+            command_ = Command::StartStream;
+        }
+        else if (focus_ == 10)
+            StopActiveApp();
+        else
+            SetScreen(Screen::Hosts);
+        break;
+    case Screen::Settings:
+        if (focus_ == 4)
+        {
+            config_.hdr_enabled = 0;
+            config_.video_codec = config_.video_codec == MOONLIGHT_VIDEO_CODEC_H264
+                                      ? MOONLIGHT_VIDEO_CODEC_HEVC
+                                      : MOONLIGHT_VIDEO_CODEC_H264;
+        }
+        else if (focus_ == 5)
+        {
+            config_.hdr_enabled = 0;
+            config_.stream_resolution = (config_.stream_resolution + 1) % 3;
+        }
+        else if (focus_ == 6)
+        {
+            bitrate_mbps_ = NextBitrate(bitrate_mbps_);
+            config_.bitrate_mbps = bitrate_mbps_;
+        }
+        else if (focus_ == 7)
+        {
+            config_.display_area = config_.display_area == MOONLIGHT_DISPLAY_AREA_TV_SAFE
+                                       ? MOONLIGHT_DISPLAY_AREA_FULL
+                                       : MOONLIGHT_DISPLAY_AREA_TV_SAFE;
+        }
+        else if (focus_ == 8)
+        {
+            config_.hdr_enabled = !config_.hdr_enabled;
+            if (config_.hdr_enabled)
+            {
+                config_.video_codec = MOONLIGHT_VIDEO_CODEC_HEVC;
+                config_.stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P;
+            }
+        }
+        (void)moonlight_config_save(&config_);
+        UpdateSettings();
+        UpdateGames();
+        break;
+    case Screen::Diagnostics:
+        SetScreen(Screen::Hosts);
+        break;
+    default:
+        break;
+    }
+}
+
+void MoonlightApp::StartManualHostEntry()
+{
+    const moonlight_config_host_t *host = SelectedHost();
+    if (radio_ime_request(host && host->manual ? host->address : "", "Add Sunshine PC",
+                          "IPv4 address, for example 192.168.1.50", ManualHostResult, this))
+    {
+        manual_entry_active_ = true;
+        SetText(document_, "host-action-status", "Enter the Sunshine PC IPv4 address");
+    }
+    else
+    {
+        SetText(document_, "host-action-status", "Text entry is currently unavailable");
+    }
+}
+
+void MoonlightApp::ManualHostResult(const char *text, void *user_data)
+{
+    MoonlightApp *app = static_cast<MoonlightApp *>(user_data);
+    if (app)
+        app->AddManualHost(text);
+}
+
+void MoonlightApp::AddManualHost(const char *text)
+{
+    char address[MOONLIGHT_CONFIG_ADDRESS_SIZE];
+    const int index = NormalizeIpv4(text, address)
+                          ? moonlight_config_upsert_host(&config_, address, "Sunshine PC", "", true)
+                          : -1;
+    manual_entry_active_ = false;
+    if (index < 0)
+    {
+        SetText(document_, "host-action-status", "Enter a valid IPv4 address such as 192.168.1.50");
+        return;
+    }
+    config_.selected_host = static_cast<uint32_t>(index);
+    (void)moonlight_config_save(&config_);
+    selected_app_ = 0;
+    RefreshBackend();
+}
+
+void MoonlightApp::DiscoverHosts()
+{
+    moonlight_discovered_host_t discovered[MOONLIGHT_DISCOVERY_MAX_HOSTS];
+    moonlight_config_t before = config_;
+    const uint32_t count = moonlight_discover_hosts(discovered, MOONLIGHT_DISCOVERY_MAX_HOSTS);
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        (void)moonlight_config_upsert_host(&config_, discovered[index].address,
+                                           discovered[index].name, "", false);
+    }
+    if (std::memcmp(&before, &config_, sizeof(config_)) != 0)
+        (void)moonlight_config_save(&config_);
+}
+
+void MoonlightApp::TogglePairing()
+{
+    FinishArtworkWorker(true);
+    artwork_page_start_ = MOONLIGHT_BACKEND_MAX_APPS;
+    const char *host = SelectedHostAddress();
+    if (!host[0])
+    {
+        SetText(document_, "host-action-status", "Refresh discovery or add a Sunshine PC address");
+        return;
+    }
+    if (!backend_.online)
+    {
+        SetText(document_, "host-action-status", "Sunshine must be online before pairing");
+        return;
+    }
+    if (!backend_.paired)
+    {
+        const int result = moonlight_backend_pair_start(host);
+        if (result != 0)
+        {
+            moonlight_backend_snapshot_t failed{};
+            moonlight_backend_pair_poll(&failed, nullptr);
+            SetText(document_, "host-action-status",
+                    failed.error[0] ? failed.error : "Could not start the pairing request");
+            return;
+        }
+        pairing_active_ = true;
+        pairing_state_ = MOONLIGHT_BACKEND_PAIR_PREPARING;
+        pairing_started_ms_ = SDL_GetTicks64();
+        pairing_remaining_ = MOONLIGHT_BACKEND_PAIR_TIMEOUT_SECONDS + 1;
+        SetText(document_, "pair-modal-pin", "----");
+        SetText(document_, "pair-modal-status", "Preparing a secure PIN...");
+        SetClass(document_, "pair-modal", "hidden", false);
+        PollPairing();
+        return;
+    }
+    if (backend_.current_app_id)
+    {
+        SetText(document_, "host-action-status", "Stop the active Sunshine app before unpairing");
+        return;
+    }
+    if (!confirm_unpair_)
+    {
+        confirm_unpair_ = true;
+        SetText(document_, "pair-host-label", "Confirm unpair");
+        SetText(document_, "host-action-status",
+                "Press Cross again to forget this PC and require a new PIN");
+        return;
+    }
+
+    confirm_unpair_ = false;
+    SetText(document_, "host-action-status", "Unpairing this PS5...");
+    const int result = moonlight_backend_unpair(host, &backend_);
+    UpdateHost();
+    UpdateGames();
+    UpdateSettings();
+    if (result != 0)
+    {
+        char text[180];
+        std::snprintf(text, sizeof(text), "Unpair failed: %s",
+                      backend_.error[0] ? backend_.error : "Sunshine rejected the request");
+        SetText(document_, "host-action-status", text);
+    }
+    else
+    {
+        SetText(document_, "host-action-status", "Unpaired locally. Pair again to reconnect.");
+    }
+}
+
+void MoonlightApp::PollPairing()
+{
+    if (!pairing_active_)
+        return;
+
+    char pin[5] = {};
+    moonlight_backend_snapshot_t completed{};
+    const moonlight_backend_pair_state_t state = moonlight_backend_pair_poll(&completed, pin);
+    if (pin[0] && state != pairing_state_)
+    {
+        SetText(document_, "pair-modal-pin", pin);
+        SetText(document_, "pair-modal-status", "Enter this PIN in Sunshine to approve the PS5");
+    }
+    pairing_state_ = state;
+
+    const uint64_t elapsed = (SDL_GetTicks64() - pairing_started_ms_) / 1000;
+    const unsigned remaining =
+        elapsed >= MOONLIGHT_BACKEND_PAIR_TIMEOUT_SECONDS
+            ? 0
+            : MOONLIGHT_BACKEND_PAIR_TIMEOUT_SECONDS - static_cast<unsigned>(elapsed);
+    if (remaining != pairing_remaining_)
+    {
+        char timer[16];
+        std::snprintf(timer, sizeof(timer), "%u:%02u", remaining / 60, remaining % 60);
+        SetText(document_, "pair-modal-timer", timer);
+        pairing_remaining_ = remaining;
+    }
+
+    if (state != MOONLIGHT_BACKEND_PAIR_SUCCEEDED && state != MOONLIGHT_BACKEND_PAIR_FAILED)
+        return;
+
+    pairing_active_ = false;
+    backend_ = completed;
+    SetClass(document_, "pair-modal", "hidden", true);
+    UpdateHost();
+    UpdateGames();
+    UpdateSettings();
+}
+
+void MoonlightApp::StopActiveApp()
+{
+    FinishArtworkWorker(false);
+    if (!backend_.current_app_id)
+    {
+        SetText(document_, "launch-status", "No Sunshine app is currently running.");
+        return;
+    }
+
+    SetText(document_, "launch-status", "Stopping the active Sunshine app...");
+    const int result = moonlight_backend_stop_app(SelectedHostAddress(), &backend_);
+    UpdateHost();
+    UpdateGames();
+    if (result != 0)
+    {
+        char text[180];
+        std::snprintf(text, sizeof(text), "Stop failed: %s",
+                      backend_.error[0] ? backend_.error : "Sunshine rejected the request");
+        SetText(document_, "launch-status", text);
+    }
+}
+
+void MoonlightApp::RefreshBackend()
+{
+    FinishArtworkWorker(true);
+    artwork_page_start_ = MOONLIGHT_BACKEND_MAX_APPS;
+    confirm_unpair_ = false;
+    SetText(document_, "host-action-status", "Discovering Sunshine PCs...");
+    DiscoverHosts();
+    const moonlight_config_host_t *host = SelectedHost();
+    if (!host)
+    {
+        std::memset(&backend_, 0, sizeof(backend_));
+        UpdateHost();
+        UpdateGames();
+        UpdateSettings();
+        return;
+    }
+    SetText(document_, "host-action-status", "Refreshing Sunshine status...");
+    (void)moonlight_backend_refresh(host->address, &backend_);
+    if (backend_.online)
+    {
+        const int index = moonlight_config_upsert_host(&config_, host->address, backend_.name,
+                                                       backend_.unique_id, host->manual != 0);
+        if (index >= 0)
+        {
+            config_.selected_host = static_cast<uint32_t>(index);
+            (void)moonlight_config_save(&config_);
+        }
+    }
+    if (selected_app_ >= backend_.app_count)
+        selected_app_ = 0;
+    UpdateHost();
+    UpdateGames();
+    UpdateSettings();
+}
+
+void MoonlightApp::UpdateScreen()
+{
+    const unsigned screen = static_cast<unsigned>(screen_);
+    const char *const ids[] = {"screen-hosts", "screen-games", "screen-settings",
+                               "screen-diagnostics"};
+    const char *const titles[] = {"Your PCs", "Games", "Settings", "Diagnostics"};
+    for (unsigned i = 0; i < 4; ++i)
+    {
+        SetClass(document_, ids[i], "hidden", i != screen);
+        char nav_id[32];
+        std::snprintf(nav_id, sizeof(nav_id), "nav-%s",
+                      i == 0   ? "hosts"
+                      : i == 1 ? "games"
+                      : i == 2 ? "settings"
+                               : "diagnostics");
+        SetClass(document_, nav_id, "active", i == screen);
+    }
+    SetText(document_, "page-title", titles[screen]);
+}
+
+void MoonlightApp::UpdateFocus()
+{
+    const char *const all[] = {
+        "nav-hosts",     "nav-games",          "nav-settings",    "nav-diagnostics",
+        "host-card",     "refresh-hosts",      "pair-host",       "add-host",
+        "app-card-0",    "app-card-1",         "app-card-2",      "app-card-3",
+        "app-card-4",    "app-card-5",         "stop-app",        "back-hosts",
+        "setting-codec", "setting-resolution", "setting-bitrate", "setting-display-area",
+        "setting-hdr",   "back-diagnostics"};
+    for (const char *id : all)
+        SetClass(document_, id, "focused", false);
+
+    const FocusList list = FocusFor(static_cast<unsigned>(screen_));
+    if (focus_ >= list.count)
+        focus_ = 0;
+    SetClass(document_, list.ids[focus_], "focused", true);
+}
+
+void MoonlightApp::UpdateHost()
+{
+    char text[160];
+    const moonlight_config_host_t *selected_host = SelectedHost();
+    const char *host_name = backend_.name[0]                          ? backend_.name
+                            : selected_host && selected_host->name[0] ? selected_host->name
+                                                                      : "No PC found";
+    SetText(document_, "host-name", host_name);
+    SetText(document_, "host-detail-title", host_name);
+    SetText(document_, "sidebar-host-name", host_name);
+    SetText(document_, "sidebar-host-address",
+            selected_host ? selected_host->address : "No PC selected");
+    if (selected_host)
+    {
+        std::snprintf(text, sizeof(text), "PC %u OF %u / LEFT OR RIGHT TO SWITCH",
+                      config_.selected_host + 1, config_.host_count);
+        SetText(document_, "host-position", text);
+    }
+    else
+    {
+        SetText(document_, "host-position", "REFRESH DISCOVERY OR ADD A PC");
+    }
+    SetText(document_, "host-address", backend_.host);
+    SetText(document_, "host-detail-address", backend_.host);
+    SetClass(document_, "host-status-dot", "online", backend_.online != 0);
+    SetClass(document_, "footer-status-dot", "online", backend_.online != 0);
+    SetClass(document_, "host-status", "offline", !backend_.online || !backend_.paired);
+    SetClass(document_, "host-detail-ready", "offline", !backend_.online || !backend_.paired);
+    SetClass(document_, "footer-status", "offline", !backend_.online || !backend_.paired);
+    SetClass(document_, "pair-host", "action-danger", backend_.paired != 0);
+    SetClass(document_, "pair-host", "disabled", backend_.online == 0);
+
+    if (!selected_host)
+    {
+        SetText(document_, "host-address", "No saved or discovered address");
+        SetText(document_, "host-detail-address", "Not configured");
+        SetText(document_, "host-status", "NO PCS FOUND");
+        SetText(document_, "host-detail-connection", "Discovery complete");
+        SetText(document_, "host-detail-pairing", "Not configured");
+        SetText(document_, "host-detail-ready", "ADD A SUNSHINE PC");
+        SetText(document_, "footer-status", "NO SUNSHINE PC");
+        SetText(document_, "host-card-action", "ADD");
+        SetText(document_, "pair-host-label", "Pair unavailable");
+        SetText(document_, "host-action-status",
+                "No PC found. Select Add PC to enter an IPv4 address.");
+        return;
+    }
+
+    if (!backend_.online)
+    {
+        SetText(document_, "host-status", "OFFLINE");
+        SetText(document_, "host-detail-connection", "Unavailable");
+        SetText(document_, "host-detail-pairing", "Unknown");
+        SetText(document_, "host-detail-ready", "RETRY REFRESH");
+        SetText(document_, "footer-status", "SUNSHINE OFFLINE");
+        SetText(document_, "host-card-action", "RETRY");
+        SetText(document_, "pair-host-label", "Pair unavailable");
+        std::snprintf(text, sizeof(text), "Refresh failed: %s",
+                      backend_.error[0] ? backend_.error : "host unreachable");
+        SetText(document_, "host-action-status", text);
+        return;
+    }
+
+    std::snprintf(text, sizeof(text), "Sunshine %s",
+                  backend_.server_version[0] ? backend_.server_version : "online");
+    SetText(document_, "host-detail-connection", text);
+    if (!backend_.paired)
+    {
+        SetText(document_, "host-status", "ONLINE / NOT PAIRED");
+        SetText(document_, "host-detail-pairing", "Pairing required");
+        SetText(document_, "host-detail-ready", "PAIRING REQUIRED");
+        SetText(document_, "footer-status", "PAIRING REQUIRED");
+        SetText(document_, "host-card-action", "PAIR");
+        SetText(document_, "pair-host-label", "Pair PC");
+        if (backend_.result != 0 && backend_.error[0])
+        {
+            std::snprintf(text, sizeof(text), "Pairing failed: %s", backend_.error);
+            SetText(document_, "host-action-status", text);
+        }
+        else
+        {
+            SetText(document_, "host-action-status",
+                    "Select Pair PC, then enter the onscreen PIN in Sunshine");
+        }
+        return;
+    }
+
+    SetText(document_, "host-status", "ONLINE / PAIRED");
+    SetText(document_, "host-card-action", "OPEN");
+    SetText(document_, "pair-host-label", confirm_unpair_ ? "Confirm unpair" : "Unpair PC");
+    SetText(document_, "host-detail-pairing", "Client certificate");
+    std::snprintf(text, sizeof(text), "%u APPS READY", backend_.app_count);
+    SetText(document_, "host-detail-ready", text);
+    SetText(document_, "footer-status", "SUNSHINE READY");
+    std::snprintf(text, sizeof(text), "%u apps advertised by Sunshine", backend_.app_count);
+    SetText(document_, "host-action-status", text);
+}
+
+void MoonlightApp::UpdateGames()
+{
+    char id[48];
+    char text[192];
+    const bool available = selected_app_ < backend_.app_count;
+    SetClass(document_, "stop-app", "disabled", backend_.current_app_id == 0);
+    SetText(document_, "stop-app-label",
+            backend_.current_app_id ? "Stop active app" : "Nothing running");
+    unsigned width, height;
+    StreamDimensions(config_.stream_resolution, width, height);
+    std::snprintf(text, sizeof(text), "%s / %u Mbps",
+                  CodecName(config_.video_codec, config_.hdr_enabled), bitrate_mbps_);
+    SetText(document_, "profile-video-value", text);
+    const unsigned page_start = available ? (selected_app_ / 6) * 6 : 0;
+    const unsigned page_count = backend_.app_count ? (backend_.app_count + 5) / 6 : 0;
+    for (unsigned slot = 0; slot < 6; ++slot)
+    {
+        const unsigned index = page_start + slot;
+        const bool visible = index < backend_.app_count;
+        std::snprintf(id, sizeof(id), "app-card-%u", slot);
+        SetClass(document_, id, "hidden", !visible);
+        SetClass(document_, id, "selected", visible && index == selected_app_);
+        if (!visible)
+            continue;
+
+        const moonlight_backend_app_t &card = backend_.apps[index];
+        std::snprintf(id, sizeof(id), "app-index-%u", slot);
+        std::snprintf(text, sizeof(text), "APP %02u", index + 1);
+        SetText(document_, id, text);
+        std::snprintf(id, sizeof(id), "app-name-%u", slot);
+        SetText(document_, id, card.name);
+        std::snprintf(id, sizeof(id), "app-art-%u", slot);
+        if (moonlight_backend_find_app_artwork(card.id, nullptr))
+        {
+            std::snprintf(text, sizeof(text), "artwork://%d", card.id);
+            SetImageSource(document_, id, text);
+        }
+        else
+        {
+            SetImageSource(document_, id, "icons/app-placeholder.tga");
+        }
+        std::snprintf(id, sizeof(id), "app-meta-%u", slot);
+        std::snprintf(text, sizeof(text), "ID %d", card.id);
+        SetText(document_, id, text);
+        std::snprintf(id, sizeof(id), "app-state-%u", slot);
+        SetClass(document_, id, "running", backend_.current_app_id == card.id);
+        SetText(document_, id, backend_.current_app_id == card.id ? "RUNNING" : "READY");
+    }
+
+    if (page_count)
+    {
+        std::snprintf(text, sizeof(text), "PAGE %u OF %u / %u APPS", selected_app_ / 6 + 1,
+                      page_count, backend_.app_count);
+        SetText(document_, "games-page", text);
+    }
+    else
+    {
+        SetText(document_, "games-page", "NO APPS AVAILABLE");
+    }
+
+    if (!available)
+    {
+        SetText(document_, "selected-app-name", "No apps returned");
+        SetText(document_, "selected-app-position", "Refresh the selected Sunshine PC");
+        SetText(document_, "selected-app-state", "NOT READY");
+        SetClass(document_, "selected-app-state", "offline", true);
+        SetText(document_, "launch-status", "No launchable Sunshine apps were returned.");
+        return;
+    }
+
+    const moonlight_backend_app_t &app = backend_.apps[selected_app_];
+    SetText(document_, "selected-app-name", app.name);
+    std::snprintf(text, sizeof(text), "APP %u OF %u / ID %d", selected_app_ + 1, backend_.app_count,
+                  app.id);
+    SetText(document_, "selected-app-position", text);
+    SetClass(document_, "selected-app-state", "offline", false);
+    SetText(document_, "selected-app-state",
+            backend_.current_app_id == app.id ? "CURRENTLY RUNNING" : "READY TO STREAM");
+    std::snprintf(text, sizeof(text), "%u x %u / 60 FPS", width, height);
+    SetText(document_, "selected-app-stream", text);
+    if (backend_.current_app_id == app.id)
+        std::snprintf(text, sizeof(text), "Cross resumes %s. Square closes the active app.",
+                      app.name);
+    else if (backend_.current_app_id)
+        std::snprintf(text, sizeof(text), "Cross switches to %s. Square closes the active app.",
+                      app.name);
+    else
+        std::snprintf(text, sizeof(text), "Cross launches %s. Left / right selects another app.",
+                      app.name);
+    SetText(document_, "launch-status", text);
+    if (stream_error_[0])
+        SetText(document_, "launch-status", stream_error_);
+}
+
+void MoonlightApp::UpdateSettings()
+{
+    char text[128];
+    unsigned width, height;
+    StreamDimensions(config_.stream_resolution, width, height);
+    SetText(document_, "setting-codec-value", CodecName(config_.video_codec, config_.hdr_enabled));
+    if (config_.hdr_enabled && backend_.online && !backend_.main10_supported)
+    {
+        SetText(document_, "setting-codec-help",
+                "Selected PC does not advertise HEVC Main10 support");
+    }
+    else if (config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC && backend_.online &&
+             !backend_.hevc_supported)
+    {
+        SetText(document_, "setting-codec-help", "Selected PC does not advertise HEVC support");
+    }
+    else
+    {
+        SetText(document_, "setting-codec-help",
+                config_.hdr_enabled ? "10-bit HEVC Main10 hardware decode"
+                : config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC
+                    ? "8-bit HEVC Main hardware decode"
+                    : "H.264 High hardware decode");
+    }
+    std::snprintf(text, sizeof(text), "%u x %u / 60 FPS", width, height);
+    SetText(document_, "setting-resolution-value", text);
+    SetText(document_, "setting-display-area-value",
+            config_.display_area == MOONLIGHT_DISPLAY_AREA_FULL ? "Edge to edge" : "TV safe");
+    std::snprintf(text, sizeof(text), "%u Mbps", bitrate_mbps_);
+    SetText(document_, "setting-bitrate-value", text);
+    SetText(document_, "setting-hdr-value", config_.hdr_enabled ? "On / HDR10" : "Off / SDR");
+    SetText(document_, "setting-hdr-help",
+            config_.hdr_enabled && backend_.online && !backend_.main10_supported
+                ? "Unavailable: selected PC does not advertise HEVC Main10"
+            : config_.hdr_enabled ? "1080p HEVC Main10 / BT.2020 PQ with metrics HUD"
+                                  : "Experimental; enabling selects HEVC Main10 at 1080p60");
+    std::snprintf(text, sizeof(text), "%s / %sP60",
+                  config_.hdr_enabled                                 ? "HDR10"
+                  : config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC ? "HEVC"
+                                                                      : "H.264",
+                  config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P   ? "2160"
+                  : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_1440P ? "1440"
+                                                                                   : "1080");
+    SetText(document_, "header-mode", text);
+    SetText(document_, "diagnostic-decoder-copy",
+            config_.hdr_enabled ? "Videodec2 HEVC Main10 / 10-bit zero-copy"
+            : config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC
+                ? "Videodec2 HEVC Main / 8-bit NV12"
+                : "Videodec2 H.264 High / 8-bit NV12");
+    SetText(document_, "diagnostic-mode-value",
+            config_.hdr_enabled                                              ? "HDR10 EXPERIMENTAL"
+            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P ? "4K60 BETA"
+                                                                             : "60 FPS");
+    SetText(document_, "diagnostic-mode-copy",
+            config_.hdr_enabled ? "1080p Main10 BT.2020/PQ into native 10-bit HDR VideoOut"
+            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P
+                ? "Live 4K60 decode; scaled into the current 1080p VideoOut target"
+            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_1440P
+                ? "1440p decode is proven; live Sunshine validation is next"
+                : "1080p60 live Sunshine path is hardware accepted");
+    SetText(document_, "settings-note",
+            config_.hdr_enabled ? "HDR is session-scoped. Select+R1 stats; Select+L1 return."
+            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P
+                ? "4K60 is live-validated. Select+R1 stats; Select+L1 return."
+                : "In stream: Select+R1 stats; Select+L1 return and resume.");
+}
+
+void MoonlightApp::HandleInput(const radio_input_event_t &event)
+{
+    if (!event.pressed)
+        return;
+    if (pairing_active_)
+        return;
+    switch (event.key)
+    {
+    case RADIO_INPUT_UP:
+        if (screen_ == Screen::Games)
+            MoveGameVertical(-1);
+        else
+            MoveFocus(-1);
+        break;
+    case RADIO_INPUT_DOWN:
+        if (screen_ == Screen::Games)
+            MoveGameVertical(1);
+        else
+            MoveFocus(1);
+        break;
+    case RADIO_INPUT_LEFT:
+        if (screen_ == Screen::Hosts && focus_ == 4)
+            CycleHost(-1);
+        else if (screen_ == Screen::Games && focus_ >= 4 && focus_ <= 9)
+            CycleApp(-1);
+        else if (screen_ == Screen::Games && focus_ >= 10)
+        {
+            focus_ = focus_ == 10 ? 11 : 10;
+            UpdateFocus();
+        }
+        else
+            MoveFocus(-1);
+        break;
+    case RADIO_INPUT_RIGHT:
+        if (screen_ == Screen::Hosts && focus_ == 4)
+            CycleHost(1);
+        else if (screen_ == Screen::Games && focus_ >= 4 && focus_ <= 9)
+            CycleApp(1);
+        else if (screen_ == Screen::Games && focus_ >= 10)
+        {
+            focus_ = focus_ == 10 ? 11 : 10;
+            UpdateFocus();
+        }
+        else
+            MoveFocus(1);
+        break;
+    case RADIO_INPUT_CROSS:
+        Activate();
+        break;
+    case RADIO_INPUT_CIRCLE:
+        if (screen_ != Screen::Hosts)
+            SetScreen(Screen::Hosts);
+        break;
+    case RADIO_INPUT_OPTIONS:
+        SetScreen(Screen::Settings);
+        break;
+    case RADIO_INPUT_SQUARE:
+        if (backend_.current_app_id)
+        {
+            if (screen_ != Screen::Games)
+                SetScreen(Screen::Games);
+            StopActiveApp();
+        }
+        else if (screen_ == Screen::Games)
+        {
+            StopActiveApp();
+        }
+        break;
+    case RADIO_INPUT_TRIANGLE:
+        RefreshBackend();
+        break;
+    case RADIO_INPUT_L1:
+    {
+        const unsigned current = static_cast<unsigned>(screen_);
+        SetScreen(static_cast<Screen>(current == 0 ? 3 : current - 1));
+        break;
+    }
+    case RADIO_INPUT_R1:
+    {
+        const unsigned current = static_cast<unsigned>(screen_);
+        SetScreen(static_cast<Screen>((current + 1) % 4));
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+MoonlightApp::Command MoonlightApp::TakeCommand()
+{
+    const Command command = command_;
+    command_ = Command::None;
+    return command;
+}
+
+const char *MoonlightApp::SelectedAppName() const
+{
+    return selected_app_ < backend_.app_count ? backend_.apps[selected_app_].name : "";
+}
+
+int MoonlightApp::SelectedAppId() const
+{
+    return selected_app_ < backend_.app_count ? backend_.apps[selected_app_].id : 0;
+}
+
+const char *MoonlightApp::SelectedHostAddress() const
+{
+    const moonlight_config_host_t *host = SelectedHost();
+    return host ? host->address : "";
+}
+
+unsigned MoonlightApp::BitrateKbps() const
+{
+    return bitrate_mbps_ * 1000;
+}
+
+unsigned MoonlightApp::DisplayArea() const
+{
+    return config_.display_area;
+}
+
+unsigned MoonlightApp::VideoCodec() const
+{
+    return config_.video_codec;
+}
+
+unsigned MoonlightApp::StreamResolution() const
+{
+    return config_.stream_resolution;
+}
+
+unsigned MoonlightApp::HdrEnabled() const
+{
+    return config_.hdr_enabled;
+}

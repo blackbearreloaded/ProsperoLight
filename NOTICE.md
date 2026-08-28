@@ -14,8 +14,9 @@ this repository. No Sony SDK file is included.
 
 Target C++ compilation uses the LLVM libc++ headers distributed by the public
 SDK. Those headers retain the Apache-2.0 WITH LLVM-exception license recorded
-upstream. The application does not redistribute or dynamically load the
-complete libc++ or libc++abi archives.
+upstream. The application statically links only the required portions of the
+corresponding libc++ and libc++abi archives; it does not dynamically load the
+complete archives.
 
 The project’s PS5 ELF converter and FSELF writer are independently authored
 GPL-3.0-or-later code. SharpProspero was a useful public format reference during
@@ -76,3 +77,18 @@ The BlackBear icon, selection artwork, and default selection track
 is titled `Night Drive`.
 
 No proprietary runtime module, encryption key, or game file is included.
+
+## ProsperoLight streaming dependencies
+
+The streaming protocol and decoder integration use pinned source revisions of
+[moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c),
+[mbedTLS](https://github.com/Mbed-TLS/mbedtls), and
+[Opus](https://github.com/xiph/opus). Their licenses are retained in the
+corresponding `third_party/` source trees. RmlUi, SDL2, and FreeType are used
+from the PS5 integration archives in `vendor/ps5/` and retain their upstream
+licenses. None of these dependencies is claimed to be project-authored.
+
+The small sources in `vendor/ps5/sdk/stubs/` are linker-only import
+descriptions for public PS5 system modules missing from the bundled SDK stub
+set. They are compiled during the host build, are not packaged, and do not
+contain a Sony implementation.

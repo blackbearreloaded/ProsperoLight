@@ -7,9 +7,9 @@ SHELL := /bin/bash
 
 -include .env
 
-APP_DEFINITIONS ?=
-APP_INCLUDE_PATHS ?=
-APP_STATIC_ARCHIVES ?=
+APP_DEFINITIONS ?= SDL_MAIN_HANDLED SDL_STATIC_LIB USING_GENERATED_CONFIG_H RMLUI_STATIC_LIB
+APP_INCLUDE_PATHS ?= vendor/ps5/sdl/include vendor/ps5/rmlui/include include src src/gamestream platform/ps5 third_party/moonlight-common-c/src third_party/moonlight-common-c/enet/include third_party/moonlight-common-c/nanors third_party/moonlight-common-c/nanors/deps third_party/moonlight-common-c/nanors/deps/obl third_party/mbedtls/include third_party/opus/include
+APP_STATIC_ARCHIVES ?= vendor/ps5/sdl/lib/libSDL2.a vendor/ps5/rmlui/lib/librmlui.a vendor/ps5/freetype/lib/libfreetype.a build/stream-deps/libmoonlight-common-c.a build/stream-deps/libopus.a build/stream-deps/libmbedtls.a build/stream-deps/libmbedx509.a build/stream-deps/libmbedcrypto.a vendor/ps5/sdk/lib/libunwind.a vendor/ps5/sdk/lib/libcxx.a vendor/ps5/sdk/lib/libcxxabi.a
 APP_RUNTIME_MODULES ?=
 PACBREW_PACKAGES ?=
 PACBREW_INCLUDE_PATHS ?=
@@ -38,9 +38,17 @@ RUNTIME := runtime/libc.prx
 RUNTIME_INPUTS := tools/rebuild-libc.sh \
 	$(wildcard tooling/native/*.cpp tooling/native/*.hpp) \
 	$(wildcard tooling/native/runtime/*.txt)
-HOST_UNIT_TEST := build/tests/demo_renderer_tests
+HOST_UNIT_TEST := build/tests/prosperolight_tests
+STREAM_ARCHIVES := build/stream-deps/libmoonlight-common-c.a \
+	build/stream-deps/libopus.a build/stream-deps/libmbedtls.a \
+	build/stream-deps/libmbedx509.a build/stream-deps/libmbedcrypto.a
+STREAM_INPUTS := tools/build-stream-deps.sh \
+	$(wildcard src/gamestream/* platform/ps5/*) \
+	$(wildcard third_party/moonlight-common-c/src/* third_party/moonlight-common-c/enet/*) \
+	$(wildcard third_party/mbedtls/library/* third_party/mbedtls/include/mbedtls/*) \
+	$(wildcard third_party/opus/src/* third_party/opus/include/*)
 
-.PHONY: all app build init doctor test test-deps test-unit test-integration libc deps pacbrew pacbrew-list assets-check format format-check tidy lint check ffpkg ffpfsc packages deploy undeploy clean distclean help
+.PHONY: all app build init doctor test test-deps test-unit test-integration libc deps pacbrew pacbrew-list stream-deps assets-check format format-check tidy lint check ffpkg ffpfsc packages deploy undeploy clean distclean help
 
 all: app
 build: app
@@ -63,7 +71,7 @@ test-unit: $(HOST_UNIT_TEST)
 	@printf '%s\n' '==> [test-unit] Running host-native GoogleTest application tests'
 	@$(HOST_UNIT_TEST) $(GTEST_ARGS)
 
-$(HOST_UNIT_TEST): tests/test_demo_renderer.cpp src/demo_renderer.cpp src/demo_renderer.hpp tools/setup-test-dependencies.sh | test-deps
+$(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_stream_input.h tools/setup-test-dependencies.sh | test-deps
 	@printf '%s\n' '==> [test-unit] Compiling the host-native GoogleTest binary'
 	@mkdir -p -- $(@D)
 	@gtest=$$(bash tools/setup-test-dependencies.sh); \
@@ -73,9 +81,9 @@ $(HOST_UNIT_TEST): tests/test_demo_renderer.cpp src/demo_renderer.cpp src/demo_r
 		$(HOST_CXX) -std=c++20 -O2 -pthread \
 			-isystem "$$gtest/googletest/include" -I"$$gtest/googletest" \
 			-c "$$gtest/googletest/src/gtest_main.cc" -o $(@D)/gtest-main.o; \
-		$(HOST_CXX) $(HOST_TEST_CXXFLAGS) -pthread -Isrc \
+		$(HOST_CXX) $(HOST_TEST_CXXFLAGS) -pthread -Iinclude \
 			-isystem "$$gtest/googletest/include" \
-			tests/test_demo_renderer.cpp src/demo_renderer.cpp \
+			tests/test_prosperolight.cpp \
 			$(@D)/gtest-all.o $(@D)/gtest-main.o \
 			$(HOST_TEST_LDFLAGS) -o $@
 
@@ -108,9 +116,15 @@ $(RUNTIME): $(RUNTIME_INPUTS)
 	@printf '%s\n' '==> [libc] Generating the missing or outdated runtime'
 	@bash tools/rebuild-libc.sh
 
-app: $(RUNTIME)
+app: $(RUNTIME) $(STREAM_ARCHIVES)
 	@printf '%s\n' '==> [app] Compiling, linking, signing, and assembling the app folder'
 	@bash tools/build.sh Folder
+
+stream-deps: $(STREAM_ARCHIVES)
+
+$(STREAM_ARCHIVES): $(STREAM_INPUTS)
+	@printf '%s\n' '==> [stream] Building pinned Moonlight, mbedTLS, and Opus archives'
+	@bash tools/build-stream-deps.sh
 
 ffpkg: $(RUNTIME)
 	@printf '%s\n' '==> [ffpkg] Building the app folder and UFS2 image'

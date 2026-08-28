@@ -67,6 +67,13 @@ if not isinstance(title, str) or not title.strip():
 print(title_id)
 PY
 )
+content_version=$(python3 - "$param" <<'PY'
+import json, sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    print(json.load(source)["contentVersion"])
+PY
+)
 
 # Loader/container constants validated on firmware 6.02 and 12.70. These are
 # deliberately separate from the public application version in param.json.
@@ -98,6 +105,7 @@ mkdir -p "$build/host" "$build/obj" "$dist"
 
 mapfile -d '' -t source_paths < <(
     find "$root/src" -type f \( -name '*.c' -o -name '*.cc' -o -name '*.cpp' \) \
+        ! -path "$root/src/gamestream/*" \
         -print0 | sort -z
 )
 sources=()
@@ -157,7 +165,9 @@ for source in "${sources[@]}"; do
     object="$build/obj/${source//\//_}.o"
     if [[ $source == *.c ]]; then standard=-std=c11; else standard=-std=c++20; fi
     args=("$standard" -O2 -Wall -Wextra -ffunction-sections -fdata-sections)
-    [[ $source == *.c ]] || args+=(-fno-exceptions -fno-rtti)
+    # RmlUi was built with the platform C++ ABI and requires RTTI and exception
+    # metadata in consuming translation units. The app still does not throw.
+    [[ $source == *.c ]] || args+=(-fexceptions -frtti)
     for definition in "${definitions[@]}"; do
         [[ $definition =~ ^[A-Za-z_][A-Za-z0-9_]*(=[A-Za-z0-9_]+)?$ ]] || {
             echo "invalid compile definition: $definition" >&2; exit 2;
@@ -186,7 +196,38 @@ PS5_PAYLOAD_SDK="$sdk_root" sh "$root/tooling/prospero-clang18" \
     -ffunction-sections -fdata-sections \
     -c "$native/app_cpp_runtime.cpp" -o "$build/obj/app_cpp_runtime.o"
 
-link_inputs=("$build/obj/app_crt.o" "$build/obj/app_cpp_runtime.o" "${objects[@]}")
+# The pinned libc++ archives record a POSIX pthread dependency. The clean-room
+# runtime supplies those imports, so a valid local archive is enough for lld
+# to resolve the dependency without dragging in a second runtime.
+"$sdk_root/bin/prospero-ar" rcs "$build/obj/libpthread.a" \
+    "$build/obj/app_cpp_runtime.o"
+
+# lld consumes conventional shared objects, while the native module writer
+# reads those same objects as public-system-module import stubs. Their tiny
+# bodies are never packaged or executed on the console.
+build_system_link_stub() {
+    local library=$1
+    local source=$2
+    local object="$build/obj/${library}_link_stub.o"
+    local output="$build/stubs/${library}.so"
+
+    mkdir -p "${output%/*}"
+    PS5_PAYLOAD_SDK="$sdk_root" sh "$root/tooling/prospero-clang18" \
+        -std=c11 -O2 -fPIC -ffunction-sections -fdata-sections \
+        -c "$root/$source" -o "$object"
+    "$sdk_root/bin/prospero-lld" --shared -soname "${library}.prx" \
+        -o "$output" "$object"
+    printf '%s\n' "$output"
+}
+
+pngdec_stub=$(build_system_link_stub libScePngDec vendor/ps5/sdk/stubs/pngdec_link_stub.c)
+videodec2_stub=$(build_system_link_stub libSceVideodec2 vendor/ps5/sdk/stubs/videodec2_link_stub.c)
+common_dialog_stub=$(build_system_link_stub libSceCommonDialog vendor/ps5/sdk/stubs/common_dialog_link_stub.c)
+agc_stub=$(build_system_link_stub libSceAgc vendor/ps5/sdk/stubs/agc_link_stub.c)
+agc_driver_stub=$(build_system_link_stub libSceAgcDriver vendor/ps5/sdk/stubs/agc_driver_link_stub.c)
+
+link_inputs=("$build/obj/app_crt.o" "$build/obj/app_cpp_runtime.o" "${objects[@]}" \
+    "$pngdec_stub" "$videodec2_stub" "$common_dialog_stub" "$agc_stub" "$agc_driver_stub")
 for archive in "${archives[@]}"; do
     [[ $archive =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\.a$ && -f $root/$archive ]] || {
         echo "invalid static archive: $archive" >&2; exit 2;
@@ -198,10 +239,18 @@ if (( ${#pacbrew_libs[@]} > 0 )); then
 fi
 "$sdk_root/bin/prospero-lld" -T "$native/ps5-pie.ld" --eh-frame-hdr \
     --version-script "$native/app-symbols.map" \
+    --exclude-libs=ALL \
+    -L "$build/obj" \
     -e _start -o "$build/llvm-pie.elf" "${link_inputs[@]}" \
     --as-needed "$sdk_root"/target/lib/*.so
 "$tool" link --in "$build/llvm-pie.elf" --out "$build/eboot.elf" \
-    --stub-dir "$sdk_root/target/lib" --module-sdk "$module_sdk" \
+    --stub-dir "$sdk_root/target/lib" \
+    --stub "$pngdec_stub" \
+    --stub "$videodec2_stub" \
+    --stub "$common_dialog_stub" \
+    --stub "$agc_stub" \
+    --stub "$agc_driver_stub" \
+    --module-sdk "$module_sdk" \
     --companion-sdk "$companion_sdk" --file-name eboot.elf
 
 app="$dist/$title_id"
@@ -215,6 +264,20 @@ for asset in icon0.png pic0.dds pic1.dds snd0.at9; do
     [[ -f $root/sce_sys/$asset ]] && cp "$root/sce_sys/$asset" "$app/sce_sys/$asset"
 done
 [[ ! -d $root/assets ]] || cp -a "$root/assets" "$app/assets"
+if [[ -d $root/ui ]]; then
+    cp -a "$root/ui" "$app/ui"
+    python3 - "$app/ui/main.rml" "$content_version" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+token = "@PROSPEROLIGHT_VERSION@"
+if token not in text:
+    raise SystemExit("ProsperoLight UI version token is missing")
+path.write_text(text.replace(token, sys.argv[2]), encoding="utf-8")
+PY
+fi
 
 [[ -f $root/runtime/libc.prx ]] || bash "$root/tools/rebuild-libc.sh"
 (cd "$root/runtime" && sha256sum --check --strict libc.prx.sha256)

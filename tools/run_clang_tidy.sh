@@ -27,20 +27,39 @@ gtest=$(bash "$root/tools/setup-test-dependencies.sh")
 mapfile -d '' test_sources < <(find "$root/tests" -maxdepth 1 -type f -name '*.cpp' -print0)
 if (( ${#test_sources[@]} )); then
     "$tidy" "${test_sources[@]}" --quiet --warnings-as-errors='*' -- \
-        -std=c++20 -I"$root/src" -isystem "$gtest/googletest/include"
+        -std=c++20 -I"$root/include" -I"$root/src" \
+        -isystem "$gtest/googletest/include"
 fi
 
 mapfile -d '' app_c_sources < <(find "$root/src" -type f -name '*.c' -print0)
 if (( ${#app_c_sources[@]} )); then
     "$tidy" "${app_c_sources[@]}" --quiet --warnings-as-errors='*' -- \
-        -std=c11 -isystem "$sdk/target/include"
+        -std=c11 -I"$root/src/gamestream" \
+        -I"$root/third_party/moonlight-common-c/src" \
+        -I"$root/third_party/moonlight-common-c/enet/include" \
+        -I"$root/third_party/moonlight-common-c/nanors" \
+        -I"$root/third_party/moonlight-common-c/nanors/deps" \
+        -I"$root/third_party/moonlight-common-c/nanors/deps/obl" \
+        -I"$root/third_party/mbedtls/include" -isystem "$sdk/target/include"
 fi
 
 mapfile -d '' app_cpp_sources < <(find "$root/src" -type f \
     \( -name '*.cc' -o -name '*.cpp' \) -print0)
 app_cpp_sources+=("$root/tooling/native/app_crt.cpp" "$root/tooling/native/app_cpp_runtime.cpp")
 if (( ${#app_cpp_sources[@]} )); then
-    "$tidy" "${app_cpp_sources[@]}" --quiet --warnings-as-errors='*' -- \
-        -std=c++20 -fno-exceptions -fno-rtti --target=x86_64-sie-ps5 \
-        -isystem "$sdk/target/include/c++/v1" -isystem "$sdk/target/include"
+    for source in "${app_cpp_sources[@]}"; do
+        "$tidy" "$source" --warnings-as-errors='*' -- \
+            -std=c++20 -fexceptions -frtti --target=x86_64-sie-ps5 \
+            -DSDL_MAIN_HANDLED -DSDL_STATIC_LIB -DUSING_GENERATED_CONFIG_H \
+            -DRMLUI_STATIC_LIB -I"$root/include" -I"$root/src" \
+            -I"$root/src/gamestream" -I"$root/platform/ps5" \
+            -I"$root/vendor/ps5/sdl/include" -I"$root/vendor/ps5/rmlui/include" \
+            -I"$root/third_party/moonlight-common-c/src" \
+            -I"$root/third_party/moonlight-common-c/enet/include" \
+            -I"$root/third_party/moonlight-common-c/nanors" \
+            -I"$root/third_party/moonlight-common-c/nanors/deps" \
+            -I"$root/third_party/moonlight-common-c/nanors/deps/obl" \
+            -I"$root/third_party/mbedtls/include" -I"$root/third_party/opus/include" \
+            -isystem "$sdk/target/include/c++/v1" -isystem "$sdk/target/include"
+    done
 fi
