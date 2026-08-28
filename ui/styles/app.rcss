@@ -34,8 +34,8 @@ button {
 #header { position: absolute; left: 0px; top: 0px; width: 1920px; height: 96px; border-bottom: 1px #28496b; background-color: #061323; }
 #brand-mark { position: absolute; left: 64px; top: 20px; width: 56px; height: 56px; color: #07182b; }
 .prosperolight-brand-icon { position: absolute; left: 0px; top: 0px; width: 56px; height: 56px; }
-#brand-name { position: absolute; left: 140px; top: 7px; width: 250px; height: 42px; font-size: 32px; line-height: 42px; letter-spacing: 1px; }
-#brand-version { position: absolute; left: 142px; top: 49px; width: 180px; height: 30px; color: #79a8d8; font-size: 20px; line-height: 30px; }
+#brand-name { position: absolute; left: 140px; top: 14px; width: 250px; height: 38px; font-size: 32px; line-height: 38px; letter-spacing: 1px; }
+#brand-version { position: absolute; left: 140px; top: 52px; width: 180px; height: 30px; color: #79a8d8; font-size: 20px; line-height: 30px; }
 #page-title { position: absolute; left: 500px; top: 23px; width: 470px; height: 50px; color: #b9d7f7; font-size: 32px; line-height: 50px; }
 #header-mode { position: absolute; left: 1370px; top: 30px; width: 486px; height: 36px; color: #79a8d8; font-size: 20px; line-height: 32px; text-align: right; }
 

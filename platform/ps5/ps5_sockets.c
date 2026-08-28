@@ -8,6 +8,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -176,6 +177,37 @@ int shutdown(int socket_id, int how)
 int ps5_socket_close(int socket_id)
 {
     return network_result(sceNetSocketClose(socket_id));
+}
+
+int ps5_socket_fcntl(int socket_id, int command, ...)
+{
+    if (command == F_GETFL)
+    {
+        int enabled = 0;
+        socklen_t length = sizeof(enabled);
+
+        if (network_result(sceNetGetsockopt(socket_id, SOL_SOCKET, SCE_NET_SO_NBIO, &enabled,
+                                            &length)) < 0)
+            return -1;
+        return enabled ? O_NONBLOCK : 0;
+    }
+
+    if (command == F_SETFL)
+    {
+        va_list arguments;
+        int flags;
+        int enabled;
+
+        va_start(arguments, command);
+        flags = va_arg(arguments, int);
+        va_end(arguments);
+        enabled = (flags & O_NONBLOCK) != 0;
+        return network_result(sceNetSetsockopt(socket_id, SOL_SOCKET, SCE_NET_SO_NBIO, &enabled,
+                                               sizeof(enabled)));
+    }
+
+    errno = EINVAL;
+    return -1;
 }
 
 int ps5_socket_ioctl(int socket_id, unsigned long request, ...)

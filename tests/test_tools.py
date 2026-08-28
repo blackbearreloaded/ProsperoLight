@@ -18,6 +18,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ToolTests(unittest.TestCase):
+    def test_stream_dependencies_use_ps5_nonblocking_socket_adapter(self):
+        compatibility = (ROOT / "platform/ps5/ps5_compat.h").read_text(
+            encoding="utf-8"
+        )
+        implementation = (ROOT / "platform/ps5/ps5_sockets.c").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("#define fcntl ps5_socket_fcntl", compatibility)
+        self.assertIn("command == F_GETFL", implementation)
+        self.assertIn("command == F_SETFL", implementation)
+        self.assertIn("SCE_NET_SO_NBIO", implementation)
+
+    def test_loading_labels_match_the_embedded_dimensions(self):
+        expected = {
+            "loading-prosperolight-alpha.bin": (232, 35),
+            "loading-connecting-alpha.bin": (287, 52),
+        }
+        for name, (width, height) in expected.items():
+            self.assertEqual((ROOT / "assets/private" / name).stat().st_size, width * height)
+
     def test_release_metadata_preserves_hdr_capability(self):
         configured = json.loads(
             (ROOT / "sce_sys/param.json").read_text(encoding="utf-8")

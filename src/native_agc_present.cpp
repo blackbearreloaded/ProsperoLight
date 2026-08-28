@@ -158,6 +158,8 @@ EMBED_ASSET(native_agc_pixel_header, "pixel.header.bin");
 EMBED_ASSET(native_agc_pixel_code, "pixel.text.linear-buffer.bin");
 EMBED_ASSET(native_agc_pixel_hdr_code, "pixel.text.p010-passthrough.bin");
 EMBED_ASSET(native_agc_resources, "netflix-video-resources.bin");
+EMBED_ASSET(native_loading_prosperolight, "loading-prosperolight-alpha.bin");
+EMBED_ASSET(native_loading_connecting, "loading-connecting-alpha.bin");
 
 static const uint8_t hud_font[96 * 8] = {
 #include "native_hud_font.inc"
@@ -899,26 +901,40 @@ static void loading_draw_disc(void *surface, int center_x, int center_y, int rad
                                  hdr);
 }
 
-static void loading_draw_text(void *surface, const char *text, uint32_t x, uint32_t y,
-                              uint32_t scale, uint16_t value, int hdr)
+static void loading_blend_luma(void *surface, uint32_t x, uint32_t y, uint16_t value, uint8_t alpha,
+                               int hdr)
 {
-    while (*text)
-    {
-        uint8_t character = (uint8_t)*text++;
-        const uint8_t *glyph;
+    size_t index;
 
-        if (character < 0x20u || character > 0x7fu)
-            character = '?';
-        glyph = hud_font + (character - 0x20u) * 8u;
-        for (uint32_t row = 0; row < 8u; ++row)
-            for (uint32_t bit = 0; bit < 8u; ++bit)
-                if (glyph[row] & (uint8_t)(1u << bit))
-                    for (uint32_t dy = 0; dy < scale; ++dy)
-                        for (uint32_t dx = 0; dx < scale; ++dx)
-                            loading_set_luma(surface, x + bit * scale + dx, y + row * scale + dy,
-                                             value, hdr);
-        x += 8u * scale;
+    if (!alpha || x >= LOADING_PITCH || y >= LOADING_VISIBLE_HEIGHT)
+        return;
+    index = (size_t)y * LOADING_PITCH + x;
+    if (hdr)
+    {
+        auto *samples = static_cast<uint16_t *>(surface);
+        const int current = samples[index];
+        samples[index] = (uint16_t)(current + ((int)value - current) * alpha / 255);
     }
+    else
+    {
+        auto *samples = static_cast<uint8_t *>(surface);
+        const int current = samples[index];
+        samples[index] = (uint8_t)(current + ((int)value - current) * alpha / 255);
+    }
+}
+
+static void loading_draw_label(void *surface, const uint8_t *mask, size_t mask_bytes,
+                               uint32_t width, uint32_t height, uint32_t center_x, uint32_t y,
+                               uint16_t value, int hdr)
+{
+    const uint32_t x = center_x - width / 2u;
+
+    if (mask_bytes != (size_t)width * height)
+        return;
+    for (uint32_t row = 0; row < height; ++row)
+        for (uint32_t column = 0; column < width; ++column)
+            loading_blend_luma(surface, x + column, y + row, value,
+                               mask[(size_t)row * width + column], hdr);
 }
 
 int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr)
@@ -971,8 +987,13 @@ int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t pha
         loading_draw_disc(surface, 960 + dot_offsets[index][0], 432 + dot_offsets[index][1], radius,
                           value, hdr);
     }
-    loading_draw_text(surface, "PROSPEROLIGHT", 856u, 548u, 2u, text, hdr);
-    loading_draw_text(surface, "CONNECTING", 800u, 594u, 4u, text, hdr);
+    loading_draw_label(
+        surface, native_loading_prosperolight_start,
+        (size_t)(native_loading_prosperolight_end - native_loading_prosperolight_start), 232u, 35u,
+        960u, 536u, text, hdr);
+    loading_draw_label(surface, native_loading_connecting_start,
+                       (size_t)(native_loading_connecting_end - native_loading_connecting_start),
+                       287u, 52u, 960u, 586u, text, hdr);
     flush_gpu_data(surface, required_bytes);
 
     return hdr ? native_agc_present_main10(surface, surface_bytes, LOADING_PITCH,
