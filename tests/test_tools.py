@@ -65,6 +65,31 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["attribute2"], 0)
         self.assertEqual(configured["attribute3"], 0)
 
+    def test_release_workflow_publishes_only_ffpfsc_and_checksum(self):
+        workflow = (ROOT / ".github/workflows/tooling.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('sha256sum "$TITLE_ID.ffpfsc" > SHA256SUMS', workflow)
+        self.assertIn("sha256sum --check SHA256SUMS", workflow)
+        self.assertIn("dist/SHA256SUMS", workflow)
+        self.assertIn('assets=("$IMAGE" "release/SHA256SUMS")', workflow)
+        self.assertNotIn('name: "*.ffpkg"', workflow)
+
+    def test_readme_tracks_identity_and_stream_shortcuts(self):
+        configured = json.loads(
+            (ROOT / "sce_sys/param.json").read_text(encoding="utf-8")
+        )
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn(configured["titleId"], readme)
+        self.assertIn(configured["contentVersion"], readme)
+        for shortcut in (
+            "Select + L1",
+            "Select + R1",
+            "Select + Square",
+            "Select + Triangle",
+        ):
+            self.assertIn(shortcut, readme)
+
     def run_init(self, param, **values):
         environment = os.environ.copy()
         environment.update(values)

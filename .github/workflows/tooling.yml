@@ -1,4 +1,4 @@
-# ps5-native-app-boilerplate - Lint, build, and release validation.
+# ps5-native-app-boilerplate - ProsperoLight lint, test, build, and release validation.
 # Copyright (C) 2026 BlackBearReloaded
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   build:
-    name: Lint, build, and package
+    name: Lint, test, and build FFPFSC
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
@@ -71,14 +71,24 @@ jobs:
       - name: Verify generated runtime is unchanged
         run: cd runtime && sha256sum -c libc.prx.sha256
 
-      - name: Build release image
-        run: make ffpfsc
+      - name: Build compressed FFPFSC and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          make ffpfsc
+          (
+            cd dist
+            sha256sum "$TITLE_ID.ffpfsc" > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
 
       - name: Upload FFPFSC
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: prosperolight-ffpfsc-${{ github.sha }}
-          path: dist/${{ env.TITLE_ID }}.ffpfsc
+          path: |
+            dist/${{ env.TITLE_ID }}.ffpfsc
+            dist/SHA256SUMS
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -102,21 +112,32 @@ jobs:
           --name "prosperolight-ffpfsc-$GITHUB_SHA"
           --dir release
 
-      - name: Publish GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify release assets
+        id: package
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' images < <(find release -type f -name '*.ffpfsc' -print0)
+          mapfile -d '' images < <(find release -type f -name 'PPSA*.ffpfsc' -print0)
           if (( ${#images[@]} != 1 )); then
             echo "Expected exactly one FFPFSC image." >&2
             exit 1
           fi
+          test -f release/SHA256SUMS
+          (cd release && sha256sum --check SHA256SUMS)
+          echo "image=${images[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.package.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=("$IMAGE" "release/SHA256SUMS")
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${images[0]}" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$GITHUB_REF_NAME" "${images[0]}" \
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --generate-notes \
