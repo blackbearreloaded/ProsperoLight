@@ -75,3 +75,21 @@ Sunshine session, reports the reason, and returns to the launcher. Host tests
 (`make test` and `make lint`) pass. The folder build was deployed, but its PS5
 launch/recovery gate remains pending because the console's loader, log, and
 file-service ports became unavailable before the test could be completed.
+
+Content version `01.000.017` isolated the later connection freeze precisely.
+The encrypted RTSP OPTIONS, DESCRIBE, and audio SETUP exchanges completed,
+Sunshine supplied audio port `48000`, the PS5 UDP socket bound successfully,
+and `pthread_create()` returned success. The new audio-ping thread then entered
+the common-c wrapper but stopped inside `pthread_setname_np()` before invoking
+its entry point. This explains why the connecting animation eventually ended
+in a process failure and why video SETUP never began.
+
+Content version `01.000.018` makes thread naming a PS5-only no-op in the forced
+compatibility header, leaving thread creation and every stream worker entry
+unchanged. The temporary common-c tracing was removed and the submodule was
+restored to its fetchable upstream commit. Nine integration tests, eight
+GoogleTests, the allocation-runtime test, lint, and the native app build pass.
+The candidate `eboot.bin` SHA-256 is
+`1d1e7bd949aeec4598b33f1640ca33d0932c6fc4a79e7ec3bbd6bcccd91d8eb1`.
+Hardware validation is pending because FTP, klog, and the loader stopped after
+the diagnostic run; the PS5 remained reachable and returned to its home screen.
