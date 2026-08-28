@@ -18,6 +18,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ToolTests(unittest.TestCase):
+    def test_release_metadata_preserves_hdr_capability(self):
+        configured = json.loads(
+            (ROOT / "sce_sys/param.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(configured["applicationCategoryType"], 0)
+        self.assertEqual(configured["attribute"], 0x62000000)
+        self.assertEqual(configured["attribute2"], 0)
+        self.assertEqual(configured["attribute3"], 0)
+
     def run_init(self, param, **values):
         environment = os.environ.copy()
         environment.update(values)

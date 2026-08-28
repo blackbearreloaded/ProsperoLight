@@ -21,6 +21,8 @@ settings.
 
 1. Install the fresh title and open the launcher. Confirm the version in the
    top bar matches `contentVersion`.
+   A saved Sunshine host must be reported online when its `/serverinfo`
+   endpoint is reachable; an offline result fails this gate.
 2. Move focus across every item on all four launcher screens, including the
    host card and action buttons. This exercises lazy texture loading; the title
    must remain alive and the detected host state must not regress.
@@ -41,3 +43,19 @@ settings.
 For release readiness, add a longer 1080p60 gameplay soak, network interruption
 recovery, repeated launch/stop cycles, and a check that no decoded-video CPU
 copy or frame backlog appears in the metrics.
+
+## Latest hardware evidence
+
+On 2026-08-28, `PPSA77003` content version `01.000.011` passed a clean PS5
+launch/close cycle after the C++ runtime migration. The console reported the
+restored HDR-capable title profile as `HDR:o`, and the launcher reached the
+saved Sunshine host `Gaming-PC` at `192.168.4.20`, changing it from the
+regressed offline state to `ONLINE / NOT PAIRED`. The fix routes network-handle
+nonblocking configuration through the `libSceNet` `ioctl(FIONBIO)` adapter
+instead of libc `fcntl()`.
+
+The tested `eboot.bin` SHA-256 is
+`539c0a0cd7bc16c41f40aee6c24bbc58416d4d5597c45e69c61e5d70d4361a36`.
+No application fatal signal appeared in the bounded kernel log, and FTP, klog,
+and loader services remained reachable after close. Pairing and physical-pad
+focus traversal remain explicit manual gates for this fresh application data.

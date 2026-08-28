@@ -4,13 +4,13 @@
   },
   "applicationCategoryType": 0,
   "applicationDrmType": "free",
-  "attribute": 0,
+  "attribute": 1644167168,
   "attribute2": 0,
   "attribute3": 0,
   "conceptId": "77003",
   "contentBadgeType": 1,
   "contentId": "UP9000-PPSA77003_00-PROSPEROLIGHT000",
-  "contentVersion": "01.000.008",
+  "contentVersion": "01.000.011",
   "downloadDataSize": 256,
   "gameIntent": {
     "permittedIntents": [

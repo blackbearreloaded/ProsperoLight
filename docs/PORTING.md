@@ -16,6 +16,11 @@ Ported application areas:
 - VideoDec2-to-AGC GPU presentation, Opus AudioOut, and DualSense input.
 - Metrics overlay, mouse emulation, HDR preference, and stream recovery UI.
 
+The title keeps the hardware-proven main application attribute `0x62000000`
+(`1644167168`). That metadata is required for the public HDR-capable VideoOut
+profile in both game and media categories; replacing it with the boilerplate
+default of zero is a functional regression.
+
 The legacy gamestream protocol sources remain C because they are a bounded,
 well-tested compatibility dependency. Rewriting that transport in C++ would
 add risk without improving the PS5 presentation path. New application work

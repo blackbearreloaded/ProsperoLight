@@ -99,6 +99,17 @@ Nothing is installed globally by these optional bootstrappers.
 - Wait for the directory loader's explicit ready/installed message.
 - Stage the whole title directory, not only `eboot.bin`.
 
+## A reachable Sunshine PC appears offline
+
+- Verify the same address answers `http://<host>:47989/serverinfo` from another
+  LAN client before changing Sunshine or the PS5.
+- PS5 network descriptors must be configured through `libSceNet`. In
+  particular, use the platform adapter's `ioctl(FIONBIO)` path; libc `fcntl()`
+  handles filesystem descriptors and may reject a network handle before
+  `connect()` is attempted.
+- The launcher includes the failed TCP stage and numeric error in its refresh
+  message. Preserve that text when reporting a failure.
+
 ## The icon, background, or selection audio does not update
 
 - Run `make`; both the Make and PowerShell builds validate the tracked
@@ -136,6 +147,11 @@ RmlUi loads hidden button-state textures lazily when focus changes, so a trap in
 `operator new` followed by `SdlRenderInterface::LoadTexture` indicates that the
 large-allocation mapping path was lost or failed. The launcher must keep
 allocations of 64 KiB or more outside the bounded libc heap.
+
+A startup `SIGBUS` at an aligned AVX store inside
+`Rml::ElementInstancerPools::Initialize()` means the replacement `operator new`
+returned insufficiently aligned storage. Its allocation header and small-object
+backing allocation must preserve the runtime's 32-byte alignment guarantee.
 
 ## `/download0` is missing
 

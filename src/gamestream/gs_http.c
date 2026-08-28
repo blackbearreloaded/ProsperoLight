@@ -13,7 +13,6 @@
 #include <mbedtls/ssl.h>
 
 #include <errno.h>
-#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -21,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -44,6 +44,14 @@ static unsigned http_timeout_ms = HTTP_TIMEOUT_DEFAULT_MS;
 static int http_verbose;
 static _Atomic int http_active_socket = -1;
 static _Atomic int http_interrupted;
+static char http_connect_error[160];
+
+static void set_connect_error(const char *stage, int error)
+{
+    snprintf(http_connect_error, sizeof(http_connect_error),
+             "Could not connect to Sunshine (%s: %d)", stage, error);
+    LOGE("Sunshine TCP connection failed at %s: %d", stage, error);
+}
 
 void http_init(client_identity_t *identity, int verbose)
 {
@@ -153,24 +161,37 @@ static int open_tcp_socket(const char *host, unsigned short port)
     struct addrinfo *address;
     char service[8];
     int socket_id = -1;
+    int address_result;
 
+    http_connect_error[0] = '\0';
     snprintf(service, sizeof(service), "%u", port);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
-    if (getaddrinfo(host, service, &hints, &addresses) != 0)
+    address_result = getaddrinfo(host, service, &hints, &addresses);
+    if (address_result != 0)
+    {
+        set_connect_error("address", address_result);
         return -1;
+    }
     for (address = addresses; address; address = address->ai_next)
     {
-        int flags;
+        int nonblocking = 1;
         int connected = 0;
 
         if (atomic_load_explicit(&http_interrupted, memory_order_relaxed))
             break;
         socket_id = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
         atomic_store_explicit(&http_active_socket, socket_id, memory_order_release);
-        flags = socket_id >= 0 ? fcntl(socket_id, F_GETFL, 0) : -1;
-        if (flags >= 0 && fcntl(socket_id, F_SETFL, flags | O_NONBLOCK) == 0)
+        if (socket_id < 0)
+        {
+            set_connect_error("socket", errno);
+        }
+        else if (ioctl(socket_id, FIONBIO, &nonblocking) != 0)
+        {
+            set_connect_error("nonblocking", errno);
+        }
+        else
         {
             if (connect(socket_id, address->ai_addr, address->ai_addrlen) == 0)
                 connected = 1;
@@ -180,12 +201,28 @@ static int open_tcp_socket(const char *host, unsigned short port)
                 int socket_error = 0;
                 socklen_t error_size = sizeof(socket_error);
 
-                if (ready > 0 &&
-                    getsockopt(socket_id, SOL_SOCKET, SO_ERROR, &socket_error, &error_size) == 0 &&
-                    socket_error == 0)
+                if (ready == 0)
+                    set_connect_error("timeout", 0);
+                else if (ready < 0)
+                    set_connect_error("wait", errno);
+                else if (getsockopt(socket_id, SOL_SOCKET, SO_ERROR, &socket_error, &error_size) !=
+                         0)
+                    set_connect_error("status", errno);
+                else if (socket_error != 0)
+                    set_connect_error("connect", socket_error);
+                else
                     connected = 1;
             }
-            (void)fcntl(socket_id, F_SETFL, flags);
+            else
+            {
+                set_connect_error("connect", errno);
+            }
+            nonblocking = 0;
+            if (connected && ioctl(socket_id, FIONBIO, &nonblocking) != 0)
+            {
+                set_connect_error("blocking", errno);
+                connected = 0;
+            }
         }
         if (connected)
             break;
@@ -226,7 +263,7 @@ static int connection_open(http_connection_t *connection, const char *host, unsi
     connection->use_tls = use_tls;
     if (connection->socket < 0)
     {
-        gs_error = "Could not connect to Sunshine";
+        gs_error = http_connect_error[0] ? http_connect_error : "Could not connect to Sunshine";
         return GS_IO_ERROR;
     }
     if (!use_tls)
