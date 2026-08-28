@@ -30,6 +30,14 @@ class ToolTests(unittest.TestCase):
         self.assertIn("command == F_SETFL", implementation)
         self.assertIn("SCE_NET_SO_NBIO", implementation)
 
+    def test_stream_threads_skip_unsafe_ps5_thread_rename(self):
+        compatibility = (ROOT / "platform/ps5/ps5_compat.h").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "#define pthread_setname_np ps5_pthread_setname_noop", compatibility
+        )
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),

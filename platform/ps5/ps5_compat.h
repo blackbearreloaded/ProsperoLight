@@ -9,8 +9,17 @@
 #include <fcntl.h>
 #include <pthread.h>
 
-/* The PS5 linker maps this POSIX spelling to pthread_rename_np. */
-int pthread_setname_np(pthread_t thread, const char *name);
+/*
+ * The generic FreeBSD path in moonlight-common-c renames every new thread.
+ * Calling the PS5 pthread_rename_np export from a newly started thread hangs
+ * before its entry point runs, so thread names are intentionally best-effort.
+ */
+static inline int ps5_pthread_setname_noop(pthread_t thread, const char *name) {
+    (void)thread;
+    (void)name;
+    return 0;
+}
+#define pthread_setname_np ps5_pthread_setname_noop
 
 /* nanors has a portable path; CPU feature globals are unavailable here. */
 #define __builtin_cpu_init() ((void)0)
