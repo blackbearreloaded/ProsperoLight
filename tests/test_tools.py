@@ -69,6 +69,7 @@ class ToolTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(
             encoding="utf-8"
         )
+        self.assertIn('"Jinja2==3.1.6" "jsonschema==4.25.1"', workflow)
         self.assertIn('sha256sum "$TITLE_ID.ffpfsc" > SHA256SUMS', workflow)
         self.assertIn("sha256sum --check SHA256SUMS", workflow)
         self.assertIn("dist/SHA256SUMS", workflow)
