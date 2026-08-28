@@ -74,18 +74,13 @@ jobs:
       - name: Verify generated runtime is unchanged
         run: cd runtime && sha256sum -c libc.prx.sha256
 
-      - name: Build compressed FFPFSC and checksum
-        shell: bash
-        run: |
-          set -euo pipefail
-          make ffpfsc
-          (
-            cd dist
-            sha256sum "$TITLE_ID.ffpfsc" > SHA256SUMS
-            sha256sum --check SHA256SUMS
-          )
+      - name: Build compressed release image
+        run: make ffpfsc
 
-      - name: Upload FFPFSC
+      - name: Write release checksum
+        run: cd dist && sha256sum "$TITLE_ID.ffpfsc" > SHA256SUMS
+
+      - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: prosperolight-ffpfsc-${{ github.sha }}
@@ -115,29 +110,45 @@ jobs:
           --name "prosperolight-ffpfsc-$GITHUB_SHA"
           --dir release
 
-      - name: Verify release assets
+      - name: Prepare release assets
         id: package
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' images < <(find release -type f -name 'PPSA*.ffpfsc' -print0)
-          if (( ${#images[@]} != 1 )); then
-            echo "Expected exactly one FFPFSC image." >&2
+          cd release
+          mapfile -d '' files < <(find . -type f -print0)
+          if (( ${#files[@]} != 2 )); then
+            echo "Expected exactly one FFPFSC image and SHA256SUMS." >&2
             exit 1
           fi
-          test -f release/SHA256SUMS
-          (cd release && sha256sum --check SHA256SUMS)
+          shopt -s nullglob
+          images=(PPSA*.ffpfsc dist/PPSA*.ffpfsc)
+          checksums=(SHA256SUMS dist/SHA256SUMS)
+          if (( ${#images[@]} != 1 || ${#checksums[@]} != 1 )); then
+            echo "Release files must be one FFPFSC image and SHA256SUMS." >&2
+            exit 1
+          fi
+          (cd "$(dirname "${checksums[0]}")" && sha256sum -c SHA256SUMS)
           echo "image=${images[0]}" >> "$GITHUB_OUTPUT"
+          echo "checksum=${checksums[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.package.outputs.image }}
+          CHECKSUM: ${{ steps.package.outputs.checksum }}
         shell: bash
         run: |
           set -euo pipefail
-          assets=("$IMAGE" "release/SHA256SUMS")
+          assets=("release/$IMAGE" "release/$CHECKSUM")
+          image_name="${IMAGE##*/}"
+          checksum_name="${CHECKSUM##*/}"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            while IFS= read -r old_asset; do
+              if [[ $old_asset != "$image_name" && $old_asset != "$checksum_name" ]]; then
+                gh release delete-asset "$GITHUB_REF_NAME" "$old_asset" --yes --repo "$GITHUB_REPOSITORY"
+              fi
+            done < <(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \

@@ -71,10 +71,12 @@ class ToolTests(unittest.TestCase):
         )
         self.assertIn('"Jinja2==3.1.6" "jsonschema==4.25.1"', workflow)
         self.assertIn('sha256sum "$TITLE_ID.ffpfsc" > SHA256SUMS', workflow)
-        self.assertIn("sha256sum --check SHA256SUMS", workflow)
         self.assertIn("dist/SHA256SUMS", workflow)
-        self.assertIn('assets=("$IMAGE" "release/SHA256SUMS")', workflow)
-        self.assertNotIn('name: "*.ffpkg"', workflow)
+        self.assertIn("Expected exactly one FFPFSC image and SHA256SUMS.", workflow)
+        self.assertIn("sha256sum -c SHA256SUMS", workflow)
+        self.assertIn('assets=("release/$IMAGE" "release/$CHECKSUM")', workflow)
+        self.assertIn("gh release delete-asset", workflow)
+        self.assertNotIn(".ffpkg", workflow)
 
     def test_readme_tracks_identity_and_stream_shortcuts(self):
         configured = json.loads(

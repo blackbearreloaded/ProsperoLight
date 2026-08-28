@@ -161,12 +161,11 @@ The [Build workflow](.github/workflows/tooling.yml) runs on every push to
 4. runs lint, GoogleTest, runtime-allocation, and Python integration checks;
 5. independently reproduces and verifies `runtime/libc.prx`;
 6. builds `PPSA77003.ffpfsc`; and
-7. generates and verifies `SHA256SUMS` before uploading both as the Actions
-   artifact.
+7. generates `SHA256SUMS` and uploads both files as the Actions artifact.
 
-A tag matching the exact `contentVersion` publishes a GitHub Release containing
-only the verified `.ffpfsc` image and `SHA256SUMS`. Folder and `.ffpkg` builds
-are never attached to a release.
+A tag matching the exact `contentVersion` verifies that build-time checksum
+again, then publishes exactly the `.ffpfsc` image and `SHA256SUMS`. Folder and
+`.ffpkg` builds are never attached to a release.
 
 ## Deploy
 
