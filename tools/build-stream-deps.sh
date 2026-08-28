@@ -7,7 +7,7 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-"$root/tools/setup-native-dependencies.sh" >/dev/null
+bash "$root/tools/setup-native-dependencies.sh" >/dev/null
 sdk=${PS5_PAYLOAD_SDK:-$root/.deps/native/ps5-payload-sdk}
 cc="$sdk/bin/prospero-clang"
 ar="$sdk/bin/llvm-ar"
