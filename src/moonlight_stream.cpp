@@ -22,6 +22,7 @@
 #include "moonlight_stream.hpp"
 #include "moonlight_config.hpp"
 #include "moonlight_stream_input.hpp"
+#include "moonlight_stream_keyboard.hpp"
 #include "lan_http_report.hpp"
 #include "native_agc_present.hpp"
 #include "gamestream/certgen.h"
@@ -279,6 +280,9 @@ typedef struct ps5_controller_state
     uint8_t connected_count_valid;
     int announced;
     int mouse_mode;
+    int keyboard_mode;
+    uint32_t keyboard_selected;
+    int keyboard_shifted;
     std::atomic<int> requested_stop;
     ps5_pad_sample_t sample_batch[PS5_PAD_SAMPLE_CAPACITY];
 } ps5_controller_state_t;
@@ -1429,24 +1433,114 @@ static void ps5_controller_set_mouse_mode(ps5_controller_state_t *state, int ena
     (void)lan_http_report_text(notification.message);
 }
 
-static void ps5_toggle_windows_keyboard(void)
+static int ps5_send_windows_key(uint16_t virtual_key, int shifted)
 {
-    const short left_windows = (short)(0x8000u | 0x5bu);
-    const short left_control = (short)(0x8000u | 0xa2u);
-    const short letter_o = (short)(0x8000u | 0x4fu);
-    int errors = 0;
+    const short key = (short)(0x8000u | virtual_key);
+    const char modifiers = shifted ? MODIFIER_SHIFT : 0;
+    int result = LiSendKeyboardEvent(key, KEY_ACTION_DOWN, modifiers);
 
-    errors += LiSendKeyboardEvent(left_windows, KEY_ACTION_DOWN, 0) != 0;
-    errors += LiSendKeyboardEvent(left_control, KEY_ACTION_DOWN, MODIFIER_META) != 0;
-    errors += LiSendKeyboardEvent(letter_o, KEY_ACTION_DOWN, MODIFIER_META | MODIFIER_CTRL) != 0;
-    errors += LiSendKeyboardEvent(letter_o, KEY_ACTION_UP, MODIFIER_META | MODIFIER_CTRL) != 0;
-    errors += LiSendKeyboardEvent(left_control, KEY_ACTION_UP, MODIFIER_META) != 0;
-    errors += LiSendKeyboardEvent(left_windows, KEY_ACTION_UP, 0) != 0;
+    if (result == 0)
+        result = LiSendKeyboardEvent(key, KEY_ACTION_UP, modifiers);
+    return result;
+}
+
+static void ps5_controller_set_keyboard_mode(ps5_controller_state_t *state, int enabled)
+{
+    static const controller_event_t neutral_event = {};
+
+    state->keyboard_mode = enabled != 0;
+    if (state->keyboard_mode)
+    {
+        if (state->mouse_mode)
+            ps5_controller_set_mouse_mode(state, 0);
+        ps5_controller_send(state, &neutral_event);
+    }
+    else
+        state->last_event_us = 0;
+    native_agc_set_keyboard_state(state->keyboard_mode, state->keyboard_selected,
+                                  state->keyboard_shifted);
     snprintf(notification.message, sizeof(notification.message),
-             errors == 0 ? "ProsperoLight: Windows keyboard toggled."
-                         : "ProsperoLight: Could not toggle the Windows keyboard.");
+             "ProsperoLight: Keyboard %s. Select + Triangle toggles it.",
+             state->keyboard_mode ? "opened" : "closed");
     (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
     (void)lan_http_report_text(notification.message);
+}
+
+static void ps5_controller_activate_keyboard_key(ps5_controller_state_t *state)
+{
+    const moonlight_keyboard_key &key = moonlight_keyboard_keys[state->keyboard_selected];
+    int result = 0;
+
+    switch (key.action)
+    {
+    case moonlight_keyboard_action::shift:
+        state->keyboard_shifted = !state->keyboard_shifted;
+        break;
+    case moonlight_keyboard_action::space:
+    case moonlight_keyboard_action::backspace:
+        result = ps5_send_windows_key(key.virtual_key, 0);
+        break;
+    case moonlight_keyboard_action::enter:
+        result = ps5_send_windows_key(key.virtual_key, 0);
+        ps5_controller_set_keyboard_mode(state, 0);
+        return;
+    case moonlight_keyboard_action::close:
+        ps5_controller_set_keyboard_mode(state, 0);
+        return;
+    case moonlight_keyboard_action::key:
+        result = ps5_send_windows_key(key.virtual_key, state->keyboard_shifted);
+        break;
+    }
+    if (result != 0)
+    {
+        snprintf(notification.message, sizeof(notification.message),
+                 "ProsperoLight: Could not send keyboard input.");
+        (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
+        (void)lan_http_report_text(notification.message);
+    }
+}
+
+static int pressed_edge(uint32_t current, uint32_t previous, uint32_t button)
+{
+    return (current & button) != 0 && (previous & button) == 0;
+}
+
+static void ps5_controller_keyboard_input(ps5_controller_state_t *state, uint32_t current,
+                                          uint32_t previous)
+{
+    uint32_t previous_selected = state->keyboard_selected;
+    int previous_shifted = state->keyboard_shifted;
+
+    if (current & PS5_PAD_BUTTON_TOUCH_PAD)
+        return;
+    if (pressed_edge(current, previous, PS5_PAD_BUTTON_LEFT))
+        state->keyboard_selected = moonlight_keyboard_move(state->keyboard_selected, -1, 0);
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_RIGHT))
+        state->keyboard_selected = moonlight_keyboard_move(state->keyboard_selected, 1, 0);
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_UP))
+        state->keyboard_selected = moonlight_keyboard_move(state->keyboard_selected, 0, -1);
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_DOWN))
+        state->keyboard_selected = moonlight_keyboard_move(state->keyboard_selected, 0, 1);
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_CROSS))
+        ps5_controller_activate_keyboard_key(state);
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_SQUARE))
+        (void)ps5_send_windows_key(0x08, 0);
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_TRIANGLE))
+        state->keyboard_shifted = !state->keyboard_shifted;
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_OPTIONS))
+    {
+        (void)ps5_send_windows_key(0x0d, 0);
+        ps5_controller_set_keyboard_mode(state, 0);
+        return;
+    }
+    else if (pressed_edge(current, previous, PS5_PAD_BUTTON_CIRCLE))
+    {
+        ps5_controller_set_keyboard_mode(state, 0);
+        return;
+    }
+    if (state->keyboard_mode && (state->keyboard_selected != previous_selected ||
+                                 state->keyboard_shifted != previous_shifted))
+        native_agc_set_keyboard_state(1, state->keyboard_selected, state->keyboard_shifted);
 }
 
 static void ps5_controller_poll(ps5_controller_state_t *state)
@@ -1489,6 +1583,7 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
         uint32_t raw_buttons = sample->buttons;
         uint32_t mouse_buttons;
         int mouse_toggle;
+        int keyboard_toggle;
         int intercepted = (raw_buttons & PS5_PAD_BUTTON_INTERCEPTED) != 0;
         int neutral = !sample->connected || intercepted;
 
@@ -1507,6 +1602,8 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
             raw_buttons = 0;
         mouse_toggle = moonlight_stream_mouse_toggle_requested(raw_buttons) &&
                        !moonlight_stream_mouse_toggle_requested(state->last_raw_buttons);
+        keyboard_toggle = moonlight_stream_keyboard_requested(raw_buttons) &&
+                          !moonlight_stream_keyboard_requested(state->last_raw_buttons);
 
         if (moonlight_stream_disconnect_requested(raw_buttons))
         {
@@ -1518,13 +1615,21 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
             native_agc_set_hud_enabled(!native_agc_hud_enabled());
         if (moonlight_stream_hud_toggle_requested(raw_buttons))
             sample->buttons &= ~hud_chord;
-        if (moonlight_stream_keyboard_requested(raw_buttons) &&
-            !moonlight_stream_keyboard_requested(state->last_raw_buttons))
-            ps5_toggle_windows_keyboard();
+        if (keyboard_toggle)
+            ps5_controller_set_keyboard_mode(state, !state->keyboard_mode);
         if (moonlight_stream_keyboard_requested(raw_buttons))
             sample->buttons &= ~keyboard_chord;
         if (moonlight_stream_mouse_toggle_requested(raw_buttons))
             sample->buttons &= ~mouse_chord;
+
+        if (state->keyboard_mode)
+        {
+            if (!keyboard_toggle)
+                ps5_controller_keyboard_input(state, raw_buttons, state->last_raw_buttons);
+            state->last_raw_buttons = raw_buttons;
+            ps5_controller_send(state, &neutral_event);
+            continue;
+        }
 
         event = ps5_controller_map_sample(sample, neutral);
         mouse_buttons = neutral ? 0 : sample->buttons;
@@ -1577,6 +1682,7 @@ static void ps5_controller_stop(ps5_controller_state_t *state)
 
 static void ps5_controller_shutdown(ps5_controller_state_t *state)
 {
+    native_agc_set_keyboard_state(0, 0, 0);
     if (state->handle >= 0)
     {
         (void)scePadClose(state->handle);

@@ -31,11 +31,11 @@ settings.
    DualSense input.
 5. Toggle the metrics overlay with `Select + R1`, then return using
    `Select + L1`. Confirm no debug text is left in the launcher.
-6. At Windows sign-in, press `Select + Triangle` and confirm the Windows
-   On-Screen Keyboard toggles and a PS5 notification appears. Press
-   `Select + Square` for mouse mode, click the on-screen keys privately, and
-   confirm the password is never present in ProsperoLight diagnostics or
-   storage. Toggle both keyboard and controller mode off again.
+6. At Windows sign-in, press `Select + Triangle` and confirm ProsperoLight's
+   stream keyboard and a PS5 notification appear. Use the D-pad and Cross to
+   enter private text, Triangle for Shift, Square for Backspace, and Options
+   for Enter. Confirm the password is never present in ProsperoLight
+   diagnostics or storage. Toggle the keyboard off again.
 7. Launch and stop a non-Desktop Sunshine application. Repeat a launch after
    returning to the launcher; a failed or stalled session must return with a
    useful error rather than remain black.
@@ -113,3 +113,18 @@ remained reachable after teardown. The tested `eboot.bin` SHA-256 is
 This is a `partial-pass`: native password-dialog launch, cancellation, and
 stream recovery are hardware-proven, while text-plus-Enter delivery and an
 actual private Windows sign-in remain the operator acceptance step.
+
+Content version `01.000.022` replaced the native dialog with the documented
+Windows `Win + Ctrl + O` shortcut. The PS5 notification proved that the
+`Select + Triangle` handler ran, but the Windows On-Screen Keyboard did not
+appear at the secure sign-in screen. This is a failed acceptance result for
+that approach; Windows documents opening its Accessibility menu at sign-in
+rather than relying on the desktop OSK shortcut.
+
+Content version `01.000.023` therefore renders a password-safe keyboard inside
+the existing AGC stream overlay and sends each selected key through Moonlight's
+ordinary keyboard event path. Host tests cover layout navigation, shifted
+labels, and all stream shortcut chords. The frozen candidate `eboot.bin`
+SHA-256 is
+`d6d32540483262394695fffa0c302ef5192b90fa10d2066be9abe6c4cb717225`.
+Its PS5 display and private sign-in acceptance remain pending.

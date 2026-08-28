@@ -8,6 +8,7 @@
 
 #include "native_agc_present.hpp"
 #include "lan_http_report.hpp"
+#include "moonlight_stream_keyboard.hpp"
 
 #include <stddef.h>
 #include <atomic>
@@ -35,7 +36,13 @@
 #define HUD_Y_BYTES (HUD_WIDTH * HUD_HEIGHT)
 #define HUD_UV_BYTES (HUD_WIDTH * (HUD_HEIGHT / 2u))
 #define HUD_SURFACE_BYTES (HUD_Y_BYTES + HUD_UV_BYTES)
-#define SHADER_MEMORY_BYTES 0x2c000u
+#define KEYBOARD_WIDTH 1184u
+#define KEYBOARD_HEIGHT 416u
+#define KEYBOARD_X ((DISPLAY_WIDTH - KEYBOARD_WIDTH) / 2u)
+#define KEYBOARD_Y_BYTES (KEYBOARD_WIDTH * KEYBOARD_HEIGHT)
+#define KEYBOARD_UV_BYTES (KEYBOARD_WIDTH * (KEYBOARD_HEIGHT / 2u))
+#define KEYBOARD_SURFACE_BYTES (KEYBOARD_Y_BYTES + KEYBOARD_UV_BYTES)
+#define SHADER_MEMORY_BYTES 0x0d0000u
 #define HDR_HUD_SHADER_CODE_OFFSET 0xd000u
 #define HUD_REFRESH_FRAMES 15u
 #define DIRECT_MEMORY_TYPE 12
@@ -192,9 +199,10 @@ static void flush_gpu_data(const void *address, size_t bytes)
     __asm__ volatile("mfence" ::: "memory");
 }
 
-static void hud_draw_text(uint8_t *luma, const char *text, uint32_t x, uint32_t y, uint8_t value)
+static void overlay_draw_text(uint8_t *luma, uint32_t width, uint32_t height, const char *text,
+                              uint32_t x, uint32_t y, uint8_t value)
 {
-    while (*text && x + HUD_GLYPH_WIDTH <= HUD_WIDTH)
+    while (*text && x + HUD_GLYPH_WIDTH <= width && y + HUD_GLYPH_HEIGHT <= height)
     {
         uint8_t character = (uint8_t)*text++;
         const uint8_t *glyph;
@@ -211,7 +219,7 @@ static void hud_draw_text(uint8_t *luma, const char *text, uint32_t x, uint32_t 
                 uint32_t source_bit = bit * 8u / HUD_GLYPH_WIDTH;
 
                 if (glyph[source_row] & (uint8_t)(1u << source_bit))
-                    luma[(y + row) * HUD_WIDTH + x + bit] = value;
+                    luma[(y + row) * width + x + bit] = value;
             }
         }
         x += HUD_GLYPH_WIDTH;
@@ -232,33 +240,97 @@ static void refresh_hud_surface(uint8_t *surface, const native_agc_metrics_t *me
     snprintf(line, sizeof(line), "Video stream: %ux%u %u.%02u FPS (Codec: %s)", video_width,
              video_height, metrics->total_fps_x100 / 100u, metrics->total_fps_x100 % 100u,
              metrics->video_codec ? "HEVC" : "H.264");
-    hud_draw_text(luma, line, HUD_TEXT_X, 4, text_luma);
-    hud_draw_text(luma, "Decoder: SceVideodec2 hardware", HUD_TEXT_X, 4 + HUD_LINE_HEIGHT,
-                  text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4, text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, "Decoder: SceVideodec2 hardware", HUD_TEXT_X,
+                      4 + HUD_LINE_HEIGHT, text_luma);
     snprintf(line, sizeof(line), "Incoming frame rate from network: %u.%02u FPS",
              metrics->incoming_fps_x100 / 100u, metrics->incoming_fps_x100 % 100u);
-    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 2u, text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 2u,
+                      text_luma);
     snprintf(line, sizeof(line), "Rendering frame rate: %u.%02u FPS",
              metrics->rendering_fps_x100 / 100u, metrics->rendering_fps_x100 % 100u);
-    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 3u, text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 3u,
+                      text_luma);
     snprintf(line, sizeof(line), "Frames dropped by your network connection: %u.%02u%%",
              metrics->network_drop_percent_x100 / 100u, metrics->network_drop_percent_x100 % 100u);
-    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 4u, text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 4u,
+                      text_luma);
     if (metrics->rtt_valid)
         snprintf(line, sizeof(line), "Average network latency: %u ms (variance: %u ms)",
                  metrics->rtt_ms, metrics->rtt_variance_ms);
     else
         snprintf(line, sizeof(line), "Average network latency: N/A");
-    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 5u, text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 5u,
+                      text_luma);
     snprintf(line, sizeof(line), "Host processing latency min/max/average: %u.%u/%u.%u/%u.%u ms",
              metrics->host_min_tenths_ms / 10u, metrics->host_min_tenths_ms % 10u,
              metrics->host_max_tenths_ms / 10u, metrics->host_max_tenths_ms % 10u,
              metrics->host_average_tenths_ms / 10u, metrics->host_average_tenths_ms % 10u);
-    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 6u, text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 6u,
+                      text_luma);
     snprintf(line, sizeof(line), "Average decoding time: %llu.%02llu ms",
              (unsigned long long)(decode_us / 1000u),
              (unsigned long long)((decode_us % 1000u) / 10u));
-    hud_draw_text(luma, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 7u, text_luma);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 7u,
+                      text_luma);
+}
+
+static void overlay_fill_rect(uint8_t *luma, uint32_t width, uint32_t height, uint32_t x,
+                              uint32_t y, uint32_t rect_width, uint32_t rect_height, uint8_t value)
+{
+    if (x >= width || y >= height)
+        return;
+    if (rect_width > width - x)
+        rect_width = width - x;
+    if (rect_height > height - y)
+        rect_height = height - y;
+    for (uint32_t row = 0; row < rect_height; ++row)
+        memset(luma + (size_t)(y + row) * width + x, value, rect_width);
+}
+
+static void refresh_keyboard_surface(uint8_t *surface, uint32_t selected, int shifted, int hdr)
+{
+    static const uint32_t margin = 18u;
+    static const uint32_t gap = 8u;
+    static const uint32_t row_height = 58u;
+    static const uint32_t first_row_y = 52u;
+    uint8_t *luma = surface;
+    uint8_t text_luma = hdr ? 143u : 245u;
+
+    memset(luma, 44, KEYBOARD_Y_BYTES);
+    memset(surface + KEYBOARD_Y_BYTES, 128, KEYBOARD_UV_BYTES);
+    overlay_draw_text(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT,
+                      "ProsperoLight keyboard   X: type   Square: backspace   Triangle: shift   "
+                      "Options: enter   Circle: close",
+                      margin, 18u, text_luma);
+
+    for (uint32_t row = 0; row < moonlight_keyboard_row_count; ++row)
+    {
+        uint32_t start = moonlight_keyboard_row_offsets[row];
+        uint32_t count = moonlight_keyboard_row_offsets[row + 1] - start;
+        uint32_t key_width = (KEYBOARD_WIDTH - margin * 2u - gap * (count - 1u)) / count;
+        uint32_t row_width = key_width * count + gap * (count - 1u);
+        uint32_t row_x = (KEYBOARD_WIDTH - row_width) / 2u;
+        uint32_t y = first_row_y + row * (row_height + gap);
+
+        for (uint32_t column = 0; column < count; ++column)
+        {
+            uint32_t index = start + column;
+            uint32_t x = row_x + column * (key_width + gap);
+            const char *label = moonlight_keyboard_label(index, shifted != 0);
+            uint32_t label_width = (uint32_t)strlen(label) * HUD_GLYPH_WIDTH;
+            uint8_t fill = index == selected ? (hdr ? 112u : 168u) : (hdr ? 60u : 72u);
+
+            if (moonlight_keyboard_keys[index].action == moonlight_keyboard_action::shift &&
+                shifted)
+                fill = hdr ? 92u : 136u;
+            overlay_fill_rect(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT, x, y, key_width, row_height,
+                              fill);
+            overlay_draw_text(luma, KEYBOARD_WIDTH, KEYBOARD_HEIGHT, label,
+                              x + (key_width - label_width) / 2u,
+                              y + (row_height - HUD_GLYPH_HEIGHT) / 2u, text_luma);
+        }
+    }
 }
 
 static int shader_resource_offset(void *shader, unsigned kind, uint32_t *offset)
@@ -393,7 +465,9 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
                         void *vertex_shader, void *pixel_shader, void *hud_pixel_shader,
                         const void *source, size_t source_bytes, uint32_t pitch,
                         uint32_t surface_height, uint32_t visible_width, uint32_t visible_height,
-                        int64_t render_marker, uint32_t *word_count, int hdr, int draw_hud)
+                        int64_t render_marker, uint32_t *word_count, int hdr, int draw_overlay,
+                        uint32_t overlay_width, uint32_t overlay_height, uint32_t overlay_x,
+                        uint32_t overlay_y)
 {
     static const uint16_t target_offsets[16] = {0x318, 0x31b, 0x31c, 0x31d, 0x31e, 0x31f,
                                                 0x321, 0x323, 0x324, 0x325, 0x390, 0x398,
@@ -562,13 +636,13 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     else
         bind_pixel_source(&command, resources, source, y_bytes, uv_bytes, pixel_cb);
     sceAgcDcbDrawIndexAuto(&command, 4, 2);
-    if (draw_hud)
+    if (draw_overlay)
     {
         const agc_register_t state[11] = {
-            {0x10f, 0, float_bits(HUD_WIDTH * .5f)},
-            {0x110, 0, float_bits(inset_x + HUD_X + HUD_WIDTH * .5f)},
-            {0x111, 0, float_bits(HUD_HEIGHT * -.5f)},
-            {0x112, 0, float_bits(inset_y + HUD_Y + HUD_HEIGHT * .5f)},
+            {0x10f, 0, float_bits(overlay_width * .5f)},
+            {0x110, 0, float_bits(overlay_x + overlay_width * .5f)},
+            {0x111, 0, float_bits(overlay_height * -.5f)},
+            {0x112, 0, float_bits(overlay_y + overlay_height * .5f)},
             {0x113, 0, float_bits(1)},
             {0x114, 0, 0},
             {0x105, 0, float_bits(.5f)},
@@ -580,10 +654,10 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
         };
 
         memcpy(hud_pixel_cb, pixel_constants, sizeof(pixel_constants));
-        ((uint32_t *)hud_pixel_cb)[12] = float_bits((float)HUD_WIDTH);
-        ((uint32_t *)hud_pixel_cb)[13] = float_bits((float)HUD_HEIGHT);
-        ((uint32_t *)hud_pixel_cb)[14] = HUD_WIDTH;
-        ((uint32_t *)hud_pixel_cb)[15] = HUD_WIDTH / 2u;
+        ((uint32_t *)hud_pixel_cb)[12] = float_bits((float)overlay_width);
+        ((uint32_t *)hud_pixel_cb)[13] = float_bits((float)overlay_height);
+        ((uint32_t *)hud_pixel_cb)[14] = overlay_width;
+        ((uint32_t *)hud_pixel_cb)[15] = overlay_width / 2u;
         memcpy(hud_state, state, sizeof(state));
         sceAgcDcbSetCxRegistersIndirect(&command, hud_state, 11);
         if (hdr)
@@ -593,8 +667,9 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
 
             sceAgcDcbSetShRegistersIndirect(&command, hud_ps_sh, hud_ps_sh_count);
         }
-        bind_pixel_source(&command, resources, memory + HUD_SURFACE_OFFSET, HUD_Y_BYTES,
-                          HUD_UV_BYTES, hud_pixel_cb);
+        bind_pixel_source(&command, resources, memory + HUD_SURFACE_OFFSET,
+                          (size_t)overlay_width * overlay_height,
+                          (size_t)overlay_width * overlay_height / 2u, hud_pixel_cb);
         sceAgcDcbDrawIndexAuto(&command, 4, 2);
     }
     sceAgcDcbSetFlip(&command, (uint32_t)video, buffer_index, 1, render_marker);
@@ -622,7 +697,8 @@ typedef struct native_agc_presenter
     void *hud_pixel_shader;
     int video;
     uint32_t frame_number;
-    uint8_t hud_was_enabled;
+    uint32_t keyboard_generation;
+    uint8_t overlay_kind;
     uint8_t hdr;
     uint8_t ready;
 } native_agc_presenter_t;
@@ -637,13 +713,18 @@ static native_agc_presenter_t presenter = {
     .hud_pixel_shader = nullptr,
     .video = -1,
     .frame_number = 0,
-    .hud_was_enabled = 0,
+    .keyboard_generation = 0,
+    .overlay_kind = 0,
     .hdr = 0,
     .ready = 0,
 };
 static uint64_t agc_state;
 static uint8_t agc_initialized;
 static std::atomic<int> hud_enabled = 1;
+static std::atomic<int> keyboard_enabled = 0;
+static std::atomic<uint32_t> keyboard_selected = 0;
+static std::atomic<int> keyboard_shifted = 0;
+static std::atomic<uint32_t> keyboard_generation = 0;
 
 void native_agc_set_hud_enabled(int enabled)
 {
@@ -653,6 +734,14 @@ void native_agc_set_hud_enabled(int enabled)
 int native_agc_hud_enabled(void)
 {
     return std::atomic_load_explicit(&hud_enabled, std::memory_order_relaxed);
+}
+
+void native_agc_set_keyboard_state(int enabled, uint32_t selected, int shifted)
+{
+    std::atomic_store_explicit(&keyboard_selected, selected, std::memory_order_relaxed);
+    std::atomic_store_explicit(&keyboard_shifted, shifted != 0, std::memory_order_relaxed);
+    std::atomic_store_explicit(&keyboard_enabled, enabled != 0, std::memory_order_release);
+    std::atomic_fetch_add_explicit(&keyboard_generation, 1u, std::memory_order_relaxed);
 }
 
 void native_agc_set_tv_safe_area(int enabled)
@@ -799,7 +888,18 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     int64_t render_marker = INT64_C(0x4444) + ((int64_t)frame_number << 8);
     void *target;
     uint32_t words = 0;
-    int draw_hud = native_agc_hud_enabled() && metrics;
+    int draw_keyboard = std::atomic_load_explicit(&keyboard_enabled, std::memory_order_acquire);
+    int draw_hud = !draw_keyboard && native_agc_hud_enabled() && metrics;
+    int draw_overlay = draw_keyboard || draw_hud;
+    uint32_t overlay_inset_x =
+        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_X : 0u;
+    uint32_t overlay_inset_y =
+        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_Y : 0u;
+    uint32_t overlay_width = draw_keyboard ? KEYBOARD_WIDTH : HUD_WIDTH;
+    uint32_t overlay_height = draw_keyboard ? KEYBOARD_HEIGHT : HUD_HEIGHT;
+    uint32_t overlay_x = draw_keyboard ? KEYBOARD_X : overlay_inset_x + HUD_X;
+    uint32_t overlay_y = draw_keyboard ? DISPLAY_HEIGHT - overlay_inset_y - KEYBOARD_HEIGHT - 24u
+                                       : overlay_inset_y + HUD_Y;
     unsigned render_waits;
     int32_t result;
     char receipt[512];
@@ -815,20 +915,36 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     }
 
     target = (uint8_t *)presenter.framebuffer + buffer_index * FRAMEBUFFER_BYTES;
-    if (draw_hud)
+    if (draw_keyboard)
     {
-        if (!presenter.hud_was_enabled || frame_number % HUD_REFRESH_FRAMES == 0)
+        uint32_t generation =
+            std::atomic_load_explicit(&keyboard_generation, std::memory_order_relaxed);
+
+        if (presenter.overlay_kind != 2u || presenter.keyboard_generation != generation)
+        {
+            refresh_keyboard_surface(
+                presenter.shader_memory + HUD_SURFACE_OFFSET,
+                std::atomic_load_explicit(&keyboard_selected, std::memory_order_relaxed),
+                std::atomic_load_explicit(&keyboard_shifted, std::memory_order_relaxed), hdr);
+            flush_gpu_data(presenter.shader_memory + HUD_SURFACE_OFFSET, KEYBOARD_SURFACE_BYTES);
+            presenter.keyboard_generation = generation;
+        }
+    }
+    else if (draw_hud)
+    {
+        if (presenter.overlay_kind != 1u || frame_number % HUD_REFRESH_FRAMES == 0)
         {
             refresh_hud_surface(presenter.shader_memory + HUD_SURFACE_OFFSET, metrics,
                                 visible_width, visible_height, hdr);
             flush_gpu_data(presenter.shader_memory + HUD_SURFACE_OFFSET, HUD_SURFACE_BYTES);
         }
     }
-    presenter.hud_was_enabled = (uint8_t)draw_hud;
+    presenter.overlay_kind = draw_keyboard ? 2u : draw_hud ? 1u : 0u;
     result = render_frame(presenter.video, (int)buffer_index, target, presenter.shader_memory,
                           presenter.vertex_shader, presenter.pixel_shader,
                           presenter.hud_pixel_shader, source, source_bytes, pitch, surface_height,
-                          visible_width, visible_height, render_marker, &words, hdr, draw_hud);
+                          visible_width, visible_height, render_marker, &words, hdr, draw_overlay,
+                          overlay_width, overlay_height, overlay_x, overlay_y);
     if (result == 0)
     {
         for (render_waits = 0; render_waits < 120; ++render_waits)
@@ -852,7 +968,7 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
                  "Native AGC frame: rc=%08x frame=%u buffer=%u words=%u hdr=%u hud=%u "
                  "flip_marker=%llx status=%llx waits=%u source=%p target=%p",
                  (uint32_t)result, frame_number, buffer_index, words, hdr ? 1u : 0u,
-                 draw_hud ? 1u : 0u, (unsigned long long)render_marker,
+                 draw_overlay ? 1u : 0u, (unsigned long long)render_marker,
                  (unsigned long long)status[3], render_waits, source, target);
         (void)lan_http_report_text(receipt);
     }

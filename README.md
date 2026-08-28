@@ -13,7 +13,7 @@ designed to keep decoded video on the GPU until presentation.
 ## Current port status
 
 The port builds and passes a native PS5 launch/close smoke test from this
-repository. The current identity is `PPSA77003`, content version `01.000.022`,
+repository. The current identity is `PPSA77003`, content version `01.000.023`,
 and title `ProsperoLight`.
 
 This fresh title has its own PS5 application data. Pair it once after
@@ -61,7 +61,9 @@ For common native build and deployment tasks, start with
 
 - `Select + R1`: toggle the metrics overlay.
 - `Select + L1`: end the stream and return to ProsperoLight.
-- `Select + Triangle`: toggle the Windows On-Screen Keyboard on the streamed PC.
+- `Select + Triangle`: toggle ProsperoLight's stream keyboard. Use the D-pad to
+  move, Cross to type, Triangle for Shift, Square for Backspace, Options for
+  Enter, and Circle to close it.
 - `Select + Square`: toggle mouse emulation for using the Windows keyboard and desktop.
 
 ## Scope

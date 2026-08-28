@@ -5,6 +5,7 @@
  */
 
 #include "moonlight_stream_input.hpp"
+#include "moonlight_stream_keyboard.hpp"
 #include "moonlight_config.hpp"
 
 #include <gtest/gtest.h>
@@ -63,7 +64,7 @@ TEST(StreamShortcuts, SelectR1TogglesMetrics)
     EXPECT_FALSE(moonlight_stream_hud_toggle_requested(MOONLIGHT_PS5_PAD_R1));
 }
 
-TEST(StreamShortcuts, SelectTriangleTogglesWindowsKeyboard)
+TEST(StreamShortcuts, SelectTriangleTogglesStreamKeyboard)
 {
     EXPECT_TRUE(
         moonlight_stream_keyboard_requested(MOONLIGHT_PS5_PAD_SELECT | MOONLIGHT_PS5_PAD_TRIANGLE));
@@ -83,6 +84,24 @@ TEST(StreamShortcuts, MouseAxisHasDeadzoneAndDirection)
     EXPECT_EQ(moonlight_stream_mouse_axis_delta(0), 0);
     EXPECT_GT(moonlight_stream_mouse_axis_delta(32766), 0);
     EXPECT_LT(moonlight_stream_mouse_axis_delta(-32766), 0);
+}
+
+TEST(StreamKeyboard, NavigationWrapsAndPreservesAValidColumn)
+{
+    EXPECT_EQ(moonlight_keyboard_move(0, -1, 0), 11u);
+    EXPECT_EQ(moonlight_keyboard_move(11, 1, 0), 0u);
+    EXPECT_EQ(moonlight_keyboard_move(11, 0, 1), 23u);
+    EXPECT_EQ(moonlight_keyboard_move(50, 0, 1), 4u);
+}
+
+TEST(StreamKeyboard, ShiftedLabelsMatchTheSentVirtualKeys)
+{
+    EXPECT_STREQ(moonlight_keyboard_label(0, false), "1");
+    EXPECT_STREQ(moonlight_keyboard_label(0, true), "!");
+    EXPECT_STREQ(moonlight_keyboard_label(12, false), "q");
+    EXPECT_STREQ(moonlight_keyboard_label(12, true), "Q");
+    EXPECT_EQ(moonlight_keyboard_keys[12].virtual_key, 0x51u);
+    EXPECT_EQ(moonlight_keyboard_keys[46].action, moonlight_keyboard_action::shift);
 }
 
 TEST(Configuration, DefaultsMatchLauncherDefaults)

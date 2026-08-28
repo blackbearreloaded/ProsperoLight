@@ -35,6 +35,7 @@ int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t 
 int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr);
 void native_agc_set_hud_enabled(int enabled);
 int native_agc_hud_enabled(void);
+void native_agc_set_keyboard_state(int enabled, uint32_t selected, int shifted);
 void native_agc_set_tv_safe_area(int enabled);
 int native_agc_present_shutdown(void);
 
