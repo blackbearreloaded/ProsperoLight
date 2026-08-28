@@ -1,0 +1,23 @@
+# ps5-native-app-boilerplate - Generated and local-only file exclusions.
+# Copyright (C) 2026 BlackBearReloaded
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+.local/
+.deps/
+.env
+__pycache__/
+*.pyc
+build/
+dist/
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.log
+*.elf
+*.self
+*.sprx
+*.prx
+*.pkg
