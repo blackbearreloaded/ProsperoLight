@@ -137,3 +137,7 @@ notification, raises panel opacity to 82%, and adds the previously missing
 backtick/tilde key. A host regression test proves that the layout contains all
 printable US-ASCII characters. The frozen candidate `eboot.bin` SHA-256 is
 `f5a7e8bf655141dfa53dae455bd1c2d11ba07339485d9fe32d8586e98933baf2`.
+The folder candidate was deployed to `PPSA77003`; the launch request was
+accepted and both payload and FTP services remained healthy after cleanup.
+This Windows session could not capture Chiaki's render window, so the 82%
+opacity and revised placement still require direct TV/Chiaki visual acceptance.
