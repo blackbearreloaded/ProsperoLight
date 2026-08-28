@@ -21,17 +21,20 @@ settings.
 
 1. Install the fresh title and open the launcher. Confirm the version in the
    top bar matches `contentVersion`.
-2. Pair with Sunshine and restart the app once to confirm pairing persistence.
-3. Launch Desktop at default H.264 1080p. Check video, stereo audio, and
+2. Move focus across every item on all four launcher screens, including the
+   host card and action buttons. This exercises lazy texture loading; the title
+   must remain alive and the detected host state must not regress.
+3. Pair with Sunshine and restart the app once to confirm pairing persistence.
+4. Launch Desktop at default H.264 1080p. Check video, stereo audio, and
    DualSense input.
-4. Toggle the metrics overlay with `Select + R1`, then return using
+5. Toggle the metrics overlay with `Select + R1`, then return using
    `Select + L1`. Confirm no debug text is left in the launcher.
-5. Launch and stop a non-Desktop Sunshine application. Repeat a launch after
+6. Launch and stop a non-Desktop Sunshine application. Repeat a launch after
    returning to the launcher; a failed or stalled session must return with a
    useful error rather than remain black.
-6. Test mouse emulation by holding and releasing `Options`, then return to
+7. Test mouse emulation by holding and releasing `Options`, then return to
    controller mode. Confirm both modes still accept input.
-7. If the host supports them, test HEVC and HDR separately. Verify image,
+8. If the host supports them, test HEVC and HDR separately. Verify image,
    audio, input, cleanup, and recovery; do not treat HDR audio-only output as a
    pass.
 

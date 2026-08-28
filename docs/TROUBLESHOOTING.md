@@ -129,6 +129,14 @@ Nothing is installed globally by these optional bootstrappers.
 - Consult loader diagnostics; the home-screen message alone is not a root
   cause.
 
+## Moving focus crashes the launcher
+
+Symbolicate the fatal instruction and backtrace against `build/llvm-pie.elf`.
+RmlUi loads hidden button-state textures lazily when focus changes, so a trap in
+`operator new` followed by `SdlRenderInterface::LoadTexture` indicates that the
+large-allocation mapping path was lost or failed. The launcher must keep
+allocations of 64 KiB or more outside the bounded libc heap.
+
 ## `/download0` is missing
 
 Keep a positive `downloadDataSize` in `sce_sys/param.json`, rebuild, and stage the
