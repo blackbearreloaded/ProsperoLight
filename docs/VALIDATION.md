@@ -91,5 +91,8 @@ restored to its fetchable upstream commit. Nine integration tests, eight
 GoogleTests, the allocation-runtime test, lint, and the native app build pass.
 The candidate `eboot.bin` SHA-256 is
 `1d1e7bd949aeec4598b33f1640ca33d0932c6fc4a79e7ec3bbd6bcccd91d8eb1`.
-Hardware validation is pending because FTP, klog, and the loader stopped after
-the diagnostic run; the PS5 remained reachable and returned to its home screen.
+The deployed build then completed all 11 Moonlight connection stages, started
+H.264 video, stereo audio, and input, and presented at least 3,600 decoded
+frames with `pending=0`. ShadowMount recorded a normal title stop with no new
+crash candidate, and FTP, klog, and loader services remained reachable after
+cleanup.
