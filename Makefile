@@ -71,7 +71,7 @@ test-unit: $(HOST_UNIT_TEST)
 	@printf '%s\n' '==> [test-unit] Running host-native GoogleTest application tests'
 	@$(HOST_UNIT_TEST) $(GTEST_ARGS)
 
-$(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_stream_input.h tools/setup-test-dependencies.sh | test-deps
+$(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_stream_input.hpp tools/setup-test-dependencies.sh | test-deps
 	@printf '%s\n' '==> [test-unit] Compiling the host-native GoogleTest binary'
 	@mkdir -p -- $(@D)
 	@gtest=$$(bash tools/setup-test-dependencies.sh); \

@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include "moonlight_app.h"
-#include "moonlight_discovery.h"
-#include "radio_ime.h"
+#include "moonlight_app.hpp"
+#include "moonlight_discovery.hpp"
+#include "radio_ime.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>

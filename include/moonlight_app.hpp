@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "moonlight_backend.h"
-#include "moonlight_config.h"
-#include "radio_input.h"
+#include "moonlight_backend.hpp"
+#include "moonlight_config.hpp"
+#include "radio_input.hpp"
 
 #include <pthread.h>
 

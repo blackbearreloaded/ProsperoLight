@@ -6,8 +6,8 @@
 
 /* Foreground native AGC presentation of a Videodec2 AVC8 caller buffer. */
 
-#include "native_agc_present.h"
-#include "lan_http_report.h"
+#include "native_agc_present.hpp"
+#include "lan_http_report.hpp"
 
 #include <stddef.h>
 #include <atomic>

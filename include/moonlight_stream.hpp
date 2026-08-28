@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifndef MOONLIGHT_STREAM_H
-#define MOONLIGHT_STREAM_H
+#ifndef MOONLIGHT_STREAM_HPP
+#define MOONLIGHT_STREAM_HPP
 
 #include <stdint.h>
 

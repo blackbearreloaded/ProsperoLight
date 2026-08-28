@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include "moonlight_config.h"
+#include "moonlight_config.hpp"
 
 #include <stddef.h>
 #include <stdint.h>

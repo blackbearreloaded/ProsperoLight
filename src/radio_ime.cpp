@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include "radio_ime.h"
+#include "radio_ime.hpp"
 
-#include "radio_input.h"
+#include "radio_input.hpp"
 
 #include <SDL2/SDL.h>
 #include <stddef.h>

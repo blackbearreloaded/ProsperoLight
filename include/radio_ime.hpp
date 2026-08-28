@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifndef RADIO_IME_H
-#define RADIO_IME_H
+#ifndef RADIO_IME_HPP
+#define RADIO_IME_HPP
 
 #include <stdbool.h>
 

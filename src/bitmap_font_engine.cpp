@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include "bitmap_font_engine.h"
+#include "bitmap_font_engine.hpp"
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/BaseXMLParser.h>

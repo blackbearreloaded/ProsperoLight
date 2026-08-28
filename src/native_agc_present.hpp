@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifndef MLGPU_NATIVE_AGC_PRESENT_H
-#define MLGPU_NATIVE_AGC_PRESENT_H
+#ifndef MLGPU_NATIVE_AGC_PRESENT_HPP
+#define MLGPU_NATIVE_AGC_PRESENT_HPP
 
 #include <stddef.h>
 #include <stdint.h>

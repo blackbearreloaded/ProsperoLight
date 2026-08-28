@@ -14,12 +14,12 @@
 #include <RmlUi/Core/RenderInterfaceCompatibility.h>
 #include <RmlUi/Core/SystemInterface.h>
 
-#include "bitmap_font_engine.h"
-#include "moonlight_app.h"
-#include "moonlight_stream.h"
-#include "ps5_pngdec.h"
-#include "radio_input.h"
-#include "radio_ime.h"
+#include "bitmap_font_engine.hpp"
+#include "moonlight_app.hpp"
+#include "moonlight_stream.hpp"
+#include "ps5_pngdec.hpp"
+#include "radio_input.hpp"
+#include "radio_ime.hpp"
 
 #include <cstdio>
 #include <cstddef>

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include "moonlight_discovery.h"
+#include "moonlight_discovery.hpp"
 
 #include <stddef.h>
 #include <stdint.h>

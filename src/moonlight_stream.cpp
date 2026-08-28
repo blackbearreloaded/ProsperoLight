@@ -18,11 +18,11 @@
 
 #include <opus_multistream.h>
 
-#include "moonlight_stream.h"
-#include "moonlight_config.h"
-#include "moonlight_stream_input.h"
-#include "lan_http_report.h"
-#include "native_agc_present.h"
+#include "moonlight_stream.hpp"
+#include "moonlight_config.hpp"
+#include "moonlight_stream_input.hpp"
+#include "lan_http_report.hpp"
+#include "native_agc_present.hpp"
 #include "gamestream/certgen.h"
 #include "gamestream/client.h"
 #include "gamestream/gs_errors.h"

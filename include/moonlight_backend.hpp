@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifndef MOONLIGHT_BACKEND_H
-#define MOONLIGHT_BACKEND_H
+#ifndef MOONLIGHT_BACKEND_HPP
+#define MOONLIGHT_BACKEND_HPP
 
 #include <stddef.h>
 #include <stdint.h>

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include "moonlight_backend.h"
+#include "moonlight_backend.hpp"
 
 #include "gamestream/certgen.h"
 #include "gamestream/client.h"

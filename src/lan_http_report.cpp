@@ -6,7 +6,7 @@
 
 /* LAN-only development telemetry. Keep this off the decode/present hot path. */
 
-#include "lan_http_report.h"
+#include "lan_http_report.hpp"
 
 #include <stddef.h>
 #include <stdint.h>

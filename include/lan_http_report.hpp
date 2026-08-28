@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifndef LAN_HTTP_REPORT_H
-#define LAN_HTTP_REPORT_H
+#ifndef LAN_HTTP_REPORT_HPP
+#define LAN_HTTP_REPORT_HPP
 
 #ifdef __cplusplus
 extern "C" {

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifndef RADIO_INPUT_H
-#define RADIO_INPUT_H
+#ifndef RADIO_INPUT_HPP
+#define RADIO_INPUT_HPP
 
 #include <stdbool.h>
 

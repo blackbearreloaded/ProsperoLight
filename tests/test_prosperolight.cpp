@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#include "moonlight_stream_input.h"
+#include "moonlight_stream_input.hpp"
 
 #include <gtest/gtest.h>
 

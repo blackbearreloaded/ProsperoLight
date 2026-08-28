@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifndef MOONLIGHT_DISCOVERY_H
-#define MOONLIGHT_DISCOVERY_H
+#ifndef MOONLIGHT_DISCOVERY_HPP
+#define MOONLIGHT_DISCOVERY_HPP
 
 #include <stdint.h>
 
