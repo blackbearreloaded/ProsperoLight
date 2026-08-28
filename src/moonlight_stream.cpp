@@ -423,7 +423,8 @@ typedef struct connection_loading_state
     size_t surface_bytes;
     ps5_controller_state_t *controller;
     int hdr;
-    int animation_enabled;
+    std::atomic<int> animation_enabled;
+    std::atomic<int> animation_presenting;
     std::atomic<int> active;
     std::atomic<int> cancel_requested;
     std::atomic<int> timed_out;
@@ -445,15 +446,18 @@ static void *connection_loading_thread(void *context)
 
     while (std::atomic_load_explicit(&state->active, std::memory_order_relaxed))
     {
-        if (state->animation_enabled)
+        if (std::atomic_load_explicit(&state->animation_enabled, std::memory_order_acquire))
         {
-            state->present_result = native_agc_present_loading(state->surface, state->surface_bytes,
-                                                               phase++, state->hdr);
+            std::atomic_store_explicit(&state->animation_presenting, 1, std::memory_order_release);
+            if (std::atomic_load_explicit(&state->animation_enabled, std::memory_order_acquire))
+                state->present_result = native_agc_present_loading(
+                    state->surface, state->surface_bytes, phase++, state->hdr);
             if (state->present_result != 0)
             {
-                state->animation_enabled = 0;
+                std::atomic_store_explicit(&state->animation_enabled, 0, std::memory_order_release);
                 (void)native_agc_present_shutdown();
             }
+            std::atomic_store_explicit(&state->animation_presenting, 0, std::memory_order_release);
         }
         for (unsigned slice = 0; slice < 25; ++slice)
         {
@@ -494,14 +498,22 @@ static int start_connection_loading(connection_loading_state_t *state, void *sur
     state->hdr = hdr;
     state->controller = controller;
     state->started_us = monotonic_us();
-    state->present_result = native_agc_present_loading(surface, surface_bytes, 0, hdr);
-    state->animation_enabled = state->present_result == 0;
-    if (!state->animation_enabled)
-        (void)native_agc_present_shutdown();
+    state->present_result = 0;
+    std::atomic_store_explicit(&state->animation_enabled, 0, std::memory_order_relaxed);
+    std::atomic_store_explicit(&state->animation_presenting, 0, std::memory_order_relaxed);
+    if (surface && surface_bytes)
+    {
+        state->present_result = native_agc_present_loading(surface, surface_bytes, 0, hdr);
+        std::atomic_store_explicit(&state->animation_enabled, state->present_result == 0,
+                                   std::memory_order_relaxed);
+        if (state->present_result != 0)
+            (void)native_agc_present_shutdown();
+    }
 
     std::atomic_store_explicit(&state->active, 1, std::memory_order_relaxed);
     std::atomic_store_explicit(&state->cancel_requested, 0, std::memory_order_relaxed);
     std::atomic_store_explicit(&state->timed_out, 0, std::memory_order_relaxed);
+    std::atomic_store_explicit(&state->connection_pending, 0, std::memory_order_relaxed);
     std::atomic_store_explicit(&active_connection_loading, state, std::memory_order_release);
     state->create_result = pthread_create(&state->thread, NULL, connection_loading_thread, state);
     if (state->create_result == 0)
@@ -509,6 +521,18 @@ static int start_connection_loading(connection_loading_state_t *state, void *sur
     else
         std::atomic_store_explicit(&state->active, 0, std::memory_order_relaxed);
     return state->create_result;
+}
+
+static void stop_connection_animation(void)
+{
+    connection_loading_state_t *state =
+        std::atomic_load_explicit(&active_connection_loading, std::memory_order_acquire);
+
+    if (!state)
+        return;
+    std::atomic_store_explicit(&state->animation_enabled, 0, std::memory_order_release);
+    while (std::atomic_load_explicit(&state->animation_presenting, std::memory_order_acquire))
+        sceKernelUsleep(1000);
 }
 
 static void stop_connection_loading(void)
@@ -587,7 +611,7 @@ static int moonlight_renderer_setup(int video_format, int width, int height, int
 
 static void moonlight_renderer_start(void)
 {
-    stop_connection_loading();
+    stop_connection_animation();
     if (active_renderer)
         active_renderer->running = 1;
 }
@@ -1797,6 +1821,19 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         return -1;
     lan_http_report_set_host(host);
 
+    controller_ready = ps5_controller_init(&controller) == 0;
+    snprintf(notification.message, sizeof(notification.message),
+             "Moonlight controller init: ready=%d user_service=%08x user=%08x pad_init=%08x "
+             "handle=%08x launch_mask=%x",
+             controller_ready, (uint32_t)controller.user_service_result,
+             (uint32_t)controller.user_result, (uint32_t)controller.pad_init_result,
+             (uint32_t)controller.handle, controller_ready ? 1 : 0);
+    (void)lan_http_report_text(notification.message);
+    result = start_connection_loading(&loading, NULL, 0, mode->hdr,
+                                      controller_ready ? &controller : NULL);
+    if (result != 0)
+        goto done;
+
     snprintf(notification.message, sizeof(notification.message),
              "Native zero-copy stage 1: mode=%s bitrate=%u kbps input_slot=%x", mode->name,
              bitrate_kbps, INPUT_SLOT_BYTES);
@@ -1940,6 +1977,19 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     renderer.input_size = input_size;
     renderer.frame_size = frame_size;
 
+    if (std::atomic_load_explicit(&loading.cancel_requested, std::memory_order_relaxed))
+    {
+        if (std::atomic_load_explicit(&loading.timed_out, std::memory_order_relaxed))
+        {
+            gs_error = "Decoder setup timed out";
+            result = GS_IO_ERROR;
+        }
+        else
+            result = 0;
+        goto done;
+    }
+    stop_connection_loading();
+
     LiInitializeStreamConfiguration(&stream_config);
     stream_config.width = (int)mode->visible_width;
     stream_config.height = (int)mode->visible_height;
@@ -1953,14 +2003,6 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     stream_config.colorSpace = mode->hdr ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
     stream_config.colorRange = COLOR_RANGE_LIMITED;
     stream_config.encryptionFlags = ENCFLG_NONE;
-    controller_ready = ps5_controller_init(&controller) == 0;
-    snprintf(notification.message, sizeof(notification.message),
-             "Moonlight controller init: ready=%d user_service=%08x user=%08x pad_init=%08x "
-             "handle=%08x launch_mask=%x",
-             controller_ready, (uint32_t)controller.user_service_result,
-             (uint32_t)controller.user_result, (uint32_t)controller.pad_init_result,
-             (uint32_t)controller.handle, controller_ready ? 1 : 0);
-    (void)lan_http_report_text(notification.message);
     result = start_connection_loading(&loading, frame_memory, frame_size, mode->hdr,
                                       controller_ready ? &controller : NULL);
     snprintf(notification.message, sizeof(notification.message),
@@ -1991,9 +2033,12 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     connection_error = 0;
     std::atomic_store_explicit(&host_hdr_active, 0u, std::memory_order_relaxed);
     std::atomic_store_explicit(&host_hdr_transitions, 0u, std::memory_order_relaxed);
+    std::atomic_store_explicit(&loading.connection_pending, 1, std::memory_order_release);
     connection_result = LiStartConnection(
         &gs_server.server_info, &stream_config, &moonlight_connection_callbacks,
         &moonlight_video_callbacks, &moonlight_audio_callbacks, &renderer, 0, NULL, 0);
+    std::atomic_store_explicit(&loading.connection_pending, 0, std::memory_order_release);
+    stop_connection_loading();
     if (connection_result != 0)
     {
         if (controller.requested_stop)
@@ -2115,12 +2160,12 @@ done:
     {
         if (std::atomic_load_explicit(&loading.timed_out, std::memory_order_relaxed))
             snprintf(stream_error, sizeof(stream_error),
-                     "Sunshine did not connect in time. Check the host display and RDP session, "
-                     "then retry.");
+                     "Connection timed out before streaming started. Returned safely; refresh the "
+                     "PC and retry.");
         else if (first_frame_timed_out)
             snprintf(stream_error, sizeof(stream_error),
-                     "Sunshine connected but sent no video. Check the host display and RDP "
-                     "session, then retry.");
+                     "Sunshine connected but no video arrived. The session was closed; retry or "
+                     "choose another codec.");
         else
             snprintf(stream_error, sizeof(stream_error), "Stream failed: %s",
                      gs_error && gs_error[0] ? gs_error
@@ -2241,6 +2286,12 @@ done:
         (uint32_t)result, (uint32_t)present_cleanup_result, (uint32_t)delete_result,
         (uint32_t)release_compute_result, (uint32_t)unload_result);
     (void)lan_http_report_text(notification.message);
+    if (stream_error[0])
+    {
+        snprintf(notification.message, sizeof(notification.message), "ProsperoLight: %s",
+                 stream_error);
+        (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
+    }
     if (metrics)
     {
         metrics->result = result;

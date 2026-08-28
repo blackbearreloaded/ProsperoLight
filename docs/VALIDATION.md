@@ -66,3 +66,12 @@ online, labeled the host `BUSY`, disabled pairing before opening the PIN modal,
 and displayed the unpaired-client recovery instruction without clipping. Its
 tested `eboot.bin` SHA-256 is
 `aaa47276ba5844e6aee625ed7def176149631a92ea950ec3e82eba8d80eaf7f9`.
+
+Content version `01.000.014` moves controller initialization and the
+`Select + L1` escape monitor ahead of decoder allocation and keeps the monitor
+alive through the Moonlight connection handshake. Startup is bounded to 20
+seconds and the first video frame to 10 seconds; either failure closes the
+Sunshine session, reports the reason, and returns to the launcher. Host tests
+(`make test` and `make lint`) pass. The folder build was deployed, but its PS5
+launch/recovery gate remains pending because the console's loader, log, and
+file-service ports became unavailable before the test could be completed.
