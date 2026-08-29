@@ -50,7 +50,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA77003` |
 | Category | Game |
-| Current version | `01.000.029` |
+| Current version | `01.000.030` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -64,10 +64,12 @@ tooling are maintained in this repository.
 - Browse up to 64 advertised Sunshine applications with paged artwork,
   launch/resume feedback, and active-application stop controls.
 - Decode H.264 High and HEVC Main streams through VideoDec2 at 1080p60,
-  1440p60, and 2160p60; higher-resolution modes remain beta.
+  1440p60, and 2160p60. All three modes are hardware-validated; broader
+  higher-resolution compatibility remains beta.
 - Present decoded GPU surfaces directly through AGC, with edge-to-edge and
   television-safe display modes. The presenter uses native 1080p scanout for
-  1080p streams and a 3840x2160 target for 1440p and 2160p streams.
+  1080p streams, bilinear GPU scaling from 1440p to a 3840x2160 target, and
+  1:1 presentation from 2160p to a 3840x2160 target.
 - Select bitrate presets up to 500 Mbps. The best setting depends on the host,
   encoder, network, and selected codec rather than link speed alone.
 - Enable experimental 1080p60 HEVC Main10 HDR10 output when the Sunshine host
@@ -87,7 +89,8 @@ tooling are maintained in this repository.
 The complete 1080p60 path—pairing, application launch, VideoDec2/AGC video,
 stereo audio, DualSense input, mouse mode, Windows sign-in keyboard, metrics,
 return-to-launcher, relaunch, and cleanup—has been exercised on PS5 hardware
-with Sunshine.
+with Sunshine. Hardware runs also confirm HEVC 1440p-to-4K filtered GPU
+presentation and native HEVC 2160p-to-4K presentation with the metrics HUD.
 
 ProsperoLight is still alpha software. HEVC, 1440p, 2160p, HDR, very high
 bitrates, network recovery, and long gameplay sessions need broader validation
@@ -280,8 +283,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.029
-git push origin main 01.000.029
+git tag 01.000.030
+git push origin main 01.000.030
 ```
 
 Keep `PPSA77003`, `conceptId`, and `contentId` stable for updates to this title.

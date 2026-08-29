@@ -150,6 +150,14 @@ class ToolTests(unittest.TestCase):
             initialize.index("sceVideoOutRegisterBuffers2"),
         )
 
+    def test_stream_sampler_uses_the_filtered_probe_variant(self):
+        header = (ROOT / "include/native_agc_output.hpp").read_text(encoding="utf-8")
+        source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("kNativeAgcBilinearSamplerWord = 0x09500000u", header)
+        self.assertEqual(source.count("kNativeAgcBilinearSamplerWord"), 2)
+        self.assertNotIn("descriptor[18] = descriptor[22] = 0x08000000", source)
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),

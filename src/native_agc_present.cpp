@@ -270,6 +270,7 @@ static void refresh_hud_surface(uint8_t *surface, const native_agc_metrics_t *me
     char line[96];
     uint64_t decode_us = metrics->decode_average_us;
     uint8_t text_luma = hdr ? 143u : 255u;
+    const NativeAgcOutputGeometry output = native_agc_output_geometry(video_width, video_height);
 
     memset(luma, 76, HUD_Y_BYTES);
     memset(surface + HUD_Y_BYTES, 128, HUD_UV_BYTES);
@@ -278,8 +279,10 @@ static void refresh_hud_surface(uint8_t *surface, const native_agc_metrics_t *me
              video_height, metrics->total_fps_x100 / 100u, metrics->total_fps_x100 % 100u,
              metrics->video_codec ? "HEVC" : "H.264");
     overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4, text_luma);
-    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, "Decoder: SceVideodec2 hardware", HUD_TEXT_X,
-                      4 + HUD_LINE_HEIGHT, text_luma);
+    snprintf(line, sizeof(line), "Decoder: SceVideodec2 hardware / Output: %ux%u", output.width,
+             output.height);
+    overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT,
+                      text_luma);
     snprintf(line, sizeof(line), "Incoming frame rate from network: %u.%02u FPS",
              metrics->incoming_fps_x100 / 100u, metrics->incoming_fps_x100 % 100u);
     overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4 + HUD_LINE_HEIGHT * 2u,
@@ -461,7 +464,7 @@ static void bind_pixel_source(agc_command_buffer_t *command, uint8_t *resources,
     descriptor[13] = 0x00700000u;
     descriptor[16] = descriptor[20] = 0x00000092u;
     descriptor[17] = descriptor[21] = 0x00fff000u;
-    descriptor[18] = descriptor[22] = 0x09500000u;
+    descriptor[18] = descriptor[22] = kNativeAgcBilinearSamplerWord;
     descriptor[24] = (uint32_t)(uintptr_t)pixel_cb;
     descriptor[25] = (uint32_t)((uintptr_t)pixel_cb >> 32) | (16u << 16);
     descriptor[26] = 4;
@@ -491,7 +494,7 @@ static void bind_main10_source(agc_command_buffer_t *command, uint8_t *resources
     descriptor[13] = 0x00700000u;
     descriptor[16] = descriptor[20] = 0x00000092u;
     descriptor[17] = descriptor[21] = 0x00fff000u;
-    descriptor[18] = descriptor[22] = 0x09500000u;
+    descriptor[18] = descriptor[22] = kNativeAgcBilinearSamplerWord;
     descriptor[24] = (uint32_t)(uintptr_t)pixel_cb;
     descriptor[25] = (uint32_t)((uintptr_t)pixel_cb >> 32) | (16u << 16);
     descriptor[26] = 3;

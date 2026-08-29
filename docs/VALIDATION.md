@@ -276,8 +276,27 @@ The hardware-accepted `AGC_4K` reference registers its two 32 MiB
 `sceVideoOutAddBuffer4k2kPrivilege`. Version `01.000.029` therefore removes
 that unproven additional gate and follows the accepted VideoOut sequence:
 open, set the flip rate, allocate/map the aligned buffer pool, set attribute 2,
-then register buffers 2. Hardware acceptance remains required.
-Hardware acceptance for 1080p, 1440p-to-4K, native 2160p, and the metrics HUD is
-required before this milestone is considered complete. The 1440p path still
-uses the recovered point-sampling shader, so filtered 1440p-to-4K scaling is not
-yet claimed.
+then register buffers 2.
+
+The resulting `01.000.029` folder build completed the full hardware matrix on
+August 29, 2026. Sunshine and the on-screen HUD independently reported the
+negotiated stream dimensions, while the PS5 system log reported a 3840x2160
+VideoOut status for both high-resolution cases:
+
+- `1920x1080` HEVC decoded in VideoDec2 and rendered through a 1920x1080 target;
+- `2560x1440` HEVC decoded in VideoDec2 and GPU-scaled through a 3840x2160 target;
+- `3840x2160` HEVC decoded in VideoDec2 and rendered 1:1 through a 3840x2160 target.
+
+Each controlled session remained connected for roughly 30 seconds, displayed
+the Windows sign-in image and readable metrics HUD, then disconnected cleanly.
+Sunshine recorded zero network drops in the observed frames. The 1440p path
+uses the native texture probe's filtered sampler word (`0x09500000`); its
+explicit nearest-neighbour variant is `0x08000000`. Version `01.000.030` names
+and regression-tests that distinction and shows the actual VideoOut target in
+the HUD. Its complete gate passed 17 GoogleTests and 21 Python integration
+tests; the signed folder `eboot.bin` SHA-256 is
+`e228e40a37df9c2dc5ac6e09fdd44a88a4d82afb007dcf9796c99c8310e89756`.
+The deployed build then repeated both 1440p and 2160p sessions, with the HUD
+showing `Output: 3840x2160` in each case. This completes the native
+higher-resolution image-quality milestone; long gameplay and cross-hardware
+performance remain release acceptance work.

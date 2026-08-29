@@ -81,6 +81,12 @@ TEST(VideoOutput, Uses4kFor1440pAnd2160pSources)
     EXPECT_EQ(output_2160p.framebuffer_bytes, 0x2000000u);
 }
 
+TEST(VideoOutput, UsesHardwareValidatedBilinearSampler)
+{
+    EXPECT_EQ(kNativeAgcBilinearSamplerWord, 0x09500000u);
+    EXPECT_NE(kNativeAgcBilinearSamplerWord, 0x08000000u);
+}
+
 TEST(StreamShortcuts, SelectL1ReturnsToLauncher)
 {
     EXPECT_TRUE(
