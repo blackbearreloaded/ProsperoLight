@@ -122,13 +122,13 @@ button.focused > .focused-chrome { display: block; }
 .app-meta { position: absolute; left: 18px; top: 276px; width: 224px; height: 30px; color: #a9c7e6; font-size: 20px; line-height: 28px; }
 .app-state { position: absolute; left: 18px; top: 308px; width: 224px; height: 30px; color: #79a8d8; font-size: 20px; line-height: 28px; }
 .app-state.running { color: #63d8a2; }
-.game-detail-panel { position: absolute; left: 884px; top: 194px; width: 530px; height: 478px; }
+.game-detail-panel { position: absolute; left: 884px; top: 164px; width: 530px; height: 478px; }
 #selected-app-position { position: absolute; left: 28px; top: 112px; width: 474px; height: 30px; color: #a9c7e6; font-size: 20px; line-height: 28px; }
 .app-detail-label { position: absolute; left: 28px; width: 112px; height: 34px; color: #79a8d8; font-size: 20px; line-height: 30px; }
 .app-detail-value { position: absolute; left: 146px; width: 356px; height: 34px; color: #f4f8ff; font-size: 20px; line-height: 30px; text-align: right; }
 .app-detail-line-0 { top: 166px; } .app-detail-line-1 { top: 220px; } .app-detail-line-2 { top: 274px; }
-.games-stop { left: 884px; top: 700px; }
-.games-back { left: 1150px; top: 700px; }
+.games-stop { left: 884px; top: 670px; }
+.games-back { left: 1150px; top: 670px; }
 .games-status { left: 34px; top: 862px; width: 1380px; }
 
 .setting-row { position: absolute; left: 34px; width: 1380px; height: 126px; overflow: hidden; }
