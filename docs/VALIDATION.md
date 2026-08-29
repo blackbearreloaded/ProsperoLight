@@ -241,3 +241,11 @@ with 14 GoogleTests and 17 Python integration tests. Content version
 `d85061697b2df4f16ce6e338f90148d100b25c5a62ce4a4f5dc0ae5f8b61436e`.
 This is a `partial-pass`: Sunshine/VDD HDR negotiation and the PS5 deployment
 are proven; visible video and the HDR metrics overlay await operator acceptance.
+
+The completed `01.000.026` HDR acceptance decoded and displayed the Windows
+sign-in screen in native HDR10. The initial metrics overlay created its SDR HUD
+shader by relocating the already-relocated Main10 shader header, causing
+`sceAgcCreateShader` to reject it. Giving the HUD its own header and SDR color
+conversion resources fixed both shader creation and the temporary solid-color
+overlay. The operator confirmed that HDR video and readable metrics now work
+together. These fixes retain the exact Videodec2 output pointer as AGC input.

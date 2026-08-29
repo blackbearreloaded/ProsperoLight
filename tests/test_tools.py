@@ -97,6 +97,37 @@ class ToolTests(unittest.TestCase):
         self.assertIn("(hdr_transitions && !hdr_active)", submit)
         self.assertNotIn("!decode_unit->hdrActive", submit)
 
+    def test_hdr_overlay_uses_a_distinct_relocatable_shader_header(self):
+        source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("#define HDR_HUD_SHADER_HEADER_OFFSET 0xe000u", source)
+        self.assertIn(
+            "presenter.shader_memory + HDR_HUD_SHADER_HEADER_OFFSET, 0x1000,",
+            source,
+        )
+        self.assertIn(
+            "presenter.shader_memory + HDR_HUD_SHADER_HEADER_OFFSET,\n"
+            "                                    presenter.shader_memory + HDR_HUD_SHADER_CODE_OFFSET",
+            source,
+        )
+        self.assertNotIn(
+            "&presenter.hud_pixel_shader, presenter.shader_memory + 0x1000,", source
+        )
+
+    def test_hdr_overlay_uses_distinct_sdr_conversion_resources(self):
+        source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("#define HDR_HUD_RESOURCES_OFFSET 0xf000u", source)
+        self.assertIn(
+            "prepare_resources(presenter.shader_memory + HDR_HUD_RESOURCES_OFFSET, 0)",
+            source,
+        )
+        self.assertIn(
+            "uint8_t *hud_resources = hdr ? memory + HDR_HUD_RESOURCES_OFFSET : resources;",
+            source,
+        )
+        self.assertIn("bind_pixel_source(&command, hud_resources,", source)
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),

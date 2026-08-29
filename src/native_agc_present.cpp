@@ -47,6 +47,8 @@
 #define KEYBOARD_SURFACE_BYTES (KEYBOARD_Y_BYTES + KEYBOARD_UV_BYTES)
 #define SHADER_MEMORY_BYTES 0x0d0000u
 #define HDR_HUD_SHADER_CODE_OFFSET 0xd000u
+#define HDR_HUD_SHADER_HEADER_OFFSET 0xe000u
+#define HDR_HUD_RESOURCES_OFFSET 0xf000u
 #define HUD_REFRESH_FRAMES 60u
 #define DIRECT_MEMORY_TYPE 12
 #define MAP_PROTECTION 0x33
@@ -504,6 +506,7 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     uint8_t *hud_pixel_cb = memory + 0x7a00;
     agc_register_t *hud_state = (agc_register_t *)(memory + 0x7b00);
     uint8_t *resources = memory + 0xc000;
+    uint8_t *hud_resources = hdr ? memory + HDR_HUD_RESOURCES_OFFSET : resources;
     uint32_t *words = (uint32_t *)(memory + 0x8000);
     agc_command_buffer_t command = {};
     agc_submit_description_t submit = {};
@@ -681,7 +684,7 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
 
             sceAgcDcbSetShRegistersIndirect(&command, hud_ps_sh, hud_ps_sh_count);
         }
-        bind_pixel_source(&command, resources, memory + HUD_SURFACE_OFFSET,
+        bind_pixel_source(&command, hud_resources, memory + HUD_SURFACE_OFFSET,
                           (size_t)overlay_width * overlay_height,
                           (size_t)overlay_width * overlay_height / 2u, hud_pixel_cb);
         sceAgcDcbDrawIndexAuto(&command, 4, 2);
@@ -817,7 +820,12 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
                    native_agc_resources_end) != 0 ||
         (hdr && copy_asset(presenter.shader_memory + HDR_HUD_SHADER_CODE_OFFSET, 0x1000,
                            native_agc_pixel_code_start, native_agc_pixel_code_end) != 0) ||
-        prepare_resources(presenter.shader_memory + 0xc000, hdr) != 0)
+        (hdr && copy_asset(presenter.shader_memory + HDR_HUD_SHADER_HEADER_OFFSET, 0x1000,
+                           native_agc_pixel_header_start, native_agc_pixel_header_end) != 0) ||
+        (hdr && copy_asset(presenter.shader_memory + HDR_HUD_RESOURCES_OFFSET, 0x1000,
+                           native_agc_resources_start, native_agc_resources_end) != 0) ||
+        prepare_resources(presenter.shader_memory + 0xc000, hdr) != 0 ||
+        (hdr && prepare_resources(presenter.shader_memory + HDR_HUD_RESOURCES_OFFSET, 0) != 0))
         return -3;
 
     result = sceAgcCreateShader(&presenter.vertex_shader, presenter.shader_memory,
@@ -826,7 +834,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
         result = sceAgcCreateShader(&presenter.pixel_shader, presenter.shader_memory + 0x1000,
                                     presenter.shader_memory + 0x2000);
     if (result == 0 && hdr)
-        result = sceAgcCreateShader(&presenter.hud_pixel_shader, presenter.shader_memory + 0x1000,
+        result = sceAgcCreateShader(&presenter.hud_pixel_shader,
+                                    presenter.shader_memory + HDR_HUD_SHADER_HEADER_OFFSET,
                                     presenter.shader_memory + HDR_HUD_SHADER_CODE_OFFSET);
     if (result == 0)
         link_result =
