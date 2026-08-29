@@ -46,6 +46,21 @@ class ToolTests(unittest.TestCase):
             makefile,
         )
 
+    def test_stop_refresh_preserves_the_last_application_catalog(self):
+        source = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+        start = source.index("void MoonlightApp::StopActiveApp()")
+        end = source.index("void MoonlightApp::RefreshBackend()", start)
+        stop = source[start:end]
+
+        self.assertIn("moonlight_backend_snapshot_t refreshed{};", stop)
+        self.assertIn(
+            "moonlight_backend_stop_app(SelectedHostAddress(), &refreshed)", stop
+        )
+        self.assertIn("if (result == 0 || refreshed.app_count)", stop)
+        self.assertNotIn(
+            "moonlight_backend_stop_app(SelectedHostAddress(), &backend_)", stop
+        )
+
     def test_stream_opens_pad_after_decoder_loading_worker_stops(self):
         source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
         early_loading = source.index(

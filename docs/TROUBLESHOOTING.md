@@ -109,6 +109,9 @@ Nothing is installed globally by these optional bootstrappers.
   can briefly interrupt its NVHTTP endpoint. Wait for the automatic recovery
   before changing host configuration. Triangle still performs an immediate
   discovery and refresh.
+- Stopping an active application retains the last successful application list
+  while Sunshine tears down the stream. The Games page should display
+  `RECONNECTING`, not temporarily collapse to an empty catalogue.
 - Verify the same address answers `http://<host>:47989/serverinfo` from another
   LAN client before changing Sunshine or the PS5.
 - PS5 network descriptors must be configured through `libSceNet`. In

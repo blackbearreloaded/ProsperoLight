@@ -789,14 +789,28 @@ void MoonlightApp::StopActiveApp()
     }
 
     SetText(document_, "launch-status", "Stopping the active Sunshine app...");
-    const int result = moonlight_backend_stop_app(SelectedHostAddress(), &backend_);
+    moonlight_backend_snapshot_t refreshed{};
+    const int result = moonlight_backend_stop_app(SelectedHostAddress(), &refreshed);
+    if (result == 0 || refreshed.app_count)
+    {
+        backend_ = refreshed;
+    }
+    else
+    {
+        backend_.online = 0;
+        backend_.result = refreshed.result;
+        std::snprintf(backend_.error, sizeof(backend_.error), "%s",
+                      refreshed.error[0] ? refreshed.error : "Sunshine did not respond");
+    }
     health_due_ms_ = SDL_GetTicks64() + health_.Record(backend_.online != 0);
     UpdateHost();
     UpdateGames();
     if (result != 0)
     {
         char text[180];
-        std::snprintf(text, sizeof(text), "Stop failed: %s",
+        std::snprintf(text, sizeof(text), "%s: %s",
+                      health_.Reconnecting() ? "Could not confirm stop; retrying automatically"
+                                             : "Stop failed",
                       backend_.error[0] ? backend_.error : "Sunshine rejected the request");
         SetText(document_, "launch-status", text);
     }
