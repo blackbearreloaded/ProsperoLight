@@ -300,3 +300,11 @@ The deployed build then repeated both 1440p and 2160p sessions, with the HUD
 showing `Output: 3840x2160` in each case. This completes the native
 higher-resolution image-quality milestone; long gameplay and cross-hardware
 performance remain release acceptance work.
+
+A follow-up codec matrix switched the same deployed build from HEVC to H.264
+without changing the output code. Sunshine recorded `h264_nvenc` at both
+`2560x1440` and `3840x2160`; the HUD reported `Codec: H.264`, VideoDec2
+hardware decode, and `Output: 3840x2160`. Both sessions displayed the complete
+Windows image for roughly 30 seconds and disconnected cleanly. Native 1440p
+and 2160p presentation is therefore hardware-proven for both selectable video
+codecs.
