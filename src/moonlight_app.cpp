@@ -157,14 +157,100 @@ void MoonlightApp::Poll()
     if (manual_entry_active_ && !radio_ime_busy())
         manual_entry_active_ = false;
     PollPairing();
+    PollHealth();
     PollArtwork();
 }
 
 void MoonlightApp::Shutdown()
 {
     radio_ime_cancel();
+    FinishHealthWorker();
     FinishArtworkWorker(true);
     document_ = nullptr;
+}
+
+void MoonlightApp::FinishHealthWorker()
+{
+    if (health_worker_active_)
+    {
+        (void)pthread_join(health_thread_, nullptr);
+        health_worker_active_ = false;
+    }
+    __atomic_store_n(&health_worker_state_, 0, __ATOMIC_RELEASE);
+}
+
+void *MoonlightApp::HealthWorker(void *argument)
+{
+    MoonlightApp *app = static_cast<MoonlightApp *>(argument);
+    const int result = moonlight_backend_refresh(app->health_host_, &app->health_snapshot_);
+    __atomic_store_n(&app->health_worker_state_, result == 0 ? 2 : 3, __ATOMIC_RELEASE);
+    return nullptr;
+}
+
+void MoonlightApp::PollHealth()
+{
+    const uint64_t now = SDL_GetTicks64();
+    if (health_worker_active_)
+    {
+        const int state = __atomic_load_n(&health_worker_state_, __ATOMIC_ACQUIRE);
+        if (state == 1)
+            return;
+        (void)pthread_join(health_thread_, nullptr);
+        health_worker_active_ = false;
+        const bool success = state == 2 && health_snapshot_.online;
+        health_due_ms_ = now + health_.Record(success);
+        if (success)
+        {
+            backend_ = health_snapshot_;
+            const moonlight_config_host_t *host = SelectedHost();
+            const bool manual = host && host->manual;
+            const moonlight_config_t previous_config = config_;
+            const int index = moonlight_config_upsert_host(&config_, backend_.host, backend_.name,
+                                                           backend_.unique_id, manual);
+            if (index >= 0)
+            {
+                config_.selected_host = static_cast<uint32_t>(index);
+                if (std::memcmp(&previous_config, &config_, sizeof(config_)) != 0)
+                    (void)moonlight_config_save(&config_);
+            }
+            if (selected_app_ >= backend_.app_count)
+                selected_app_ = 0;
+        }
+        else
+        {
+            backend_.online = 0;
+            backend_.result = health_snapshot_.result;
+            std::snprintf(backend_.error, sizeof(backend_.error), "%s",
+                          health_snapshot_.error[0] ? health_snapshot_.error
+                                                    : "Sunshine did not respond");
+        }
+        __atomic_store_n(&health_worker_state_, 0, __ATOMIC_RELEASE);
+        UpdateHost();
+        UpdateGames();
+        UpdateSettings();
+    }
+
+    if (health_worker_active_ || pairing_active_ || artwork_worker_active_ ||
+        now < health_due_ms_ || !SelectedHostAddress()[0])
+        return;
+
+    std::snprintf(health_host_, sizeof(health_host_), "%s", SelectedHostAddress());
+    std::memset(&health_snapshot_, 0, sizeof(health_snapshot_));
+    __atomic_store_n(&health_worker_state_, 1, __ATOMIC_RELEASE);
+    if (pthread_create(&health_thread_, nullptr, HealthWorker, this) != 0)
+    {
+        __atomic_store_n(&health_worker_state_, 0, __ATOMIC_RELEASE);
+        health_due_ms_ = now + health_.Record(false);
+        backend_.online = 0;
+        backend_.result = -1;
+        std::snprintf(backend_.error, sizeof(backend_.error),
+                      "Could not start Sunshine health check");
+        UpdateHost();
+        UpdateGames();
+        UpdateSettings();
+        return;
+    }
+    health_worker_active_ = true;
 }
 
 void MoonlightApp::FinishArtworkWorker(bool clear_cache)
@@ -203,8 +289,8 @@ void MoonlightApp::PollArtwork()
         artwork_due_ms_ = now + 50;
     }
 
-    if (screen_ != Screen::Games || !backend_.online || !backend_.paired || !backend_.https_port ||
-        !backend_.app_count)
+    if (health_worker_active_ || screen_ != Screen::Games || !backend_.online || !backend_.paired ||
+        !backend_.https_port || !backend_.app_count)
         return;
 
     const unsigned page_start = (selected_app_ / 6) * 6;
@@ -440,6 +526,13 @@ void MoonlightApp::Activate()
         {
             char text[160];
             unsigned width, height;
+            if (!backend_.online)
+            {
+                SetText(document_, "launch-status",
+                        health_.Reconnecting() ? "Sunshine is reconnecting. Please wait..."
+                                               : "Sunshine is currently unreachable.");
+                break;
+            }
             if (config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC && !backend_.hevc_supported)
             {
                 SetText(document_, "launch-status",
@@ -567,6 +660,7 @@ void MoonlightApp::DiscoverHosts()
 
 void MoonlightApp::TogglePairing()
 {
+    FinishHealthWorker();
     FinishArtworkWorker(true);
     artwork_page_start_ = MOONLIGHT_BACKEND_MAX_APPS;
     const char *host = SelectedHostAddress();
@@ -627,6 +721,7 @@ void MoonlightApp::TogglePairing()
     confirm_unpair_ = false;
     SetText(document_, "host-action-status", "Unpairing this PS5...");
     const int result = moonlight_backend_unpair(host, &backend_);
+    health_due_ms_ = SDL_GetTicks64() + health_.Record(backend_.online != 0);
     UpdateHost();
     UpdateGames();
     UpdateSettings();
@@ -676,6 +771,7 @@ void MoonlightApp::PollPairing()
 
     pairing_active_ = false;
     backend_ = completed;
+    health_due_ms_ = SDL_GetTicks64() + health_.Record(backend_.online != 0);
     SetClass(document_, "pair-modal", "hidden", true);
     UpdateHost();
     UpdateGames();
@@ -684,6 +780,7 @@ void MoonlightApp::PollPairing()
 
 void MoonlightApp::StopActiveApp()
 {
+    FinishHealthWorker();
     FinishArtworkWorker(false);
     if (!backend_.current_app_id)
     {
@@ -693,6 +790,7 @@ void MoonlightApp::StopActiveApp()
 
     SetText(document_, "launch-status", "Stopping the active Sunshine app...");
     const int result = moonlight_backend_stop_app(SelectedHostAddress(), &backend_);
+    health_due_ms_ = SDL_GetTicks64() + health_.Record(backend_.online != 0);
     UpdateHost();
     UpdateGames();
     if (result != 0)
@@ -706,6 +804,7 @@ void MoonlightApp::StopActiveApp()
 
 void MoonlightApp::RefreshBackend()
 {
+    FinishHealthWorker();
     FinishArtworkWorker(true);
     artwork_page_start_ = MOONLIGHT_BACKEND_MAX_APPS;
     confirm_unpair_ = false;
@@ -721,9 +820,19 @@ void MoonlightApp::RefreshBackend()
         return;
     }
     SetText(document_, "host-action-status", "Refreshing Sunshine status...");
-    (void)moonlight_backend_refresh(host->address, &backend_);
-    if (backend_.online)
+    if (std::strcmp(backend_.host, host->address) != 0)
     {
+        std::memset(&backend_, 0, sizeof(backend_));
+        std::snprintf(backend_.host, sizeof(backend_.host), "%s", host->address);
+        health_ = {};
+    }
+    moonlight_backend_snapshot_t refreshed{};
+    const int result = moonlight_backend_refresh(host->address, &refreshed);
+    const bool success = result == 0 && refreshed.online;
+    health_due_ms_ = SDL_GetTicks64() + health_.Record(success);
+    if (success)
+    {
+        backend_ = refreshed;
         const int index = moonlight_config_upsert_host(&config_, host->address, backend_.name,
                                                        backend_.unique_id, host->manual != 0);
         if (index >= 0)
@@ -731,6 +840,13 @@ void MoonlightApp::RefreshBackend()
             config_.selected_host = static_cast<uint32_t>(index);
             (void)moonlight_config_save(&config_);
         }
+    }
+    else
+    {
+        backend_.online = 0;
+        backend_.result = refreshed.result;
+        std::snprintf(backend_.error, sizeof(backend_.error), "%s",
+                      refreshed.error[0] ? refreshed.error : "Sunshine did not respond");
     }
     if (selected_app_ >= backend_.app_count)
         selected_app_ = 0;
@@ -808,7 +924,8 @@ void MoonlightApp::UpdateHost()
     SetClass(document_, "footer-status", "offline", !backend_.online || !backend_.paired);
     SetClass(document_, "pair-host", "action-danger", backend_.paired != 0);
     SetClass(document_, "pair-host", "disabled",
-             backend_.online == 0 || (!backend_.paired && backend_.current_app_id != 0));
+             health_.Reconnecting() || backend_.online == 0 ||
+                 (!backend_.paired && backend_.current_app_id != 0));
 
     if (!selected_host)
     {
@@ -823,6 +940,20 @@ void MoonlightApp::UpdateHost()
         SetText(document_, "pair-host-label", "Pair unavailable");
         SetText(document_, "host-action-status",
                 "No PC found. Select Add PC to enter an IPv4 address.");
+        return;
+    }
+
+    if (health_.Reconnecting())
+    {
+        SetText(document_, "host-status", "RECONNECTING");
+        SetText(document_, "host-detail-connection", "Waiting for Sunshine");
+        SetText(document_, "host-detail-pairing", backend_.paired ? "Paired" : "Checking");
+        SetText(document_, "host-detail-ready", "RETRYING AUTOMATICALLY");
+        SetText(document_, "footer-status", "SUNSHINE RECONNECTING");
+        SetText(document_, "host-card-action", "WAIT");
+        SetText(document_, "pair-host-label", "Pair unavailable");
+        SetText(document_, "host-action-status",
+                "Sunshine did not respond. Retrying automatically...");
         return;
     }
 
@@ -892,9 +1023,11 @@ void MoonlightApp::UpdateGames()
     char id[48];
     char text[192];
     const bool available = selected_app_ < backend_.app_count;
-    SetClass(document_, "stop-app", "disabled", backend_.current_app_id == 0);
+    SetClass(document_, "stop-app", "disabled", !backend_.online || backend_.current_app_id == 0);
     SetText(document_, "stop-app-label",
-            backend_.current_app_id ? "Stop active app" : "Nothing running");
+            !backend_.online          ? (health_.Reconnecting() ? "PC reconnecting" : "PC offline")
+            : backend_.current_app_id ? "Stop active app"
+                                      : "Nothing running");
     unsigned width, height;
     StreamDimensions(config_.stream_resolution, width, height);
     std::snprintf(text, sizeof(text), "%s / %u Mbps",
@@ -962,12 +1095,18 @@ void MoonlightApp::UpdateGames()
     std::snprintf(text, sizeof(text), "APP %u OF %u / ID %d", selected_app_ + 1, backend_.app_count,
                   app.id);
     SetText(document_, "selected-app-position", text);
-    SetClass(document_, "selected-app-state", "offline", false);
+    SetClass(document_, "selected-app-state", "offline", !backend_.online);
     SetText(document_, "selected-app-state",
-            backend_.current_app_id == app.id ? "CURRENTLY RUNNING" : "READY TO STREAM");
+            !backend_.online ? (health_.Reconnecting() ? "RECONNECTING" : "PC OFFLINE")
+            : backend_.current_app_id == app.id ? "CURRENTLY RUNNING"
+                                                : "READY TO STREAM");
     std::snprintf(text, sizeof(text), "%u x %u / 60 FPS", width, height);
     SetText(document_, "selected-app-stream", text);
-    if (backend_.current_app_id == app.id)
+    if (!backend_.online)
+        std::snprintf(text, sizeof(text), "%s",
+                      health_.Reconnecting() ? "Waiting for Sunshine to reconnect automatically."
+                                             : "Sunshine is offline. Automatic checks continue.");
+    else if (backend_.current_app_id == app.id)
         std::snprintf(text, sizeof(text), "Cross resumes %s. Square closes the active app.",
                       app.name);
     else if (backend_.current_app_id)

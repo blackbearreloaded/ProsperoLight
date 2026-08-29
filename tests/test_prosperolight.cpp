@@ -8,6 +8,7 @@
 #include "moonlight_stream_input.hpp"
 #include "moonlight_stream_keyboard.hpp"
 #include "moonlight_config.hpp"
+#include "moonlight_health.hpp"
 
 #include <gtest/gtest.h>
 
@@ -184,5 +185,22 @@ TEST(Configuration, FailedLoadLeavesSafeDefaults)
     EXPECT_EQ(config.host_count, 0U);
     EXPECT_EQ(config.bitrate_mbps, 20U);
     EXPECT_EQ(config.display_area, MOONLIGHT_DISPLAY_AREA_FULL);
+}
+
+TEST(HostHealth, DebouncesTransientFailuresAndRecovers)
+{
+    MoonlightHealthState health{};
+
+    EXPECT_EQ(health.Record(false), MoonlightHealthState::recovery_delay_ms);
+    EXPECT_TRUE(health.Reconnecting());
+    EXPECT_EQ(health.Record(false), MoonlightHealthState::recovery_delay_ms);
+    EXPECT_TRUE(health.Reconnecting());
+    EXPECT_EQ(health.Record(false), MoonlightHealthState::steady_delay_ms);
+    EXPECT_FALSE(health.Reconnecting());
+    EXPECT_EQ(health.consecutive_failures, MoonlightHealthState::offline_failure_threshold);
+
+    EXPECT_EQ(health.Record(true), MoonlightHealthState::steady_delay_ms);
+    EXPECT_EQ(health.consecutive_failures, 0U);
+    EXPECT_FALSE(health.Reconnecting());
 }
 } // namespace

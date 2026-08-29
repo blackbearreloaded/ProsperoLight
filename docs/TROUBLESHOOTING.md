@@ -101,6 +101,14 @@ Nothing is installed globally by these optional bootstrappers.
 
 ## A reachable Sunshine PC appears offline
 
+- Current builds retry the saved host address automatically. The launcher
+  displays `RECONNECTING` after the first two failed checks and only displays
+  `OFFLINE` after three consecutive failures. Successful hosts are checked
+  every five seconds; recovery checks run every second.
+- A Windows login, RDP transition, virtual-display change, or Sunshine restart
+  can briefly interrupt its NVHTTP endpoint. Wait for the automatic recovery
+  before changing host configuration. Triangle still performs an immediate
+  discovery and refresh.
 - Verify the same address answers `http://<host>:47989/serverinfo` from another
   LAN client before changing Sunshine or the PS5.
 - PS5 network descriptors must be configured through `libSceNet`. In

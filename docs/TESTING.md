@@ -9,7 +9,8 @@ make app
 ```
 
 `make test` contains focused GoogleTest coverage for stream input shortcuts,
-configuration defaults, host-list updates, and failure fallback. Python
+configuration defaults, host-list updates, health failure debouncing and
+recovery, and failure fallback. Python
 regressions cover identity and safe deploy path resolution. These tests do not
 require a console or a Sunshine host.
 

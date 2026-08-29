@@ -77,6 +77,7 @@ test-unit: $(HOST_UNIT_TEST) $(HOST_RUNTIME_TEST)
 	@$(HOST_RUNTIME_TEST)
 
 $(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_config.hpp \
+		include/moonlight_health.hpp \
 		include/moonlight_stream_input.hpp src/moonlight_config.cpp \
 		include/lan_http_report.hpp src/lan_http_report.cpp \
 		tools/setup-test-dependencies.sh | test-deps

@@ -25,6 +25,16 @@ C-compatible names. Its upstream dependencies are pinned as submodules and
 compiled in their native languages. This is a dependency boundary, not a
 second application architecture.
 
+The launcher treats Sunshine availability as a sampled health state rather
+than a permanent result. It refreshes the saved host address on a worker
+thread every five seconds without repeating mDNS discovery. A failed check
+retains the last successful host and application snapshot, displays
+`RECONNECTING`, and retries after one second. Three consecutive failures are
+required before the launcher displays `OFFLINE`; polling continues so a host
+that restarts during an RDP or Windows-session transition recovers without a
+manual refresh. Pairing, artwork downloads, and health checks are serialized
+because the compact NVHTTP transport has process-global timeout/error state.
+
 The build creates minimal linker-only import stubs from
 `vendor/ps5/sdk/stubs/*_link_stub.c` for PS5 system modules that are not in the
 bundled SDK stub set. They only describe unresolved imports to the native

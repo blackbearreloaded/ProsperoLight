@@ -8,6 +8,7 @@
 
 #include "moonlight_backend.hpp"
 #include "moonlight_config.hpp"
+#include "moonlight_health.hpp"
 #include "radio_input.hpp"
 
 #include <pthread.h>
@@ -67,6 +68,13 @@ private:
     bool artwork_worker_active_ = false;
     volatile int artwork_worker_state_ = 0;
     pthread_t artwork_thread_{};
+    bool health_worker_active_ = false;
+    volatile int health_worker_state_ = 0;
+    pthread_t health_thread_{};
+    MoonlightHealthState health_{};
+    moonlight_backend_snapshot_t health_snapshot_{};
+    char health_host_[MOONLIGHT_CONFIG_ADDRESS_SIZE]{};
+    uint64_t health_due_ms_ = 0;
     char artwork_host_[MOONLIGHT_CONFIG_ADDRESS_SIZE]{};
     uint16_t artwork_https_port_ = 0;
     int artwork_app_id_ = 0;
@@ -86,6 +94,9 @@ private:
     const moonlight_config_host_t* SelectedHost() const;
     void TogglePairing();
     void PollPairing();
+    void PollHealth();
+    void FinishHealthWorker();
+    static void* HealthWorker(void* argument);
     void PollArtwork();
     void FinishArtworkWorker(bool clear_cache);
     static void* ArtworkWorker(void* argument);
