@@ -20,6 +20,7 @@
 #include <opus_multistream.h>
 
 #include "moonlight_stream.hpp"
+#include "ui_sound.hpp"
 #include "moonlight_config.hpp"
 #include "moonlight_physical_input.hpp"
 #include "moonlight_stream_input.hpp"
@@ -1095,6 +1096,8 @@ static int ps5_audio_init(int audio_configuration, const POPUS_MULTISTREAM_CONFI
                           void *context, int flags)
 {
     char receipt[512];
+
+    prosperolight::ui_sound_stop_for_stream();
 
     (void)audio_configuration;
     (void)context;

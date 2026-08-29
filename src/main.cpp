@@ -20,6 +20,7 @@
 #include "ps5_pngdec.hpp"
 #include "radio_input.hpp"
 #include "radio_ime.hpp"
+#include "ui_sound.hpp"
 
 #include <cstdio>
 #include <cstddef>
@@ -818,13 +819,17 @@ void PresentColor(SDL_Renderer *renderer, SDL_Window *window, Uint8 red, Uint8 g
     SDL_UpdateWindowSurface(window);
 }
 
-MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stream_error)
+MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stream_error,
+                                  bool play_open_sound)
 {
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
         return MoonlightApp::Command::None;
     }
+    const bool sound_ready = ((SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) != 0 ||
+                              SDL_InitSubSystem(SDL_INIT_AUDIO) == 0) &&
+                             prosperolight::ui_sound_initialize();
     SDL_SetHint(SDL_HINT_FRAMEBUFFER_ACCELERATION, "software");
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
     SDL_Window *window = SDL_CreateWindow("ProsperoLight", SDL_WINDOWPOS_UNDEFINED,
@@ -866,7 +871,11 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
         if (running)
             app.ShowStreamError(stream_error);
         if (running)
+        {
             sceSystemServiceHideSplashScreen();
+            if (sound_ready && play_open_sound)
+                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Open);
+        }
     }
     else
     {
@@ -929,7 +938,7 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
     Rml::Shutdown();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
-    SDL_Quit();
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
     return command;
 }
 
@@ -944,10 +953,13 @@ int main()
 
     png_decoder_available = sceSysmoduleLoadModule(kPngDecModule) >= 0;
     char stream_error[192]{};
+    bool play_open_sound = true;
     for (;;)
     {
         LauncherSelection selection;
-        const MoonlightApp::Command command = RunLauncher(&selection, stream_error);
+        const MoonlightApp::Command command =
+            RunLauncher(&selection, stream_error, play_open_sound);
+        play_open_sound = false;
         stream_error[0] = '\0';
         if (command != MoonlightApp::Command::StartStream)
             KeepProcessAlive();

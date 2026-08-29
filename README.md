@@ -50,7 +50,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA77003` |
 | Category | Game |
-| Current version | `01.000.034` |
+| Current version | `01.000.035` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -86,6 +86,8 @@ tooling are maintained in this repository.
   without leaving a stale session running.
 - Use original 4K launcher artwork, icon, loading presentation, and selection
   music in a controller-first RmlUi interface.
+- Play distinct opening, navigation, action, setting, back, success, error, and
+  stream-start cues through the native PS5 SDL audio backend.
 
 ## Current status
 
@@ -289,8 +291,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.034
-git push origin main 01.000.034
+git tag 01.000.035
+git push origin main 01.000.035
 ```
 
 Keep `PPSA77003`, `conceptId`, and `contentId` stable for updates to this title.

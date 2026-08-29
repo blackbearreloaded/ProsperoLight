@@ -3,8 +3,8 @@
 # Copyright (C) 2026 BlackBearReloaded
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Validates the launcher icon, optional BC7 backgrounds, and optional ATRAC9
-# selection audio without requiring Windows conversion tools.
+# Validates the launcher icon, optional BC7 backgrounds, optional ATRAC9
+# selection audio, and launcher PCM sound effects without Windows tools.
 
 set -euo pipefail
 
@@ -91,6 +91,39 @@ if sound.exists():
         raise SystemExit(
             f"{sound} must be looped 48 kHz ATRAC9 within the supported bitrate"
         )
+
+sfx_root = root.parent / "assets" / "sfx"
+sfx_names = (
+    "ui_open.wav", "ui_move.wav", "ui_confirm.wav", "ui_setting.wav",
+    "ui_back.wav", "ui_success.wav", "ui_error.wav", "ui_stream_start.wav",
+)
+for name in sfx_names:
+    path = sfx_root / name
+    if not path.is_file():
+        raise SystemExit(f"required launcher sound not found: {path}")
+    data = path.read_bytes()
+    if (len(data) < 44 or len(data) > 2_097_152 or data[:4] != b"RIFF"
+            or data[8:12] != b"WAVE"
+            or struct.unpack_from("<I", data, 4)[0] + 8 != len(data)):
+        raise SystemExit(f"{path} is not a complete supported RIFF/WAVE file")
+    chunks = {}
+    position = 12
+    while position + 8 <= len(data):
+        chunk_id = data[position:position + 4]
+        size = struct.unpack_from("<I", data, position + 4)[0]
+        payload = position + 8
+        if payload + size > len(data):
+            raise SystemExit(f"{path} contains a truncated RIFF chunk")
+        chunks[chunk_id] = (payload, size)
+        position = payload + size + size % 2
+    if b"fmt " not in chunks or b"data" not in chunks:
+        raise SystemExit(f"{path} is missing PCM format or sample data")
+    fmt, fmt_size = chunks[b"fmt "]
+    if (fmt_size < 16
+            or struct.unpack_from("<HHIIHH", data, fmt)
+            != (1, 2, 48_000, 192_000, 4, 16)
+            or chunks[b"data"][1] == 0):
+        raise SystemExit(f"{path} must be 48 kHz stereo signed 16-bit PCM")
 
 print(f"Presentation assets validated: {root}")
 PY

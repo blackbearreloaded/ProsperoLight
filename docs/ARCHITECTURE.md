@@ -62,3 +62,11 @@ linker; the console resolves the actual system modules at run time.
 `sce_sys/param.json` provides title identity and `contentVersion`. `tools/build.sh`
 stages `ui/main.rml` and replaces `@PROSPEROLIGHT_VERSION@` with that same
 version before packaging.
+
+The launcher owns a small queued-audio sound-effect player backed by SDL's
+hardware-validated PS5 AudioOut driver. All cues are 48 kHz stereo signed
+16-bit PCM and are loaded from `assets/sfx`. The opening cue plays only on
+process startup; returning from a stream does not replay it. A stream-start cue
+continues over connection setup, then the Moonlight audio callback closes the
+launcher device immediately before opening its native Opus/AudioOut path. UI
+audio therefore never competes with or mixes into streamed game audio.

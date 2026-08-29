@@ -379,3 +379,22 @@ The signed `eboot.bin` SHA-256 is
 `2018fe9901e16b6c7652f8453fc61e848dce2cfc4d7e925af73ded81bbc15c8b` and the
 verified `PPSA77003.ffpfsc` SHA-256 is
 `0db6f18b4bbe7ed8d2bdb2aae6b2a9b9b0536221b8a2f3028024e1823d9e4598`.
+
+Version `01.000.035` adds eight responsive launcher sound effects through the
+hardware-validated SDL PS5 audio backend: opening, navigation, confirmation,
+setting change, back, success, error, and stream start. The supplied four-second
+opening sound is preserved at its original duration and plays only on initial
+process startup. The stream-start sound may continue over connection setup, but
+the Moonlight audio callback closes the UI device before opening native streamed
+AudioOut, preventing the two paths from competing. Asset validation now requires
+every cue to be complete 48 kHz stereo signed 16-bit PCM. Static analysis, 20
+GoogleTests, and 23 Python integration tests passed; the native folder and PFSC
+integrity checks also passed. The folder candidate was deployed over WSL to
+`PPSA77003` and remained alive for a bounded ten-second launcher smoke test until
+the exact title controller closed it normally. Audible cue acceptance remains a
+manual operator check. The signed `eboot.bin` SHA-256 is
+`6bb315e8bbef5606007868c9924842d317acc85c9583c603e1288aef26e28126`; the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`2eb3ee54ff9239c8ee0112a96b8c19660d708a03582f0d80a420bb132c22ee23`.
+Bounded klog evidence is retained locally under `results/` and excluded from
+commits.

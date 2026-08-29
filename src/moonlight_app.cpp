@@ -7,6 +7,7 @@
 #include "moonlight_app.hpp"
 #include "moonlight_discovery.hpp"
 #include "radio_ime.hpp"
+#include "ui_sound.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -142,6 +143,7 @@ void MoonlightApp::ShowStreamError(const char *message)
 {
     if (!message || !message[0])
         return;
+    prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
     std::snprintf(stream_error_, sizeof(stream_error_), "%s", message);
     SetScreen(Screen::Games);
     SetText(document_, "launch-status", stream_error_);
@@ -486,6 +488,7 @@ void MoonlightApp::Activate()
 {
     if (focus_ < 3)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
         SetScreen(static_cast<Screen>(focus_));
         return;
     }
@@ -498,19 +501,34 @@ void MoonlightApp::Activate()
             if (backend_.online && backend_.paired)
             {
                 if (backend_.app_count)
+                {
+                    prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
                     SetScreen(Screen::Games);
+                }
                 else
+                {
+                    prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
                     SetText(document_, "host-action-status",
                             "Sunshine returned no launchable apps");
+                }
             }
             else if (backend_.online)
+            {
+                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
                 SetText(document_, "host-action-status",
                         "Choose Pair PC below to connect this client");
+            }
             else
+            {
+                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
                 SetText(document_, "host-action-status", "Sunshine is currently unreachable");
+            }
         }
         else if (focus_ == 4)
+        {
+            prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
             RefreshBackend();
+        }
         else if (focus_ == 5)
             TogglePairing();
         else
@@ -523,6 +541,7 @@ void MoonlightApp::Activate()
             unsigned width, height;
             if (!backend_.online)
             {
+                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
                 SetText(document_, "launch-status",
                         health_.Reconnecting() ? "Sunshine is reconnecting. Please wait..."
                                                : "Sunshine is currently unreachable.");
@@ -530,12 +549,14 @@ void MoonlightApp::Activate()
             }
             if (config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC && !backend_.hevc_supported)
             {
+                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
                 SetText(document_, "launch-status",
                         "The selected Sunshine PC does not advertise HEVC support.");
                 break;
             }
             if (config_.hdr_enabled && !backend_.main10_supported)
             {
+                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
                 SetText(document_, "launch-status",
                         "The selected Sunshine PC does not advertise HEVC Main10 HDR support.");
                 break;
@@ -547,12 +568,16 @@ void MoonlightApp::Activate()
                                                                                      : "Starting",
                           CodecName(config_.video_codec, config_.hdr_enabled), width, height);
             SetText(document_, "launch-status", text);
+            prosperolight::ui_sound_play(prosperolight::UiSoundCue::StreamStart);
             command_ = Command::StartStream;
         }
         else if (focus_ == 9)
             StopActiveApp();
         else
+        {
+            prosperolight::ui_sound_play(prosperolight::UiSoundCue::Back);
             SetScreen(Screen::Hosts);
+        }
         break;
     case Screen::Settings:
         if (focus_ == 3)
@@ -588,6 +613,7 @@ void MoonlightApp::Activate()
             }
         }
         (void)moonlight_config_save(&config_);
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Setting);
         UpdateSettings();
         UpdateGames();
         break;
@@ -602,11 +628,13 @@ void MoonlightApp::StartManualHostEntry()
     if (radio_ime_request(host && host->manual ? host->address : "", "Add Sunshine PC",
                           "IPv4 address, for example 192.168.1.50", ManualHostResult, this))
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
         manual_entry_active_ = true;
         SetText(document_, "host-action-status", "Enter the Sunshine PC IPv4 address");
     }
     else
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         SetText(document_, "host-action-status", "Text entry is currently unavailable");
     }
 }
@@ -627,6 +655,7 @@ void MoonlightApp::AddManualHost(const char *text)
     manual_entry_active_ = false;
     if (index < 0)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         SetText(document_, "host-action-status", "Enter a valid IPv4 address such as 192.168.1.50");
         return;
     }
@@ -634,6 +663,7 @@ void MoonlightApp::AddManualHost(const char *text)
     (void)moonlight_config_save(&config_);
     selected_app_ = 0;
     RefreshBackend();
+    prosperolight::ui_sound_play(prosperolight::UiSoundCue::Success);
 }
 
 void MoonlightApp::DiscoverHosts()
@@ -658,16 +688,19 @@ void MoonlightApp::TogglePairing()
     const char *host = SelectedHostAddress();
     if (!host[0])
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         SetText(document_, "host-action-status", "Refresh discovery or add a Sunshine PC address");
         return;
     }
     if (!backend_.online)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         SetText(document_, "host-action-status", "Sunshine must be online before pairing");
         return;
     }
     if (!backend_.paired && backend_.current_app_id)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         char text[192];
         std::snprintf(text, sizeof(text),
                       "App %d is active. Stop it on the original client, then Refresh.",
@@ -680,6 +713,7 @@ void MoonlightApp::TogglePairing()
         const int result = moonlight_backend_pair_start(host);
         if (result != 0)
         {
+            prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
             moonlight_backend_snapshot_t failed{};
             moonlight_backend_pair_poll(&failed, nullptr);
             SetText(document_, "host-action-status",
@@ -690,6 +724,7 @@ void MoonlightApp::TogglePairing()
         pairing_state_ = MOONLIGHT_BACKEND_PAIR_PREPARING;
         pairing_started_ms_ = SDL_GetTicks64();
         pairing_remaining_ = MOONLIGHT_BACKEND_PAIR_TIMEOUT_SECONDS + 1;
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
         SetText(document_, "pair-modal-pin", "----");
         SetText(document_, "pair-modal-status", "Preparing a secure PIN...");
         SetClass(document_, "pair-modal", "hidden", false);
@@ -698,11 +733,13 @@ void MoonlightApp::TogglePairing()
     }
     if (backend_.current_app_id)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         SetText(document_, "host-action-status", "Stop the active Sunshine app before unpairing");
         return;
     }
     if (!confirm_unpair_)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
         confirm_unpair_ = true;
         SetText(document_, "pair-host-label", "Confirm unpair");
         SetText(document_, "host-action-status",
@@ -719,6 +756,7 @@ void MoonlightApp::TogglePairing()
     UpdateSettings();
     if (result != 0)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         char text[180];
         std::snprintf(text, sizeof(text), "Unpair failed: %s",
                       backend_.error[0] ? backend_.error : "Sunshine rejected the request");
@@ -726,6 +764,7 @@ void MoonlightApp::TogglePairing()
     }
     else
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Success);
         SetText(document_, "host-action-status", "Unpaired locally. Pair again to reconnect.");
     }
 }
@@ -763,6 +802,9 @@ void MoonlightApp::PollPairing()
 
     pairing_active_ = false;
     backend_ = completed;
+    prosperolight::ui_sound_play(state == MOONLIGHT_BACKEND_PAIR_SUCCEEDED
+                                     ? prosperolight::UiSoundCue::Success
+                                     : prosperolight::UiSoundCue::Error);
     health_due_ms_ = SDL_GetTicks64() + health_.Record(backend_.online != 0);
     SetClass(document_, "pair-modal", "hidden", true);
     UpdateHost();
@@ -776,6 +818,7 @@ void MoonlightApp::StopActiveApp()
     FinishArtworkWorker(false);
     if (!backend_.current_app_id)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         SetText(document_, "launch-status", "No Sunshine app is currently running.");
         return;
     }
@@ -799,12 +842,17 @@ void MoonlightApp::StopActiveApp()
     UpdateGames();
     if (result != 0)
     {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
         char text[180];
         std::snprintf(text, sizeof(text), "%s: %s",
                       health_.Reconnecting() ? "Could not confirm stop; retrying automatically"
                                              : "Stop failed",
                       backend_.error[0] ? backend_.error : "Sunshine rejected the request");
         SetText(document_, "launch-status", text);
+    }
+    else
+    {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Success);
     }
 }
 
@@ -1188,21 +1236,29 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
         return;
     if (pairing_active_)
         return;
+    const Screen previous_screen = screen_;
+    const unsigned previous_focus = focus_;
+    const unsigned previous_app = selected_app_;
+    const uint32_t previous_host = config_.selected_host;
+    bool navigation = false;
     switch (event.key)
     {
     case RADIO_INPUT_UP:
+        navigation = true;
         if (screen_ == Screen::Games)
             MoveGameVertical(-1);
         else
             MoveFocus(-1);
         break;
     case RADIO_INPUT_DOWN:
+        navigation = true;
         if (screen_ == Screen::Games)
             MoveGameVertical(1);
         else
             MoveFocus(1);
         break;
     case RADIO_INPUT_LEFT:
+        navigation = true;
         if (screen_ == Screen::Hosts && focus_ == 3)
             CycleHost(-1);
         else if (screen_ == Screen::Games && focus_ >= 3 && focus_ <= 8)
@@ -1216,6 +1272,7 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
             MoveFocus(-1);
         break;
     case RADIO_INPUT_RIGHT:
+        navigation = true;
         if (screen_ == Screen::Hosts && focus_ == 3)
             CycleHost(1);
         else if (screen_ == Screen::Games && focus_ >= 3 && focus_ <= 8)
@@ -1233,10 +1290,17 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
         break;
     case RADIO_INPUT_CIRCLE:
         if (screen_ != Screen::Hosts)
+        {
+            prosperolight::ui_sound_play(prosperolight::UiSoundCue::Back);
             SetScreen(Screen::Hosts);
+        }
         break;
     case RADIO_INPUT_OPTIONS:
-        SetScreen(Screen::Settings);
+        if (screen_ != Screen::Settings)
+        {
+            prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
+            SetScreen(Screen::Settings);
+        }
         break;
     case RADIO_INPUT_SQUARE:
         if (backend_.current_app_id)
@@ -1263,10 +1327,12 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
         }
         break;
     case RADIO_INPUT_TRIANGLE:
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Confirm);
         RefreshBackend();
         break;
     case RADIO_INPUT_L1:
     {
+        navigation = true;
         const unsigned current = static_cast<unsigned>(screen_);
         SetScreen(static_cast<Screen>(current == 0 ? static_cast<unsigned>(Screen::Count) - 1
                                                    : current - 1));
@@ -1274,12 +1340,18 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
     }
     case RADIO_INPUT_R1:
     {
+        navigation = true;
         const unsigned current = static_cast<unsigned>(screen_);
         SetScreen(static_cast<Screen>((current + 1) % static_cast<unsigned>(Screen::Count)));
         break;
     }
     default:
         break;
+    }
+    if (navigation && (screen_ != previous_screen || focus_ != previous_focus ||
+                       selected_app_ != previous_app || config_.selected_host != previous_host))
+    {
+        prosperolight::ui_sound_play(prosperolight::UiSoundCue::Move);
     }
 }
 
