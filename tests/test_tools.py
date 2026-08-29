@@ -235,6 +235,13 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("Diagnostics,", header)
         self.assertFalse((ROOT / "ui/chrome/panel-diagnostic.tga").exists())
 
+    def test_launcher_screens_share_the_same_body_top(self):
+        styles = (ROOT / "ui/styles/app.rcss").read_text(encoding="utf-8")
+        for selector in (".host-card", ".game-card-0", ".setting-row-0"):
+            rule = styles[styles.index(selector) :]
+            rule = rule[: rule.index("}")]
+            self.assertIn("top: 164px;", rule)
+
     def test_launcher_quiets_process_scoped_ui_audio_before_streaming(self):
         launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
         stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")

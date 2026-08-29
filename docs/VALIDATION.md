@@ -415,3 +415,16 @@ application-crash event. The signed `eboot.bin` SHA-256 is
 `c82d7070d3b40083e553fb058c306e363c1f9861fb19ba5e66189d47cee8f8e3`; the
 verified `PPSA77003.ffpfsc` SHA-256 is
 `611de80729bd4d03772b587cfec25f070252eda9ca7f245e2f8b7e6802c7ba72`.
+
+Version `01.000.037` aligns the first content block on PCs, Games, and Settings
+to the same 164-pixel top coordinate while preserving each screen's internal
+spacing. A tooling regression check prevents those three anchors from drifting
+independently again. The complete lint gate, 20 GoogleTests, and 25 Python
+integration tests pass, and the native folder and PFSC integrity checks report
+no errors. The folder candidate was deployed over WSL to `PPSA77003`; a bounded
+Chiaki launcher smoke test opened the updated Settings screen, displayed
+`v01.000.037`, and closed normally through the exact-title controller. The signed
+`eboot.bin` SHA-256 is
+`c82d7070d3b40083e553fb058c306e363c1f9861fb19ba5e66189d47cee8f8e3`; the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`7e42cface7855cb075912f417ba787d0f5621a5167e71214b64895096785a563`.
