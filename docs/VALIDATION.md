@@ -308,3 +308,16 @@ hardware decode, and `Output: 3840x2160`. Both sessions displayed the complete
 Windows image for roughly 30 seconds and disconnected cleanly. Native 1440p
 and 2160p presentation is therefore hardware-proven for both selectable video
 codecs.
+
+Version `01.000.031` refreshes only the launcher palette, using the existing
+icon's sapphire, sky-blue, and pale moonlight colors without changing layout or
+streaming behavior. Commit `ee6d72e` passed the complete `make check` gate (17
+GoogleTests and 21 Python integration tests), was deployed in folder form to
+`PPSA77003`, and displayed the Games screen with the new surfaces, borders,
+focus state, unchanged geometry, and visible version string. The title then
+closed cleanly and FTP, klog, and title-control services remained available.
+This bounded visual case is a `pass`; evidence is stored locally at
+`results/PPSA77003-01.000.031-palette.png`. The deployed `eboot.bin` SHA-256 is
+`e228e40a37df9c2dc5ac6e09fdd44a88a4d82afb007dcf9796c99c8310e89756`, and
+the deployed RCSS SHA-256 is
+`01127b74b1c6af08ca539404ca6d5f8a39c1f032b2c6b722292f998c848bcbc8`.
