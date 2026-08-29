@@ -127,7 +127,7 @@ button.focused > .focused-chrome { display: block; }
 .app-detail-value { position: absolute; left: 146px; width: 356px; height: 34px; color: #f4f8ff; font-size: 20px; line-height: 30px; text-align: right; }
 .app-detail-line-0 { top: 166px; } .app-detail-line-1 { top: 220px; } .app-detail-line-2 { top: 274px; }
 .games-stop { left: 884px; top: 670px; }
-.games-back { left: 1150px; top: 670px; }
+.games-back { left: 1164px; top: 670px; }
 .games-status { left: 34px; top: 862px; width: 1380px; }
 
 .setting-row { position: absolute; left: 34px; width: 1380px; height: 126px; overflow: hidden; }

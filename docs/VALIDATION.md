@@ -428,3 +428,12 @@ Chiaki launcher smoke test opened the updated Settings screen, displayed
 `c82d7070d3b40083e553fb058c306e363c1f9861fb19ba5e66189d47cee8f8e3`; the
 verified `PPSA77003.ffpfsc` SHA-256 is
 `7e42cface7855cb075912f417ba787d0f5621a5167e71214b64895096785a563`.
+
+Version `01.000.038` aligns the Games action row to both outside edges of the
+selected-app panel while retaining the existing button assets and spacing. The
+complete lint gate, 20 GoogleTests, and 26 Python integration tests pass; native
+folder and PFSC integrity checks report no errors. The folder candidate was
+deployed over WSL to `PPSA77003`. The signed `eboot.bin` SHA-256 is
+`c82d7070d3b40083e553fb058c306e363c1f9861fb19ba5e66189d47cee8f8e3`; the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`727e9a3b2a95c040c0e2df8080ffcc5b8fffd91b8662d0df9fc1a5d85862509d`.

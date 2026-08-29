@@ -242,6 +242,11 @@ class ToolTests(unittest.TestCase):
             rule = rule[: rule.index("}")]
             self.assertIn("top: 164px;", rule)
 
+    def test_game_actions_match_the_selected_app_panel_edges(self):
+        styles = (ROOT / "ui/styles/app.rcss").read_text(encoding="utf-8")
+        self.assertIn(".games-stop { left: 884px;", styles)
+        self.assertIn(".games-back { left: 1164px;", styles)
+
     def test_launcher_quiets_process_scoped_ui_audio_before_streaming(self):
         launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
         stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
