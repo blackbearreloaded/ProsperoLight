@@ -351,6 +351,17 @@ zero, and sampled keyboard state instead of draining transition records. Version
 native input investigation: load each module before initialization, retain every
 accepted device index, drain bounded keyboard and mouse batches oldest-first,
 neutralize intercepted or disconnected samples, and close every retained handle.
-The complete pre-deployment gate passes with 20 GoogleTests and 22 Python
-integration tests. Active-stream console acceptance remains required before this
-fix can be called fully validated.
+The complete gate passed with 20 GoogleTests and 22 Python integration tests,
+native import validation, signing, SELF integrity, and PFSC integrity. The
+folder candidate was deployed to `PPSA77003` and completed two live Desktop
+sessions through Chiaki-NG. Captures confirmed a 2560x1440 H.264 stream rendered
+through the native 3840x2160 output with the metrics overlay; both sessions
+remained alive beyond the former deterministic crash boundary and closed through
+the title controller. The user then verified physical USB mouse and keyboard
+input on the streamed Windows login screen. This is a `pass`. The signed
+`eboot.bin` SHA-256 is
+`0027357a8d78933992d22e24d5f53a1c60f75f5b48414f4aaec24ee911f311d5` and the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`41f164a9785874f2fd2fbcdb0f52ca9926aa6cadf8179d569a0115ad69782a14`.
+Local screenshots, klog, and ShadowMount evidence remain under `results/` and
+are intentionally excluded from commits.
