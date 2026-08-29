@@ -90,6 +90,21 @@ class ToolTests(unittest.TestCase):
         source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
         self.assertIn('metrics->video_codec ? "HEVC" : "H.264", hdr ? " / HDR" : ""', source)
 
+    def test_main10_descriptors_follow_the_visible_resolution(self):
+        source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+        start = source.index("static void bind_main10_source")
+        end = source.index("static int render_frame", start)
+        binding = source[start:end]
+
+        self.assertIn("uint32_t y_width = visible_width - 1u", binding)
+        self.assertIn("uint32_t y_height = visible_height - 1u", binding)
+        self.assertIn("uint32_t uv_width = visible_width / 2u - 1u", binding)
+        self.assertIn("uint32_t uv_height = (visible_height + 1u) / 2u - 1u", binding)
+        self.assertIn("descriptor[2] = (y_width >> 2) | (y_height << 14)", binding)
+        self.assertIn("descriptor[10] = (uv_width >> 2) | (uv_height << 14)", binding)
+        self.assertNotIn("0x010dc1dfu", binding)
+        self.assertNotIn("0x0086c0efu", binding)
+
     def test_stream_opens_pad_after_decoder_loading_worker_stops(self):
         source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
         early_loading = source.index(

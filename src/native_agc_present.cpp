@@ -475,21 +475,26 @@ static void bind_pixel_source(agc_command_buffer_t *command, uint8_t *resources,
 }
 
 static void bind_main10_source(agc_command_buffer_t *command, uint8_t *resources,
-                               const void *source, size_t y_bytes, const void *pixel_cb)
+                               const void *source, size_t y_bytes, uint32_t visible_width,
+                               uint32_t visible_height, const void *pixel_cb)
 {
     uint32_t descriptor[30] = {};
     uintptr_t uv = (uintptr_t)source + y_bytes;
     uint32_t *header = (uint32_t *)resources;
     uintptr_t table = (uintptr_t)resources + header[3];
+    uint32_t y_width = visible_width - 1u;
+    uint32_t y_height = visible_height - 1u;
+    uint32_t uv_width = visible_width / 2u - 1u;
+    uint32_t uv_height = (visible_height + 1u) / 2u - 1u;
 
     descriptor[0] = (uint32_t)((uintptr_t)source >> 8);
-    descriptor[1] = 0xc0700000u | (uint32_t)((uintptr_t)source >> 40);
-    descriptor[2] = 0x010dc1dfu;
+    descriptor[1] = 0x00700000u | ((y_width & 3u) << 30) | (uint32_t)((uintptr_t)source >> 40);
+    descriptor[2] = (y_width >> 2) | (y_height << 14);
     descriptor[3] = 0x90000204u;
     descriptor[5] = 0x00700000u;
     descriptor[8] = (uint32_t)(uv >> 8);
-    descriptor[9] = 0xc1700000u | (uint32_t)(uv >> 40);
-    descriptor[10] = 0x0086c0efu;
+    descriptor[9] = 0x01700000u | ((uv_width & 3u) << 30) | (uint32_t)(uv >> 40);
+    descriptor[10] = (uv_width >> 2) | (uv_height << 14);
     descriptor[11] = 0x9000022cu;
     descriptor[13] = 0x00700000u;
     descriptor[16] = descriptor[20] = 0x00000092u;
@@ -680,7 +685,8 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     sceAgcCbSetShRegisterRangeDirect(&command, 0x8c + slot, descriptor, 8);
 
     if (hdr)
-        bind_main10_source(&command, resources, source, y_bytes, pixel_cb);
+        bind_main10_source(&command, resources, source, y_bytes, visible_width, visible_height,
+                           pixel_cb);
     else
         bind_pixel_source(&command, resources, source, y_bytes, uv_bytes, pixel_cb);
     sceAgcDcbDrawIndexAuto(&command, 4, 2);

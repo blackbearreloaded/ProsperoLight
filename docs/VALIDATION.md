@@ -451,3 +451,17 @@ verified `PPSA77003.ffpfsc` SHA-256 is
 `fc2c079d243070df67fb1aaceb818251f469a75b57c5b2e53d4beaa08faff005`.
 Live 1440p and 2160p Main10 acceptance remains an operator test because this
 deployment deliberately did not initiate a Remote Play session.
+
+Version `01.000.040` fixes the first 1440p/2160p Main10 hardware acceptance
+failure. The decoder and HDR VideoOut path were active, but the AGC Y and UV
+texture descriptors still encoded the proven 1920x1080 view. Their dimension
+fields now follow the runtime visible resolution while retaining the validated
+Main10 formats, swizzle, shader, and color conversion. A source regression
+check covers the dynamic luma and chroma dimensions. The complete lint gate,
+20 GoogleTests, and 30 Python integration tests pass. The folder candidate was
+deployed over WSL to `PPSA77003` without opening Chiaki. The signed `eboot.bin`
+SHA-256 is
+`40d384f5312b0e0aa8f1110642703b405e92708a84a7bd46e6af9fd818f4f567`; the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`e07e86c5734371a184e7a90e0462b8d4320b46af55ce588a62f64a91d9c871b7`.
+Live 1440p and 2160p Main10 image acceptance remains the operator test.
