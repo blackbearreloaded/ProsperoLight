@@ -6,5 +6,5 @@
       <circle cx="91" cy="61" r="51" fill="black"/>
     </mask>
   </defs>
-  <rect width="132" height="132" fill="#d9eaff" mask="url(#crescent)"/>
+  <rect width="132" height="132" fill="#ddf3ff" mask="url(#crescent)"/>
 </svg>
