@@ -326,3 +326,19 @@ This bounded visual case is a `pass`; evidence is stored locally at
 `e228e40a37df9c2dc5ac6e09fdd44a88a4d82afb007dcf9796c99c8310e89756`, and
 the deployed RCSS SHA-256 is
 `01127b74b1c6af08ca539404ca6d5f8a39c1f032b2c6b722292f998c848bcbc8`.
+
+Version `01.000.032` adds direct PS5 USB keyboard and mouse forwarding during
+an active Sunshine stream. Commit `29e6710` passed the complete gate with 20
+GoogleTests and 21 Python integration tests, native import validation, signing,
+SELF integrity, and PFSC integrity. The signed folder `eboot.bin` SHA-256 is
+`4148f67593760c97d5847f2fcbe24d5c044e747374932be2f961a12eb909bb16`;
+the `PPSA77003.ffpfsc` SHA-256 is
+`55dcd16c35f9282526ba72c3d19c7af4ff903d904dbc5837e84595c1ce3836d6`.
+The folder candidate was deployed to `PPSA77003`, and remote metadata reported
+the expected `01.000.032` content version. A bounded console cycle reached the
+title-specific start and stop checkpoints without a crash candidate, then left
+FTP, klog, and title-control services reachable. This is a `partial-pass`:
+build, deployment, launcher lifecycle, and cleanup are proven; physical USB
+motion, buttons, wheel, typing, modifiers, and reconnect still require the
+interactive Sunshine-stream acceptance step. Evidence is stored under
+`results/usb-input-032/`.
