@@ -178,3 +178,17 @@ error or fatal signal, closed through the title-aware controller, and left FTP,
 klog, and elfldr reachable. This is a `partial-pass`: launcher lifecycle and
 cleanup passed, while an RDP/Windows-session transition must still verify the
 visible `RECONNECTING` to `ONLINE` recovery behavior.
+
+Commit `9b0e020` preserves the last complete Sunshine application catalogue
+during stop-session teardown. The stop request now refreshes into a temporary
+snapshot and only replaces the visible catalogue when the refresh succeeds or
+returns application entries. A transient post-stop application-list failure
+therefore shows `RECONNECTING` while retaining the existing game cards instead
+of collapsing the Games page to an empty state. The complete `make check` gate
+passed with 14 GoogleTests and 14 Python integration tests. The folder candidate
+was deployed to `PPSA77003`; its `eboot.bin` SHA-256 is
+`0f042240680ad4dba333fa1b8eeb93136c936b747690ba3af7507bb7f245f8ef`.
+The title entered its native executable, remained alive during the bounded
+observation, closed normally, and left FTP, klog, and elfldr reachable. This is
+a `partial-pass`: startup and cleanup are hardware-proven, while the original
+launch, return, then stop interaction remains the operator acceptance step.
