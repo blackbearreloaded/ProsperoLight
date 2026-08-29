@@ -5,6 +5,7 @@
  */
 
 #include "lan_http_report.hpp"
+#include "native_agc_output.hpp"
 #include "moonlight_stream_input.hpp"
 #include "moonlight_stream_keyboard.hpp"
 #include "moonlight_config.hpp"
@@ -56,6 +57,28 @@ TEST(LanTelemetry, NormalBuildIsAnImmediateNoOp)
 {
     lan_http_report_set_host("203.0.113.1");
     EXPECT_EQ(lan_http_report_text("must not open a socket"), 0);
+}
+
+TEST(VideoOutput, Uses1080pFor1080pSources)
+{
+    const auto output = native_agc_output_geometry(1920u, 1080u);
+
+    EXPECT_EQ(output.width, 1920u);
+    EXPECT_EQ(output.height, 1080u);
+    EXPECT_EQ(output.framebuffer_bytes, 0x0a00000u);
+}
+
+TEST(VideoOutput, Uses4kFor1440pAnd2160pSources)
+{
+    const auto output_1440p = native_agc_output_geometry(2560u, 1440u);
+    const auto output_2160p = native_agc_output_geometry(3840u, 2160u);
+
+    EXPECT_EQ(output_1440p.width, 3840u);
+    EXPECT_EQ(output_1440p.height, 2160u);
+    EXPECT_EQ(output_1440p.framebuffer_bytes, 0x2000000u);
+    EXPECT_EQ(output_2160p.width, 3840u);
+    EXPECT_EQ(output_2160p.height, 2160u);
+    EXPECT_EQ(output_2160p.framebuffer_bytes, 0x2000000u);
 }
 
 TEST(StreamShortcuts, SelectL1ReturnsToLauncher)

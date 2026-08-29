@@ -50,7 +50,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA77003` |
 | Category | Game |
-| Current version | `01.000.026` |
+| Current version | `01.000.027` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -66,7 +66,8 @@ tooling are maintained in this repository.
 - Decode H.264 High and HEVC Main streams through VideoDec2 at 1080p60,
   1440p60, and 2160p60; higher-resolution modes remain beta.
 - Present decoded GPU surfaces directly through AGC, with edge-to-edge and
-  television-safe display modes.
+  television-safe display modes. The presenter uses native 1080p scanout for
+  1080p streams and a 3840x2160 target for 1440p and 2160p streams.
 - Select bitrate presets up to 500 Mbps. The best setting depends on the host,
   encoder, network, and selected codec rather than link speed alone.
 - Enable experimental 1080p60 HEVC Main10 HDR10 output when the Sunshine host
@@ -279,8 +280,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.026
-git push origin main 01.000.026
+git tag 01.000.027
+git push origin main 01.000.027
 ```
 
 Keep `PPSA77003`, `conceptId`, and `contentId` stable for updates to this title.

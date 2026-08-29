@@ -1190,9 +1190,9 @@ void MoonlightApp::UpdateSettings()
     SetText(document_, "diagnostic-mode-copy",
             config_.hdr_enabled ? "1080p Main10 BT.2020/PQ into native 10-bit HDR VideoOut"
             : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P
-                ? "Live 4K60 decode; scaled into the current 1080p VideoOut target"
+                ? "4K60 decode into native 3840x2160 VideoOut"
             : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_1440P
-                ? "1440p decode is proven; live Sunshine validation is next"
+                ? "1440p decode GPU-scaled into 3840x2160 VideoOut"
                 : "1080p60 live Sunshine path is hardware accepted");
     SetText(document_, "settings-note",
             "Stream shortcuts: Select+Triangle keyboard; Select+Square mouse; Select+R1 stats; "

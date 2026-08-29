@@ -427,6 +427,8 @@ typedef struct connection_loading_state
     size_t surface_bytes;
     ps5_controller_state_t *controller;
     int hdr;
+    uint32_t output_source_width;
+    uint32_t output_source_height;
     std::atomic<int> animation_enabled;
     std::atomic<int> animation_presenting;
     std::atomic<int> active;
@@ -455,7 +457,8 @@ static void *connection_loading_thread(void *context)
             std::atomic_store_explicit(&state->animation_presenting, 1, std::memory_order_release);
             if (std::atomic_load_explicit(&state->animation_enabled, std::memory_order_acquire))
                 state->present_result = native_agc_present_loading(
-                    state->surface, state->surface_bytes, phase++, state->hdr);
+                    state->surface, state->surface_bytes, phase++, state->hdr,
+                    state->output_source_width, state->output_source_height);
             if (state->present_result != 0)
             {
                 std::atomic_store_explicit(&state->animation_enabled, 0, std::memory_order_release);
@@ -494,12 +497,15 @@ static void *connection_loading_thread(void *context)
 }
 
 static int start_connection_loading(connection_loading_state_t *state, void *surface,
-                                    size_t surface_bytes, int hdr,
+                                    size_t surface_bytes, int hdr, uint32_t output_source_width,
+                                    uint32_t output_source_height,
                                     ps5_controller_state_t *controller)
 {
     state->surface = surface;
     state->surface_bytes = surface_bytes;
     state->hdr = hdr;
+    state->output_source_width = output_source_width;
+    state->output_source_height = output_source_height;
     state->controller = controller;
     state->started_us = monotonic_us();
     state->present_result = 0;
@@ -507,7 +513,8 @@ static int start_connection_loading(connection_loading_state_t *state, void *sur
     std::atomic_store_explicit(&state->animation_presenting, 0, std::memory_order_relaxed);
     if (surface && surface_bytes)
     {
-        state->present_result = native_agc_present_loading(surface, surface_bytes, 0, hdr);
+        state->present_result = native_agc_present_loading(
+            surface, surface_bytes, 0, hdr, output_source_width, output_source_height);
         std::atomic_store_explicit(&state->animation_enabled, state->present_result == 0,
                                    std::memory_order_relaxed);
         if (state->present_result != 0)
@@ -1982,7 +1989,8 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         return -1;
     lan_http_report_set_host(host);
 
-    result = start_connection_loading(&loading, NULL, 0, mode->hdr, NULL);
+    result = start_connection_loading(&loading, NULL, 0, mode->hdr, mode->visible_width,
+                                      mode->visible_height, NULL);
     if (result != 0)
         goto done;
 
@@ -2163,8 +2171,9 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
              (uint32_t)controller.user_result, (uint32_t)controller.pad_init_result,
              (uint32_t)controller.handle, controller_ready ? 1 : 0);
     (void)lan_http_report_text(notification.message);
-    result = start_connection_loading(&loading, frame_memory, frame_size, mode->hdr,
-                                      controller_ready ? &controller : NULL);
+    result =
+        start_connection_loading(&loading, frame_memory, frame_size, mode->hdr, mode->visible_width,
+                                 mode->visible_height, controller_ready ? &controller : NULL);
     snprintf(notification.message, sizeof(notification.message),
              "Native connecting animation: present=%08x thread=%08x hdr=%u", (uint32_t)result,
              (uint32_t)loading.create_result, mode->hdr ? 1u : 0u);

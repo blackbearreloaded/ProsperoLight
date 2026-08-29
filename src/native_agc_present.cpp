@@ -9,6 +9,7 @@
 #include "native_agc_present.hpp"
 #include "lan_http_report.hpp"
 #include "moonlight_stream_keyboard.hpp"
+#include "native_agc_output.hpp"
 
 #include <stddef.h>
 #include <atomic>
@@ -16,12 +17,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#define DISPLAY_WIDTH 1920u
-#define DISPLAY_HEIGHT 1080u
+#define BASE_OUTPUT_WIDTH 1920u
+#define BASE_OUTPUT_HEIGHT 1080u
 #define TV_SAFE_INSET_X 64u
 #define TV_SAFE_INSET_Y 36u
-#define FRAMEBUFFER_BYTES 0xa00000u
-#define FRAMEBUFFER_POOL_BYTES (FRAMEBUFFER_BYTES * 2u)
 #define FRAMEBUFFER_ALIGNMENT 0x200000u
 #define SHADER_STATIC_BYTES 0x10000u
 #define HUD_WIDTH 672u
@@ -38,7 +37,6 @@
 #define HUD_SURFACE_BYTES (HUD_Y_BYTES + HUD_UV_BYTES)
 #define KEYBOARD_WIDTH 1120u
 #define KEYBOARD_HEIGHT 400u
-#define KEYBOARD_X ((DISPLAY_WIDTH - KEYBOARD_WIDTH) / 2u)
 #define KEYBOARD_Y 180u
 #define KEYBOARD_GLYPH_WIDTH 18u
 #define KEYBOARD_GLYPH_HEIGHT 18u
@@ -58,8 +56,8 @@
 #define LOADING_SURFACE_HEIGHT 1088u
 #define LOADING_VISIBLE_HEIGHT 1080u
 
-static_assert((DISPLAY_WIDTH - TV_SAFE_INSET_X * 2u) * 9u ==
-                  (DISPLAY_HEIGHT - TV_SAFE_INSET_Y * 2u) * 16u,
+static_assert((BASE_OUTPUT_WIDTH - TV_SAFE_INSET_X * 2u) * 9u ==
+                  (BASE_OUTPUT_HEIGHT - TV_SAFE_INSET_Y * 2u) * 16u,
               "TV-safe viewport must remain 16:9");
 
 typedef struct agc_register
@@ -113,6 +111,7 @@ extern "C"
     int32_t sceKernelMunmap(void *address, size_t length);
     int32_t sceKernelReleaseDirectMemory(int64_t direct_memory_start, size_t length);
     int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index, const void *param);
+    int sceVideoOutAddBuffer4k2kPrivilege(void);
     int sceVideoOutClose(int32_t handle);
     int sceVideoOutSetFlipRate(int32_t handle, int32_t rate);
     void sceVideoOutSetBufferAttribute2(video_attribute_t *attribute, uint64_t pixel_format,
@@ -481,9 +480,10 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
                         void *vertex_shader, void *pixel_shader, void *hud_pixel_shader,
                         const void *source, size_t source_bytes, uint32_t pitch,
                         uint32_t surface_height, uint32_t visible_width, uint32_t visible_height,
-                        int64_t render_marker, uint32_t *word_count, int hdr, int draw_overlay,
-                        uint32_t overlay_width, uint32_t overlay_height, uint32_t overlay_x,
-                        uint32_t overlay_y, float overlay_alpha)
+                        uint32_t output_width, uint32_t output_height, int64_t render_marker,
+                        uint32_t *word_count, int hdr, int draw_overlay, uint32_t overlay_width,
+                        uint32_t overlay_height, uint32_t overlay_x, uint32_t overlay_y,
+                        uint32_t overlay_scale, float overlay_alpha)
 {
     static const uint16_t target_offsets[16] = {0x318, 0x31b, 0x31c, 0x31d, 0x31e, 0x31f,
                                                 0x321, 0x323, 0x324, 0x325, 0x390, 0x398,
@@ -519,14 +519,17 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     size_t component_bytes = hdr ? sizeof(uint16_t) : 1u;
     size_t y_bytes = (size_t)pitch * surface_height * component_bytes;
     size_t uv_bytes = (size_t)pitch * ((surface_height + 1u) / 2u) * component_bytes;
-    uint32_t inset_x =
-        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_X : 0u;
-    uint32_t inset_y =
-        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_Y : 0u;
+    uint32_t inset_x = std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed)
+                           ? output_width * TV_SAFE_INSET_X / BASE_OUTPUT_WIDTH
+                           : 0u;
+    uint32_t inset_y = std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed)
+                           ? output_height * TV_SAFE_INSET_Y / BASE_OUTPUT_HEIGHT
+                           : 0u;
 
     if (!defaults || visible_width == 0 || visible_height == 0 || visible_width > pitch ||
         visible_height > surface_height || (pitch & 1u) != 0 || y_bytes > UINT32_MAX ||
-        uv_bytes > UINT32_MAX || y_bytes + uv_bytes > source_bytes)
+        uv_bytes > UINT32_MAX || y_bytes + uv_bytes > source_bytes || output_width == 0 ||
+        output_height == 0 || overlay_scale == 0)
         return -1;
 
     blocks = *(agc_register_t ***)defaults;
@@ -556,7 +559,7 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     cx[11].value &= 0xffffff00u;
     cx[12].value &= 0xffffff00u;
     cx[13].value &= 0xffffff00u;
-    cx[14].value = (DISPLAY_HEIGHT - 1u) | ((DISPLAY_WIDTH - 1u) << 14);
+    cx[14].value = (output_height - 1u) | ((output_width - 1u) << 14);
     cx[15].value = (cx[15].value & ~(0x1fffu | 0x7c000u | 0x03000000u | 0x44000000u)) | 0x6c000u |
                    0x01000000u | 0x44000000u;
 
@@ -565,10 +568,10 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     {                                                                                              \
         cx[cx_count++] = (agc_register_t){(register_offset), 0, (register_value)};                 \
     } while (0)
-    ADD_REG(0x10f, float_bits((DISPLAY_WIDTH - inset_x * 2u) * .5f));
-    ADD_REG(0x110, float_bits(DISPLAY_WIDTH * .5f));
-    ADD_REG(0x111, float_bits((DISPLAY_HEIGHT - inset_y * 2u) * -.5f));
-    ADD_REG(0x112, float_bits(DISPLAY_HEIGHT * .5f));
+    ADD_REG(0x10f, float_bits((output_width - inset_x * 2u) * .5f));
+    ADD_REG(0x110, float_bits(output_width * .5f));
+    ADD_REG(0x111, float_bits((output_height - inset_y * 2u) * -.5f));
+    ADD_REG(0x112, float_bits(output_height * .5f));
     ADD_REG(0x113, float_bits(1));
     ADD_REG(0x114, 0);
     ADD_REG(0x0b4, 0);
@@ -578,7 +581,7 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     ADD_REG(0x2fc, float_bits(1));
     ADD_REG(0x2fd, float_bits(1));
     ADD_REG(0x090, 0x80000000u);
-    ADD_REG(0x091, DISPLAY_WIDTH | (DISPLAY_HEIGHT << 16));
+    ADD_REG(0x091, output_width | (output_height << 16));
     ADD_REG(0x08e, 0x0f);
 #undef ADD_REG
 
@@ -656,10 +659,10 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     if (draw_overlay)
     {
         const agc_register_t state[11] = {
-            {0x10f, 0, float_bits(overlay_width * .5f)},
-            {0x110, 0, float_bits(overlay_x + overlay_width * .5f)},
-            {0x111, 0, float_bits(overlay_height * -.5f)},
-            {0x112, 0, float_bits(overlay_y + overlay_height * .5f)},
+            {0x10f, 0, float_bits(overlay_width * overlay_scale * .5f)},
+            {0x110, 0, float_bits(overlay_x + overlay_width * overlay_scale * .5f)},
+            {0x111, 0, float_bits(overlay_height * overlay_scale * -.5f)},
+            {0x112, 0, float_bits(overlay_y + overlay_height * overlay_scale * .5f)},
             {0x113, 0, float_bits(1)},
             {0x114, 0, 0},
             {0x105, 0, float_bits(overlay_alpha)},
@@ -715,6 +718,10 @@ typedef struct native_agc_presenter
     int video;
     uint32_t frame_number;
     uint32_t keyboard_generation;
+    uint32_t output_width;
+    uint32_t output_height;
+    size_t framebuffer_bytes;
+    size_t framebuffer_pool_bytes;
     uint8_t overlay_kind;
     uint8_t hdr;
     uint8_t ready;
@@ -731,6 +738,10 @@ static native_agc_presenter_t presenter = {
     .video = -1,
     .frame_number = 0,
     .keyboard_generation = 0,
+    .output_width = 0,
+    .output_height = 0,
+    .framebuffer_bytes = 0,
+    .framebuffer_pool_bytes = 0,
     .overlay_kind = 0,
     .hdr = 0,
     .ready = 0,
@@ -768,18 +779,26 @@ void native_agc_set_tv_safe_area(int enabled)
 
 static int initialize_presenter(const void *source, size_t source_bytes, uint32_t pitch,
                                 uint32_t surface_height, uint32_t visible_width,
-                                uint32_t visible_height, int hdr)
+                                uint32_t visible_height, int hdr,
+                                const NativeAgcOutputGeometry &output)
 {
+    const size_t framebuffer_pool_bytes = output.framebuffer_bytes * 2u;
     int64_t shader_start = -1;
     int64_t framebuffer_start = -1;
     int64_t direct_limit = sceKernelGetDirectMemorySize();
     int32_t result;
     int32_t link_result = -1;
+    int32_t privilege_result = 0;
     uint8_t reused = agc_initialized;
     char receipt[512];
 
     if (!source || source_bytes == 0 || direct_limit <= 0)
         return -1;
+
+    presenter.output_width = output.width;
+    presenter.output_height = output.height;
+    presenter.framebuffer_bytes = output.framebuffer_bytes;
+    presenter.framebuffer_pool_bytes = framebuffer_pool_bytes;
 
     result = 0;
     if (!agc_initialized)
@@ -854,44 +873,51 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
         result = sceVideoOutSetFlipRate(presenter.video, 0);
     else
         result = presenter.video;
+    if (result == 0 && output.width > BASE_OUTPUT_WIDTH)
+    {
+        privilege_result = sceVideoOutAddBuffer4k2kPrivilege();
+        result = privilege_result;
+    }
     if (result == 0)
-        result = sceKernelAllocateDirectMemory(0, direct_limit, FRAMEBUFFER_POOL_BYTES,
+        result = sceKernelAllocateDirectMemory(0, direct_limit, framebuffer_pool_bytes,
                                                FRAMEBUFFER_ALIGNMENT, DIRECT_MEMORY_TYPE,
                                                &framebuffer_start);
     if (result == 0)
         presenter.framebuffer_start = framebuffer_start;
     if (result == 0)
         result =
-            sceKernelMapDirectMemory(&presenter.framebuffer, FRAMEBUFFER_POOL_BYTES, MAP_PROTECTION,
+            sceKernelMapDirectMemory(&presenter.framebuffer, framebuffer_pool_bytes, MAP_PROTECTION,
                                      0, framebuffer_start, FRAMEBUFFER_ALIGNMENT);
     snprintf(receipt, sizeof(receipt),
-             "Native AGC stage 3: video=%08x framebuffer_rc=%08x framebuffer=%p/%x",
-             (uint32_t)presenter.video, (uint32_t)result, presenter.framebuffer,
-             FRAMEBUFFER_POOL_BYTES);
+             "Native AGC stage 3: video=%08x privilege=%08x framebuffer_rc=%08x "
+             "framebuffer=%p/%zx output=%ux%u",
+             (uint32_t)presenter.video, (uint32_t)privilege_result, (uint32_t)result,
+             presenter.framebuffer, framebuffer_pool_bytes, output.width, output.height);
     (void)lan_http_report_text(receipt);
     if (result != 0 || !presenter.framebuffer)
         return result ? result : -4;
 
-    memset(presenter.framebuffer, 0, FRAMEBUFFER_POOL_BYTES);
-    flush_gpu_data(presenter.framebuffer, FRAMEBUFFER_POOL_BYTES);
+    memset(presenter.framebuffer, 0, framebuffer_pool_bytes);
+    flush_gpu_data(presenter.framebuffer, framebuffer_pool_bytes);
     {
         video_buffer_t buffers[2] = {
             {presenter.framebuffer, NULL, NULL, NULL},
-            {(uint8_t *)presenter.framebuffer + FRAMEBUFFER_BYTES, NULL, NULL, NULL}};
+            {(uint8_t *)presenter.framebuffer + output.framebuffer_bytes, NULL, NULL, NULL}};
         video_attribute_t attribute = {};
 
         sceVideoOutSetBufferAttribute2(
             &attribute, hdr ? VIDEO_OUT_PIXEL_FORMAT_HDR : VIDEO_OUT_PIXEL_FORMAT_SDR, 0,
-            DISPLAY_WIDTH, DISPLAY_HEIGHT, 0, 0, 0);
+            output.width, output.height, 0, 0, 0);
         result =
             sceVideoOutRegisterBuffers2(presenter.video, 0, 0, buffers, 2, &attribute, 0, NULL);
     }
     snprintf(receipt, sizeof(receipt),
              "Native AGC stage 4: register=%08x hdr=%u format=%016llx source=%p target=%p "
-             "same_source=%u",
+             "same_source=%u output=%ux%u",
              (uint32_t)result, hdr ? 1u : 0u,
              (unsigned long long)(hdr ? VIDEO_OUT_PIXEL_FORMAT_HDR : VIDEO_OUT_PIXEL_FORMAT_SDR),
-             source, presenter.framebuffer, source == presenter.framebuffer);
+             source, presenter.framebuffer, source == presenter.framebuffer, output.width,
+             output.height);
     (void)lan_http_report_text(receipt);
     if (result != 0)
         return result;
@@ -903,8 +929,11 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
 
 static int present_frame(const void *source, size_t source_bytes, uint32_t pitch,
                          uint32_t surface_height, uint32_t visible_width, uint32_t visible_height,
-                         const native_agc_metrics_t *metrics, int hdr)
+                         const native_agc_metrics_t *metrics, int hdr, uint32_t output_source_width,
+                         uint32_t output_source_height)
 {
+    const NativeAgcOutputGeometry output =
+        native_agc_output_geometry(output_source_width, output_source_height);
     uint64_t status[16] = {};
     uint32_t frame_number = presenter.frame_number;
     uint32_t buffer_index = frame_number & 1u;
@@ -914,14 +943,19 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     int draw_keyboard = std::atomic_load_explicit(&keyboard_enabled, std::memory_order_acquire);
     int draw_hud = !draw_keyboard && native_agc_hud_enabled() && metrics;
     int draw_overlay = draw_keyboard || draw_hud;
-    uint32_t overlay_inset_x =
-        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_X : 0u;
-    uint32_t overlay_inset_y =
-        std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed) ? TV_SAFE_INSET_Y : 0u;
+    uint32_t overlay_scale = output.width / BASE_OUTPUT_WIDTH;
+    uint32_t overlay_inset_x = std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed)
+                                   ? output.width * TV_SAFE_INSET_X / BASE_OUTPUT_WIDTH
+                                   : 0u;
+    uint32_t overlay_inset_y = std::atomic_load_explicit(&tv_safe_area, std::memory_order_relaxed)
+                                   ? output.height * TV_SAFE_INSET_Y / BASE_OUTPUT_HEIGHT
+                                   : 0u;
     uint32_t overlay_width = draw_keyboard ? KEYBOARD_WIDTH : HUD_WIDTH;
     uint32_t overlay_height = draw_keyboard ? KEYBOARD_HEIGHT : HUD_HEIGHT;
-    uint32_t overlay_x = draw_keyboard ? KEYBOARD_X : overlay_inset_x + HUD_X;
-    uint32_t overlay_y = draw_keyboard ? KEYBOARD_Y : overlay_inset_y + HUD_Y;
+    uint32_t overlay_x = draw_keyboard ? (output.width - KEYBOARD_WIDTH * overlay_scale) / 2u
+                                       : overlay_inset_x + HUD_X * overlay_scale;
+    uint32_t overlay_y =
+        draw_keyboard ? KEYBOARD_Y * overlay_scale : overlay_inset_y + HUD_Y * overlay_scale;
     float overlay_alpha = draw_keyboard ? .82f : .5f;
     unsigned render_waits;
     int32_t result;
@@ -929,15 +963,18 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
 
     if (presenter.ready && presenter.hdr != (uint8_t)(hdr != 0))
         return -6;
+    if (presenter.ready &&
+        (presenter.output_width != output.width || presenter.output_height != output.height))
+        return -7;
     if (!presenter.ready)
     {
         result = initialize_presenter(source, source_bytes, pitch, surface_height, visible_width,
-                                      visible_height, hdr);
+                                      visible_height, hdr, output);
         if (result != 0)
             return result;
     }
 
-    target = (uint8_t *)presenter.framebuffer + buffer_index * FRAMEBUFFER_BYTES;
+    target = (uint8_t *)presenter.framebuffer + buffer_index * presenter.framebuffer_bytes;
     if (draw_keyboard)
     {
         uint32_t generation =
@@ -966,8 +1003,9 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     result = render_frame(presenter.video, (int)buffer_index, target, presenter.shader_memory,
                           presenter.vertex_shader, presenter.pixel_shader,
                           presenter.hud_pixel_shader, source, source_bytes, pitch, surface_height,
-                          visible_width, visible_height, render_marker, &words, hdr, draw_overlay,
-                          overlay_width, overlay_height, overlay_x, overlay_y, overlay_alpha);
+                          visible_width, visible_height, output.width, output.height, render_marker,
+                          &words, hdr, draw_overlay, overlay_width, overlay_height, overlay_x,
+                          overlay_y, overlay_scale, overlay_alpha);
     if (result == 0)
     {
         for (render_waits = 0; render_waits < 120; ++render_waits)
@@ -1006,7 +1044,7 @@ int native_agc_present_nv12(const void *source, size_t source_bytes, uint32_t pi
                             uint32_t visible_height, const native_agc_metrics_t *metrics)
 {
     return present_frame(source, source_bytes, pitch, surface_height, visible_width, visible_height,
-                         metrics, 0);
+                         metrics, 0, visible_width, visible_height);
 }
 
 int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t pitch,
@@ -1014,7 +1052,7 @@ int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t 
                               uint32_t visible_height, const native_agc_metrics_t *metrics)
 {
     return present_frame(source, source_bytes, pitch, surface_height, visible_width, visible_height,
-                         metrics, 1);
+                         metrics, 1, visible_width, visible_height);
 }
 
 static void loading_set_luma(void *surface, uint32_t x, uint32_t y, uint16_t value, int hdr)
@@ -1076,7 +1114,8 @@ static void loading_draw_label(void *surface, const uint8_t *mask, size_t mask_b
                                mask[(size_t)row * width + column], hdr);
 }
 
-int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr)
+int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr,
+                               uint32_t output_source_width, uint32_t output_source_height)
 {
     static const int dot_offsets[8][2] = {
         {0, -58}, {41, -41}, {58, 0}, {41, 41}, {0, 58}, {-41, 41}, {-58, 0}, {-41, -41},
@@ -1135,12 +1174,9 @@ int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t pha
                        287u, 52u, 960u, 586u, text, hdr);
     flush_gpu_data(surface, required_bytes);
 
-    return hdr ? native_agc_present_main10(surface, surface_bytes, LOADING_PITCH,
-                                           LOADING_SURFACE_HEIGHT, LOADING_PITCH,
-                                           LOADING_VISIBLE_HEIGHT, NULL)
-               : native_agc_present_nv12(surface, surface_bytes, LOADING_PITCH,
-                                         LOADING_SURFACE_HEIGHT, LOADING_PITCH,
-                                         LOADING_VISIBLE_HEIGHT, NULL);
+    return present_frame(surface, surface_bytes, LOADING_PITCH, LOADING_SURFACE_HEIGHT,
+                         LOADING_PITCH, LOADING_VISIBLE_HEIGHT, NULL, hdr, output_source_width,
+                         output_source_height);
 }
 
 int native_agc_present_shutdown(void)
@@ -1169,10 +1205,11 @@ int native_agc_present_shutdown(void)
     if (presenter.video >= 0)
         close_result = sceVideoOutClose(presenter.video);
     if (presenter.framebuffer)
-        framebuffer_unmap_result = sceKernelMunmap(presenter.framebuffer, FRAMEBUFFER_POOL_BYTES);
+        framebuffer_unmap_result =
+            sceKernelMunmap(presenter.framebuffer, presenter.framebuffer_pool_bytes);
     if (presenter.framebuffer_start >= 0)
-        framebuffer_release_result =
-            sceKernelReleaseDirectMemory(presenter.framebuffer_start, FRAMEBUFFER_POOL_BYTES);
+        framebuffer_release_result = sceKernelReleaseDirectMemory(presenter.framebuffer_start,
+                                                                  presenter.framebuffer_pool_bytes);
     if (presenter.shader_memory)
         shader_unmap_result = sceKernelMunmap(presenter.shader_memory, SHADER_MEMORY_BYTES);
     if (presenter.shader_start >= 0)

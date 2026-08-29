@@ -249,3 +249,16 @@ shader by relocating the already-relocated Main10 shader header, causing
 conversion resources fixed both shader creation and the temporary solid-color
 overlay. The operator confirmed that HDR video and readable metrics now work
 together. These fixes retain the exact Videodec2 output pointer as AGC input.
+
+The `01.000.027` image-quality candidate makes VideoOut geometry a property of
+the selected stream. A 1080p stream registers two 1920x1080 scanout buffers;
+1440p and 2160p streams request the public 4K-buffer privilege and register two
+3840x2160 buffers. The loading handoff, AGC viewport, television-safe inset,
+metrics HUD, and stream keyboard all consume the same geometry. The complete
+`make check` gate passed with 16 GoogleTests and 19 Python integration tests,
+and both signed containers passed integrity validation. Hardware acceptance is
+pending: launch one 1080p, one 1440p, and one 2160p stream, verify the complete
+frame and readable HUD on the TV, then confirm that 2160p text is materially
+sharper than the previous 1080p scanout path. The 1440p path still uses the
+recovered point-sampling shader, so filtered 1440p-to-4K scaling is not yet
+claimed.

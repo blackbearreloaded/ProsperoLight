@@ -32,7 +32,8 @@ int native_agc_present_nv12(const void *source, size_t source_bytes, uint32_t pi
 int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t pitch,
                               uint32_t surface_height, uint32_t visible_width,
                               uint32_t visible_height, const native_agc_metrics_t *metrics);
-int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr);
+int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr,
+                               uint32_t output_source_width, uint32_t output_source_height);
 void native_agc_set_hud_enabled(int enabled);
 int native_agc_hud_enabled(void);
 void native_agc_set_keyboard_state(int enabled, uint32_t selected, int shifted);
