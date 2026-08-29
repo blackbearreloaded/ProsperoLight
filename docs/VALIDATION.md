@@ -220,3 +220,24 @@ The folder candidate `eboot.bin` SHA-256 is
 Windows exposes an HDR toggle for the selected VDD, so the remaining acceptance
 step is to confirm that an HDR stream makes Sunshine enable it and negotiate
 HEVC Main10/Rec.2020 on PS5.
+
+The first `01.000.025` HDR reproduction completed that host-side acceptance
+step. Sunshine's session log recorded a 1920x1080 capture in
+`DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020`, 10 bits per color, and an
+`hevc_nvenc` stream identified as HDR (Rec. 2020 + SMPTE 2084 PQ) and 10-bit.
+The client disconnected roughly three seconds later. ProsperoLight was
+terminating the stream when the first decoded frame arrived before
+moonlight-common-c's asynchronous HDR control packet had updated `hdrActive`;
+the pinned dependency explicitly permits that state to be stale for several
+frames during transitions.
+
+Commit `e0f52eb` changes the renderer gate to tolerate an unknown initial HDR
+state. It still rejects a stream after the control channel explicitly confirms
+HDR is disabled, or when decoded frames are not Rec.2020. A regression test
+covers the delayed-confirmation case, and the complete `make check` gate passed
+with 14 GoogleTests and 17 Python integration tests. Content version
+`01.000.026` (commit `e33961c`) was deployed in folder form to `PPSA77003`; its
+`eboot.bin` SHA-256 is
+`d85061697b2df4f16ce6e338f90148d100b25c5a62ce4a4f5dc0ae5f8b61436e`.
+This is a `partial-pass`: Sunshine/VDD HDR negotiation and the PS5 deployment
+are proven; visible video and the HDR metrics overlay await operator acceptance.
