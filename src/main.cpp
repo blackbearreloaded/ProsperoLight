@@ -938,6 +938,9 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
     Rml::Shutdown();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    // The PS5 SDL driver faults when a queued device is closed. Keep this
+    // process-scoped device open but silent while native stream AudioOut runs.
+    prosperolight::ui_sound_clear_for_stream();
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
     return command;
 }

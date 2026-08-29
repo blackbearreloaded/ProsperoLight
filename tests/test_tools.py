@@ -235,6 +235,21 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("Diagnostics,", header)
         self.assertFalse((ROOT / "ui/chrome/panel-diagnostic.tga").exists())
 
+    def test_launcher_quiets_process_scoped_ui_audio_before_streaming(self):
+        launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+        stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        sound = (ROOT / "src/ui_sound.cpp").read_text(encoding="utf-8")
+        start = launcher.index("MoonlightApp::Command RunLauncher(")
+        end = launcher.index("} // namespace", start)
+        run_launcher = launcher[start:end]
+
+        self.assertIn("prosperolight::ui_sound_clear_for_stream();", run_launcher)
+        self.assertIn("SDL_QuitSubSystem(SDL_INIT_VIDEO);", run_launcher)
+        clear = sound[sound.index("void ui_sound_clear_for_stream()") :]
+        self.assertIn("SDL_ClearQueuedAudio(device);", clear)
+        self.assertNotIn("SDL_CloseAudioDevice", clear)
+        self.assertNotIn("ui_sound_clear_for_stream", stream)
+
     def run_init(self, param, **values):
         environment = os.environ.copy()
         environment.update(values)

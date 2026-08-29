@@ -66,7 +66,8 @@ version before packaging.
 The launcher owns a small queued-audio sound-effect player backed by SDL's
 hardware-validated PS5 AudioOut driver. All cues are 48 kHz stereo signed
 16-bit PCM and are loaded from `assets/sfx`. The opening cue plays only on
-process startup; returning from a stream does not replay it. A stream-start cue
-continues over connection setup, then the Moonlight audio callback closes the
-launcher device immediately before opening its native Opus/AudioOut path. UI
-audio therefore never competes with or mixes into streamed game audio.
+process startup; returning from a stream does not replay it. Before returning a
+stream command, the launcher clears the UI queue and tears down only SDL video.
+The SDL audio device remains open and silent for the process lifetime because
+the PS5 SDL backend faults while closing a device that has played queued audio.
+Moonlight uses its independent native Opus/AudioOut port during the stream.

@@ -9,6 +9,7 @@ __pycache__/
 *.pyc
 build/
 dist/
+results/
 **/bin/
 **/obj/
 .vs/

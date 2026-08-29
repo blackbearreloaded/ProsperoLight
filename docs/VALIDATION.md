@@ -398,3 +398,20 @@ verified `PPSA77003.ffpfsc` SHA-256 is
 `2eb3ee54ff9239c8ee0112a96b8c19660d708a03582f0d80a420bb132c22ee23`.
 Bounded klog evidence is retained locally under `results/` and excluded from
 commits.
+
+Version `01.000.036` fixes the launcher-to-stream regression introduced by the
+first sound-effect integration. PS5 klog and the unstripped ELF resolved the
+faulting stack to `PS5AUDIO_CloseDevice`, called first from Moonlight's audio
+worker and then reproducibly from the launcher thread. The UI audio device is
+therefore process-scoped: its queue is cleared before streaming, SDL tears down
+only video, and Moonlight opens its independent native Opus/AudioOut port. This
+retains launcher cues without invoking the faulty SDL device-close path.
+The complete lint gate, 20 GoogleTests, and 24 Python integration tests pass,
+including a source-level lifecycle regression check. Two bounded console runs
+then remained stable until normal controller shutdown. The visual run rendered
+a live 2560x1440 HEVC Sunshine stream through the native 3840x2160 output with
+the metrics overlay active and zero network-dropped frames; klog contained no
+application-crash event. The signed `eboot.bin` SHA-256 is
+`c82d7070d3b40083e553fb058c306e363c1f9861fb19ba5e66189d47cee8f8e3`; the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`611de80729bd4d03772b587cfec25f070252eda9ca7f245e2f8b7e6802c7ba72`.

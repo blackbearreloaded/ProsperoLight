@@ -104,24 +104,11 @@ void ui_sound_play(UiSoundCue cue)
     (void)SDL_QueueAudio(device, clips[index].data, clips[index].length);
 }
 
-void ui_sound_stop_for_stream()
+void ui_sound_clear_for_stream()
 {
     if (!device)
         return;
     SDL_ClearQueuedAudio(device);
-    SDL_CloseAudioDevice(device);
-    device = 0;
-}
-
-void ui_sound_shutdown()
-{
-    ui_sound_stop_for_stream();
-    for (Clip &clip : clips)
-    {
-        SDL_FreeWAV(clip.data);
-        clip = {};
-    }
-    clips_loaded = false;
 }
 
 } // namespace prosperolight
