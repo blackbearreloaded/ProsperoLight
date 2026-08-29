@@ -250,7 +250,7 @@ conversion resources fixed both shader creation and the temporary solid-color
 overlay. The operator confirmed that HDR video and readable metrics now work
 together. These fixes retain the exact Videodec2 output pointer as AGC input.
 
-The `01.000.027` image-quality candidate makes VideoOut geometry a property of
+The `01.000.027` image-quality candidate made VideoOut geometry a property of
 the selected stream. A 1080p stream registers two 1920x1080 scanout buffers;
 1440p and 2160p streams request the public 4K-buffer privilege and register two
 3840x2160 buffers. The loading handoff, AGC viewport, television-safe inset,
@@ -259,6 +259,25 @@ metrics HUD, and stream keyboard all consume the same geometry. The complete
 and both signed containers passed integrity validation. Hardware acceptance is
 pending: launch one 1080p, one 1440p, and one 2160p stream, verify the complete
 frame and readable HUD on the TV, then confirm that 2160p text is materially
-sharper than the previous 1080p scanout path. The 1440p path still uses the
-recovered point-sampling shader, so filtered 1440p-to-4K scaling is not yet
-claimed.
+sharper than the previous 1080p scanout path. Both high-resolution modes instead
+produced a black frame before the HUD. Sunshine logs proved that the requested
+2560x1440 and 3840x2160 HEVC streams were active, isolating the failure to the
+PS5 presentation boundary.
+
+The console's `libSceVideoOut.sprx` decompilation then exposed an ABI error in
+the recovered prototype: `sceVideoOutAddBuffer4k2kPrivilege` requires the open
+VideoOut handle. Version `01.000.027` declared it with no parameters and passed
+an undefined first argument. Version `01.000.028` corrected that ABI, but a
+telemetry-off hardware run still negotiated a `3840x2160` HEVC Sunshine session
+and disconnected after roughly ten seconds without presenting a frame.
+
+The hardware-accepted `AGC_4K` reference registers its two 32 MiB
+`3840x2160` buffers directly and does not call
+`sceVideoOutAddBuffer4k2kPrivilege`. Version `01.000.029` therefore removes
+that unproven additional gate and follows the accepted VideoOut sequence:
+open, set the flip rate, allocate/map the aligned buffer pool, set attribute 2,
+then register buffers 2. Hardware acceptance remains required.
+Hardware acceptance for 1080p, 1440p-to-4K, native 2160p, and the metrics HUD is
+required before this milestone is considered complete. The 1440p path still
+uses the recovered point-sampling shader, so filtered 1440p-to-4K scaling is not
+yet claimed.

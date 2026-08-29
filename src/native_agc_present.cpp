@@ -17,6 +17,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef PROSPEROLIGHT_LAN_TELEMETRY
+#define PROSPEROLIGHT_LAN_TELEMETRY 0
+#endif
+
 #define BASE_OUTPUT_WIDTH 1920u
 #define BASE_OUTPUT_HEIGHT 1080u
 #define TV_SAFE_INSET_X 64u
@@ -100,6 +104,14 @@ typedef struct video_attribute
     uint8_t reserved[80];
 } video_attribute_t;
 
+#if PROSPEROLIGHT_LAN_TELEMETRY
+typedef struct notification_request
+{
+    uint8_t reserved[45];
+    char message[3075];
+} notification_request_t;
+#endif
+
 extern "C"
 {
     int64_t sceKernelGetDirectMemorySize(void);
@@ -110,8 +122,11 @@ extern "C"
                                      int64_t direct_memory_start, size_t alignment);
     int32_t sceKernelMunmap(void *address, size_t length);
     int32_t sceKernelReleaseDirectMemory(int64_t direct_memory_start, size_t length);
+#if PROSPEROLIGHT_LAN_TELEMETRY
+    int32_t sceKernelSendNotificationRequest(uint32_t device, void *request, size_t size,
+                                             int32_t blocking);
+#endif
     int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index, const void *param);
-    int sceVideoOutAddBuffer4k2kPrivilege(void);
     int sceVideoOutClose(int32_t handle);
     int sceVideoOutSetFlipRate(int32_t handle, int32_t rate);
     void sceVideoOutSetBufferAttribute2(video_attribute_t *attribute, uint64_t pixel_format,
@@ -147,6 +162,16 @@ extern "C"
     uint32_t sceAgcDriverWaitUntilSafeForRendering(uint32_t **command, uint32_t packet_size,
                                                    uint32_t reserved, uint32_t handle,
                                                    int buffer_index);
+}
+
+static void report_agc_receipt(const char *receipt)
+{
+    (void)lan_http_report_text(receipt);
+#if PROSPEROLIGHT_LAN_TELEMETRY
+    notification_request_t notification = {};
+    snprintf(notification.message, sizeof(notification.message), "%s", receipt);
+    (void)sceKernelSendNotificationRequest(0, &notification, sizeof(notification), 0);
+#endif
 }
 #ifdef NATIVE_AGC_EXTERNAL_SOURCE
 #define NATIVE_AGC_ASSET(path) "../../assets/private/" path
@@ -788,7 +813,6 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
     int64_t direct_limit = sceKernelGetDirectMemorySize();
     int32_t result;
     int32_t link_result = -1;
-    int32_t privilege_result = 0;
     uint8_t reused = agc_initialized;
     char receipt[512];
 
@@ -812,7 +836,7 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
              "visible=%ux%u",
              (uint32_t)result, reused ? 1u : 0u, source, source_bytes, pitch, surface_height,
              visible_width, visible_height);
-    (void)lan_http_report_text(receipt);
+    report_agc_receipt(receipt);
     if (result != 0)
         return result;
 
@@ -864,7 +888,7 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
              "Native AGC stage 2: create=%08x link=%08x vs=%p ps=%p hud_ps=%p shader=%p",
              (uint32_t)result, (uint32_t)link_result, presenter.vertex_shader,
              presenter.pixel_shader, presenter.hud_pixel_shader, presenter.shader_memory);
-    (void)lan_http_report_text(receipt);
+    report_agc_receipt(receipt);
     if (result != 0 || link_result != 0)
         return result ? result : link_result;
 
@@ -873,11 +897,6 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
         result = sceVideoOutSetFlipRate(presenter.video, 0);
     else
         result = presenter.video;
-    if (result == 0 && output.width > BASE_OUTPUT_WIDTH)
-    {
-        privilege_result = sceVideoOutAddBuffer4k2kPrivilege();
-        result = privilege_result;
-    }
     if (result == 0)
         result = sceKernelAllocateDirectMemory(0, direct_limit, framebuffer_pool_bytes,
                                                FRAMEBUFFER_ALIGNMENT, DIRECT_MEMORY_TYPE,
@@ -889,11 +908,11 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
             sceKernelMapDirectMemory(&presenter.framebuffer, framebuffer_pool_bytes, MAP_PROTECTION,
                                      0, framebuffer_start, FRAMEBUFFER_ALIGNMENT);
     snprintf(receipt, sizeof(receipt),
-             "Native AGC stage 3: video=%08x privilege=%08x framebuffer_rc=%08x "
-             "framebuffer=%p/%zx output=%ux%u",
-             (uint32_t)presenter.video, (uint32_t)privilege_result, (uint32_t)result,
-             presenter.framebuffer, framebuffer_pool_bytes, output.width, output.height);
-    (void)lan_http_report_text(receipt);
+             "Native AGC stage 3: video=%08x framebuffer_rc=%08x framebuffer=%p/%zx "
+             "output=%ux%u",
+             (uint32_t)presenter.video, (uint32_t)result, presenter.framebuffer,
+             framebuffer_pool_bytes, output.width, output.height);
+    report_agc_receipt(receipt);
     if (result != 0 || !presenter.framebuffer)
         return result ? result : -4;
 
@@ -918,7 +937,7 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
              (unsigned long long)(hdr ? VIDEO_OUT_PIXEL_FORMAT_HDR : VIDEO_OUT_PIXEL_FORMAT_SDR),
              source, presenter.framebuffer, source == presenter.framebuffer, output.width,
              output.height);
-    (void)lan_http_report_text(receipt);
+    report_agc_receipt(receipt);
     if (result != 0)
         return result;
 
@@ -1031,7 +1050,7 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
                  (uint32_t)result, frame_number, buffer_index, words, hdr ? 1u : 0u,
                  draw_overlay ? 1u : 0u, (unsigned long long)render_marker,
                  (unsigned long long)status[3], render_waits, source, target);
-        (void)lan_http_report_text(receipt);
+        report_agc_receipt(receipt);
     }
 
     if (result == 0)
@@ -1223,7 +1242,7 @@ int native_agc_present_shutdown(void)
              (uint32_t)close_result, (uint32_t)framebuffer_unmap_result,
              (uint32_t)framebuffer_release_result, (uint32_t)shader_unmap_result,
              (uint32_t)shader_release_result);
-    (void)lan_http_report_text(receipt);
+    report_agc_receipt(receipt);
 
     memset(&presenter, 0, sizeof(presenter));
     presenter.shader_start = -1;

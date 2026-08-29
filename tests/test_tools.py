@@ -128,6 +128,28 @@ class ToolTests(unittest.TestCase):
         )
         self.assertIn("bind_pixel_source(&command, hud_resources,", source)
 
+    def test_4k_videoout_follows_the_hardware_accepted_registration_path(self):
+        source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+        initialize = source[
+            source.index("static int initialize_presenter(") : source.index(
+                "static int present_frame(", source.index("static int initialize_presenter(")
+            )
+        ]
+
+        self.assertNotIn("sceVideoOutAddBuffer4k2kPrivilege", source)
+        self.assertLess(
+            initialize.index("sceVideoOutOpen"),
+            initialize.index("sceVideoOutSetFlipRate"),
+        )
+        self.assertLess(
+            initialize.index("sceVideoOutSetFlipRate"),
+            initialize.index("sceKernelAllocateDirectMemory", initialize.index("sceVideoOutOpen")),
+        )
+        self.assertLess(
+            initialize.index("sceVideoOutSetBufferAttribute2"),
+            initialize.index("sceVideoOutRegisterBuffers2"),
+        )
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),

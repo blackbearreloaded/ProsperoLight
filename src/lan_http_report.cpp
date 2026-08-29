@@ -97,7 +97,12 @@ int lan_http_report_text(const char *message)
     net_sockaddr_in_t address;
     int result;
 
-    if (!message || !report_address)
+    if (!message)
+        return -1;
+    fputs(message, stdout);
+    fputc('\n', stdout);
+    fflush(stdout);
+    if (!report_address)
         return -1;
     message_length = text_length(message);
     request_length = snprintf(request, sizeof(request),
