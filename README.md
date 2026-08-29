@@ -356,6 +356,8 @@ the project license. Complete revisions, checksums, copyright notices, and
 third-party terms are recorded in [NOTICE.md](NOTICE.md) and the corresponding
 source trees.
 
+This project was developed with assistance from OpenAI Codex, including some original interface artwork. Project maintainers reviewed and validated the resulting code, tests, documentation, dependencies, and generated assets.
+
 ProsperoLight is distributed under [GPL-3.0-or-later](LICENSE). PlayStation and
 PS5 are trademarks of Sony Interactive Entertainment. Moonlight and Sunshine
 retain their respective project identities. ProsperoLight is an independent
