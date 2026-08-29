@@ -208,3 +208,15 @@ The title entered its native executable, survived the bounded observation,
 closed normally, and left FTP, klog, and elfldr reachable. This is a
 `partial-pass`: lifecycle is hardware-proven; in-game D-pad navigation remains
 the operator acceptance step.
+
+The HDR launch-handshake candidate adds Moonlight Qt's standard HDR capability
+parameters to both launch and resume requests whenever the selected stream
+format is 10-bit. SDR requests continue to omit the HDR block, while every
+request carries the selected width, height, frame rate, and SOPS flag so
+Sunshine can apply its automatic display configuration. The complete
+`make check` gate passed with 14 GoogleTests and 16 Python integration tests.
+The folder candidate `eboot.bin` SHA-256 is
+`08e30eddd7fa48f081d524133384a509e3fd8cba4d2d7113f540cd4e96328d3f`.
+Windows exposes an HDR toggle for the selected VDD, so the remaining acceptance
+step is to confirm that an HDR stream makes Sunshine enable it and negotiate
+HEVC Main10/Rec.2020 on PS5.

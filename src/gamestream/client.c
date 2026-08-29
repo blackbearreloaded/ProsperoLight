@@ -529,6 +529,7 @@ int gs_start_app(gs_server_t *server, STREAM_CONFIGURATION *configuration, int a
     char *field = NULL;
     uint32_t key_id = 0;
     char key_hex[sizeof(configuration->remoteInputAesKey) * 2 + 1];
+    const char *hdr_capabilities;
     int fps;
     int surround_info;
     int result;
@@ -545,17 +546,22 @@ int gs_start_app(gs_server_t *server, STREAM_CONFIGURATION *configuration, int a
     bytes_to_hex((unsigned char *)configuration->remoteInputAesKey, key_hex,
                  sizeof(configuration->remoteInputAesKey));
     fps = server->is_nvidia_software && configuration->fps > 60 ? 0 : configuration->fps;
+    hdr_capabilities = (configuration->supportedVideoFormats & VIDEO_FORMAT_MASK_10BIT)
+                           ? "&hdrMode=1&clientHdrCapVersion=0&clientHdrCapSupportedFlagsInUint32=0"
+                             "&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1"
+                             "&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0"
+                           : "";
     surround_info = SURROUNDAUDIOINFO_FROM_AUDIO_CONFIGURATION(configuration->audioConfiguration);
     uuid_v4(server->identity, uuid);
     result = api_get(server, 1, &response,
                      "/%s?uniqueid=%s&uuid=%s&appid=%d&mode=%dx%dx%d"
                      "&additionalStates=1&sops=%d&rikey=%s&rikeyid=%u"
                      "&localAudioPlayMode=%d&surroundAudioInfo=%d"
-                     "&remoteControllersBitmap=%d&gcmap=%d%s",
+                     "&remoteControllersBitmap=%d&gcmap=%d%s%s",
                      server->current_game ? "resume" : "launch", GS_UNIQUE_ID, uuid, app_id,
                      configuration->width, configuration->height, fps, sops ? 1 : 0, key_hex,
                      (unsigned)key_id, local_audio ? 1 : 0, surround_info, gamepad_mask,
-                     gamepad_mask, LiGetLaunchUrlQueryParameters());
+                     gamepad_mask, hdr_capabilities, LiGetLaunchUrlQueryParameters());
     if (result != GS_OK)
         return result;
     if (xml_status(response.body, response.length) != 200)

@@ -80,6 +80,14 @@ class ToolTests(unittest.TestCase):
         self.assertIn("ps5_controller_newest_sample(state, count)", poll)
         self.assertNotIn("&state->sample_batch[index]", poll)
 
+    def test_launch_advertises_moonlight_hdr_capabilities_for_main10(self):
+        source = (ROOT / "src/gamestream/client.c").read_text(encoding="utf-8")
+        self.assertIn("configuration->supportedVideoFormats & VIDEO_FORMAT_MASK_10BIT", source)
+        self.assertIn("&hdrMode=1&clientHdrCapVersion=0", source)
+        self.assertIn("&clientHdrCapSupportedFlagsInUint32=0", source)
+        self.assertIn("&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1", source)
+        self.assertIn("&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0", source)
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),
