@@ -192,3 +192,19 @@ The title entered its native executable, remained alive during the bounded
 observation, closed normally, and left FTP, klog, and elfldr reachable. This is
 a `partial-pass`: startup and cleanup are hardware-proven, while the original
 launch, return, then stop interaction remains the operator acceptance step.
+
+Commit `9f981f7` coalesces each PS5 pad batch to its newest timestamped sample
+before forwarding controller state to Sunshine. This matches the project's
+validated native-input recipe and Moonlight Qt's practice of batching pending
+axis motion before sending the resulting current state. It prevents stale pad
+states from being replayed in a tight burst after a delayed poll. The same
+candidate changes the HUD text and RTT refresh cadence from roughly four times
+per second to roughly once per second, matching Moonlight Qt while retaining
+per-frame counters and composition. The complete `make check` gate passed with
+14 GoogleTests and 15 Python integration tests. The deployed `PPSA77003`
+`eboot.bin` SHA-256 is
+`3fcb7763cd7e59e4f3f9baebe7407d981c78526017ca2b61bb00fea4a606a278`.
+The title entered its native executable, survived the bounded observation,
+closed normally, and left FTP, klog, and elfldr reachable. This is a
+`partial-pass`: lifecycle is hardware-proven; in-game D-pad navigation remains
+the operator acceptance step.
