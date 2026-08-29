@@ -222,6 +222,19 @@ class ToolTests(unittest.TestCase):
         ):
             self.assertIn(shortcut, readme)
 
+    def test_launcher_has_no_diagnostics_page(self):
+        markup = (ROOT / "ui/main.rml").read_text(encoding="utf-8")
+        styles = (ROOT / "ui/styles/app.rcss").read_text(encoding="utf-8")
+        header = (ROOT / "include/moonlight_app.hpp").read_text(encoding="utf-8")
+        source = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+
+        self.assertEqual(markup.count('id="nav-'), 3)
+        self.assertNotIn("nav-diagnostics", markup + styles + source)
+        self.assertNotIn("screen-diagnostics", markup + source)
+        self.assertNotIn("Screen::Diagnostics", source)
+        self.assertNotIn("Diagnostics,", header)
+        self.assertFalse((ROOT / "ui/chrome/panel-diagnostic.tga").exists())
+
     def run_init(self, param, **values):
         environment = os.environ.copy()
         environment.update(values)

@@ -44,13 +44,12 @@ private:
         Hosts,
         Games,
         Settings,
-        Diagnostics,
         Count
     };
 
     Rml::ElementDocument* document_ = nullptr;
     Screen screen_ = Screen::Hosts;
-    unsigned focus_ = 4;
+    unsigned focus_ = 3;
     unsigned bitrate_mbps_ = 20;
     bool confirm_unpair_ = false;
     bool manual_entry_active_ = false;

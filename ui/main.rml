@@ -17,7 +17,6 @@
                 <button id="nav-hosts" class="nav-button active focused"><img class="button-chrome nav-chrome nav-normal" src="chrome/nav-normal.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-active" src="chrome/nav-active.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-focused" src="chrome/nav-focused.tga" width="304" height="72" alt=""/><span>PCs</span></button>
                 <button id="nav-games" class="nav-button"><img class="button-chrome nav-chrome nav-normal" src="chrome/nav-normal.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-active" src="chrome/nav-active.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-focused" src="chrome/nav-focused.tga" width="304" height="72" alt=""/><span>Games</span></button>
                 <button id="nav-settings" class="nav-button"><img class="button-chrome nav-chrome nav-normal" src="chrome/nav-normal.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-active" src="chrome/nav-active.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-focused" src="chrome/nav-focused.tga" width="304" height="72" alt=""/><span>Settings</span></button>
-                <button id="nav-diagnostics" class="nav-button"><img class="button-chrome nav-chrome nav-normal" src="chrome/nav-normal.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-active" src="chrome/nav-active.tga" width="304" height="72" alt=""/><img class="button-chrome nav-chrome nav-focused" src="chrome/nav-focused.tga" width="304" height="72" alt=""/><span>Diagnostics</span></button>
                 <span id="sidebar-rule"></span>
                 <span class="sidebar-section-label">SELECTED PC</span>
                 <span id="sidebar-host-name">Searching...</span>
@@ -139,17 +138,6 @@
                     <span id="settings-note" class="settings-note">Stream shortcuts: Select+Triangle keyboard; Select+Square mouse; Select+R1 stats; Select+L1 return.</span>
                 </section>
 
-                <section id="screen-diagnostics" class="screen hidden">
-                    <span class="screen-heading">Diagnostics</span>
-                    <span class="screen-copy">Accepted native hardware path and current product boundaries.</span>
-                    <div class="diagnostic-card diagnostic-0"><img class="panel-chrome diagnostic-panel-chrome" src="chrome/panel-diagnostic.tga" width="430" height="210" alt=""/><span class="diagnostic-label">VIDEO DECODER</span><span class="diagnostic-value good">AVAILABLE</span><span id="diagnostic-decoder-copy" class="diagnostic-copy">Videodec2 H.264 High / 8-bit NV12</span></div>
-                    <div class="diagnostic-card diagnostic-1"><img class="panel-chrome diagnostic-panel-chrome" src="chrome/panel-diagnostic.tga" width="430" height="210" alt=""/><span class="diagnostic-label">FRAME PATH</span><span class="diagnostic-value good">ZERO-COPY</span><span class="diagnostic-copy">Decoder pool pointer equals AGC source</span></div>
-                    <div class="diagnostic-card diagnostic-2"><img class="panel-chrome diagnostic-panel-chrome" src="chrome/panel-diagnostic.tga" width="430" height="210" alt=""/><span class="diagnostic-label">SELECTED MODE</span><span id="diagnostic-mode-value" class="diagnostic-value good">60 FPS</span><span id="diagnostic-mode-copy" class="diagnostic-copy">1080p60 live Sunshine path is hardware accepted</span></div>
-                    <div class="diagnostic-card diagnostic-3"><img class="panel-chrome diagnostic-panel-chrome" src="chrome/panel-diagnostic.tga" width="430" height="210" alt=""/><span class="diagnostic-label">CALLBACK TO FLIP</span><span class="diagnostic-value good">16.7 MS</span><span class="diagnostic-copy">Immediate decoder drain, pending zero</span></div>
-                    <div class="diagnostic-card diagnostic-4"><img class="panel-chrome diagnostic-panel-chrome" src="chrome/panel-diagnostic.tga" width="430" height="210" alt=""/><span class="diagnostic-label">CONTROLLER</span><span class="diagnostic-value good">NATIVE</span><span class="diagnostic-copy">DualSense forwarding at about 243 Hz</span></div>
-                    <div class="diagnostic-card diagnostic-5"><img class="panel-chrome diagnostic-panel-chrome" src="chrome/panel-diagnostic.tga" width="430" height="210" alt=""/><span class="diagnostic-label">AUDIO</span><span class="diagnostic-value good">AVAILABLE</span><span class="diagnostic-copy">48 kHz stereo Opus to native AudioOut</span></div>
-                    <button id="back-diagnostics" class="action-button action-secondary diagnostics-back"><img class="button-chrome action-chrome base-chrome" src="chrome/action-secondary.tga" width="250" height="72" alt=""/><img class="button-chrome action-chrome focused-chrome" src="chrome/action-focused.tga" width="250" height="72" alt=""/><span>Back to PCs</span></button>
-                </section>
             </main>
 
             <footer id="controller-footer">

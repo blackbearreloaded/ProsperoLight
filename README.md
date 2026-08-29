@@ -50,7 +50,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA77003` |
 | Category | Game |
-| Current version | `01.000.033` |
+| Current version | `01.000.034` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -222,7 +222,7 @@ title ID intentionally requires pairing again.
 | Circle | Return to the PCs page |
 | Square | Stop the active Sunshine application |
 | Triangle | Refresh the selected Sunshine host |
-| L1 / R1 | Change between PCs, Games, Settings, and Diagnostics |
+| L1 / R1 | Change between PCs, Games, and Settings |
 | Options | Open Settings |
 
 ### Streaming
@@ -249,7 +249,7 @@ title ID intentionally requires pairing again.
 The stream keyboard contains every printable US-ASCII character used by
 standard passwords. It is not currently a multilingual or Unicode input
 method. Keyboard text is sent directly as Moonlight key events and is not
-stored in ProsperoLight diagnostics or configuration.
+stored by ProsperoLight or written to its configuration.
 
 ## Source layout
 
@@ -289,8 +289,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.033
-git push origin main 01.000.033
+git tag 01.000.034
+git push origin main 01.000.034
 ```
 
 Keep `PPSA77003`, `conceptId`, and `contentId` stable for updates to this title.

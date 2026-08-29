@@ -365,3 +365,17 @@ verified `PPSA77003.ffpfsc` SHA-256 is
 `41f164a9785874f2fd2fbcdb0f52ca9926aa6cadf8179d569a0115ad69782a14`.
 Local screenshots, klog, and ShadowMount evidence remain under `results/` and
 are intentionally excluded from commits.
+
+Version `01.000.034` removes the launcher Diagnostics section, its focus path,
+runtime text updates, styling, and unused panel texture. L1/R1 now cycles only
+PCs, Games, and Settings through `Screen::Count`; all content focus indices were
+shifted with the shorter navigation list. The complete gate passed with 20
+GoogleTests and 23 Python integration tests, including a regression check that
+the Diagnostics page cannot return to the UI. Native signing, SELF integrity,
+and PFSC integrity also passed. The folder candidate was deployed over WSL to
+`PPSA77003`, launched for a bounded smoke interval, and closed through the exact
+title controller. FTP, klog, and title-control services remained reachable.
+The signed `eboot.bin` SHA-256 is
+`2018fe9901e16b6c7652f8453fc61e848dce2cfc4d7e925af73ded81bbc15c8b` and the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`0db6f18b4bbe7ed8d2bdb2aae6b2a9b9b0536221b8a2f3028024e1823d9e4598`.

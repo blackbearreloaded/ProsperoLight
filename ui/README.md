@@ -1,7 +1,7 @@
 # ProsperoLight UI
 
 Static RmlUi/RCSS assets for the controller-first Sunshine host, application,
-settings, and diagnostics views.
+and settings views.
 
 ## Files
 

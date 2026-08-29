@@ -49,7 +49,6 @@ button {
 .panel-chrome { position: absolute; left: 0px; top: 0px; }
 .detail-panel-chrome { width: 530px; height: 478px; }
 .launch-panel-chrome { width: 870px; height: 478px; }
-.diagnostic-panel-chrome { width: 430px; height: 210px; }
 .ready-panel-chrome { left: 28px; top: 358px; width: 474px; height: 68px; }
 .nav-active, .nav-focused, .focused-chrome, .disabled-chrome { display: none; }
 .nav-button.active > .nav-normal { display: none; }
@@ -64,12 +63,12 @@ button.focused > .focused-chrome { display: block; }
 #sidebar { position: absolute; left: 64px; top: 140px; width: 304px; height: 820px; overflow: hidden; }
 .nav-button { position: absolute; left: 0px; width: 304px; height: 72px; color: #b6ddf8; font-size: 24px; line-height: 38px; }
 .nav-button span { position: absolute; left: 24px; top: 17px; width: 250px; height: 38px; }
-#nav-hosts { top: 0px; } #nav-games { top: 78px; } #nav-settings { top: 156px; } #nav-diagnostics { top: 234px; }
+#nav-hosts { top: 0px; } #nav-games { top: 78px; } #nav-settings { top: 156px; }
 .nav-button.active { color: #ffffff; }
-#sidebar-rule { position: absolute; left: 0px; top: 344px; width: 304px; height: 1px; background-color: #4f9adc; }
-.sidebar-section-label { position: absolute; left: 0px; top: 378px; width: 304px; height: 34px; color: #84c9ff; font-size: 20px; line-height: 30px; }
-#sidebar-host-name { position: absolute; left: 0px; top: 422px; width: 304px; height: 38px; color: #ddf3ff; font-size: 24px; line-height: 34px; }
-#sidebar-host-address { position: absolute; left: 0px; top: 462px; width: 304px; height: 34px; color: #b6ddf8; font-size: 20px; line-height: 30px; }
+#sidebar-rule { position: absolute; left: 0px; top: 266px; width: 304px; height: 1px; background-color: #4f9adc; }
+.sidebar-section-label { position: absolute; left: 0px; top: 300px; width: 304px; height: 34px; color: #84c9ff; font-size: 20px; line-height: 30px; }
+#sidebar-host-name { position: absolute; left: 0px; top: 344px; width: 304px; height: 38px; color: #ddf3ff; font-size: 24px; line-height: 34px; }
+#sidebar-host-address { position: absolute; left: 0px; top: 384px; width: 304px; height: 34px; color: #b6ddf8; font-size: 20px; line-height: 30px; }
 
 #content { position: absolute; left: 400px; top: 96px; width: 1456px; height: 908px; overflow: hidden; }
 .screen { position: absolute; left: 0px; top: 0px; width: 1456px; height: 908px; overflow: hidden; }
@@ -138,15 +137,6 @@ button.focused > .focused-chrome { display: block; }
 .setting-value { position: absolute; left: 900px; top: 43px; width: 430px; height: 42px; color: #c8eaff; font-size: 24px; line-height: 38px; text-align: right; }
 .setting-fixed { border-color: #376b9b; background-color: #0a254a; }
 .settings-note { position: absolute; left: 34px; top: 820px; width: 1320px; height: 38px; color: #84c9ff; font-size: 20px; line-height: 30px; }
-
-.diagnostic-card { position: absolute; width: 430px; height: 210px; border: 0px transparent; border-radius: 0px; background-color: transparent; }
-.diagnostic-0 { left: 34px; top: 190px; } .diagnostic-1 { left: 486px; top: 190px; } .diagnostic-2 { left: 938px; top: 190px; }
-.diagnostic-3 { left: 34px; top: 422px; } .diagnostic-4 { left: 486px; top: 422px; } .diagnostic-5 { left: 938px; top: 422px; }
-.diagnostic-label { position: absolute; left: 22px; top: 20px; width: 380px; height: 32px; color: #84c9ff; font-size: 20px; line-height: 28px; }
-.diagnostic-value { position: absolute; left: 22px; top: 60px; width: 380px; height: 48px; font-size: 28px; line-height: 44px; }
-.diagnostic-value.good { color: #63d8a2; } .diagnostic-value.warning { color: #f6c86b; }
-.diagnostic-copy { position: absolute; left: 22px; top: 122px; width: 380px; height: 64px; color: #b6ddf8; font-size: 20px; line-height: 28px; }
-.diagnostics-back { left: 34px; top: 686px; }
 
 #controller-footer { position: absolute; left: 0px; top: 1004px; width: 1920px; height: 76px; border-top: 1px #4f9adc; background-color: #081d3c; }
 .controller-hint { position: absolute; top: 16px; height: 44px; color: #b6ddf8; }

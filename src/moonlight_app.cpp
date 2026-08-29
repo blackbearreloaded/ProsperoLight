@@ -49,17 +49,14 @@ struct FocusList
     unsigned count;
 };
 
-const char *const kHostFocus[] = {"nav-hosts", "nav-games",     "nav-settings", "nav-diagnostics",
-                                  "host-card", "refresh-hosts", "pair-host",    "add-host"};
-const char *const kGameFocus[] = {"nav-hosts",  "nav-games",  "nav-settings", "nav-diagnostics",
-                                  "app-card-0", "app-card-1", "app-card-2",   "app-card-3",
-                                  "app-card-4", "app-card-5", "stop-app",     "back-hosts"};
+const char *const kHostFocus[] = {"nav-hosts",     "nav-games", "nav-settings", "host-card",
+                                  "refresh-hosts", "pair-host", "add-host"};
+const char *const kGameFocus[] = {"nav-hosts",  "nav-games",  "nav-settings", "app-card-0",
+                                  "app-card-1", "app-card-2", "app-card-3",   "app-card-4",
+                                  "app-card-5", "stop-app",   "back-hosts"};
 const char *const kSettingFocus[] = {
-    "nav-hosts",     "nav-games",          "nav-settings",    "nav-diagnostics",
-    "setting-codec", "setting-resolution", "setting-bitrate", "setting-display-area",
-    "setting-hdr"};
-const char *const kDiagnosticFocus[] = {"nav-hosts", "nav-games", "nav-settings", "nav-diagnostics",
-                                        "back-diagnostics"};
+    "nav-hosts",          "nav-games",       "nav-settings",         "setting-codec",
+    "setting-resolution", "setting-bitrate", "setting-display-area", "setting-hdr"};
 
 FocusList FocusFor(unsigned screen)
 {
@@ -69,10 +66,8 @@ FocusList FocusFor(unsigned screen)
         return {kHostFocus, sizeof(kHostFocus) / sizeof(kHostFocus[0])};
     case 1:
         return {kGameFocus, sizeof(kGameFocus) / sizeof(kGameFocus[0])};
-    case 2:
-        return {kSettingFocus, sizeof(kSettingFocus) / sizeof(kSettingFocus[0])};
     default:
-        return {kDiagnosticFocus, sizeof(kDiagnosticFocus) / sizeof(kDiagnosticFocus[0])};
+        return {kSettingFocus, sizeof(kSettingFocus) / sizeof(kSettingFocus[0])};
     }
 }
 
@@ -135,7 +130,7 @@ bool MoonlightApp::Initialize(Rml::ElementDocument *document)
     if (config_.host_count == 1 && backend_.online && backend_.paired && backend_.app_count)
     {
         screen_ = Screen::Games;
-        focus_ = 4;
+        focus_ = 3;
     }
     UpdateScreen();
     UpdateSettings();
@@ -345,7 +340,7 @@ void MoonlightApp::PollArtwork()
 void MoonlightApp::SetScreen(Screen screen)
 {
     screen_ = screen;
-    focus_ = screen_ == Screen::Games ? (backend_.app_count ? 4 + selected_app_ % 6 : 11) : 4;
+    focus_ = screen_ == Screen::Games ? (backend_.app_count ? 3 + selected_app_ % 6 : 10) : 3;
     confirm_unpair_ = false;
     UpdateScreen();
     if (screen_ == Screen::Games)
@@ -364,7 +359,7 @@ void MoonlightApp::MoveFocus(int direction)
     if (next >= static_cast<int>(list.count))
         next = 0;
     focus_ = static_cast<unsigned>(next);
-    if (screen_ == Screen::Hosts && confirm_unpair_ && focus_ != 6)
+    if (screen_ == Screen::Hosts && confirm_unpair_ && focus_ != 5)
     {
         confirm_unpair_ = false;
         UpdateHost();
@@ -384,18 +379,18 @@ void MoonlightApp::CycleApp(int direction)
     {
         selected_app_ = (selected_app_ + 1) % backend_.app_count;
     }
-    focus_ = 4 + selected_app_ % 6;
+    focus_ = 3 + selected_app_ % 6;
     UpdateGames();
     UpdateFocus();
 }
 
 void MoonlightApp::MoveGameVertical(int direction)
 {
-    if (focus_ < 4)
+    if (focus_ < 3)
     {
         if (direction > 0 && backend_.app_count)
         {
-            focus_ = 4 + selected_app_ % 6;
+            focus_ = 3 + selected_app_ % 6;
             UpdateFocus();
         }
         else
@@ -406,9 +401,9 @@ void MoonlightApp::MoveGameVertical(int direction)
     }
 
     const unsigned page_start = (selected_app_ / 6) * 6;
-    if (focus_ <= 9 && backend_.app_count)
+    if (focus_ <= 8 && backend_.app_count)
     {
-        const unsigned slot = focus_ - 4;
+        const unsigned slot = focus_ - 3;
         if (direction < 0)
         {
             if (slot >= 3)
@@ -433,25 +428,25 @@ void MoonlightApp::MoveGameVertical(int direction)
             }
             else
             {
-                focus_ = slot == 0 || slot == 3 ? 10 : 11;
+                focus_ = slot == 0 || slot == 3 ? 9 : 10;
             }
         }
         UpdateFocus();
         return;
     }
 
-    if (focus_ == 10 || focus_ == 11)
+    if (focus_ == 9 || focus_ == 10)
     {
         if (direction < 0 && backend_.app_count)
         {
-            const unsigned column = focus_ == 10 ? 0 : 2;
+            const unsigned column = focus_ == 9 ? 0 : 2;
             unsigned target = page_start + 3 + column;
             if (target >= backend_.app_count)
                 target = page_start + column;
             if (target >= backend_.app_count)
                 target = backend_.app_count - 1;
             selected_app_ = target;
-            focus_ = 4 + target - page_start;
+            focus_ = 3 + target - page_start;
             UpdateGames();
         }
         else
@@ -489,7 +484,7 @@ void MoonlightApp::CycleHost(int direction)
 
 void MoonlightApp::Activate()
 {
-    if (focus_ < 4)
+    if (focus_ < 3)
     {
         SetScreen(static_cast<Screen>(focus_));
         return;
@@ -498,7 +493,7 @@ void MoonlightApp::Activate()
     switch (screen_)
     {
     case Screen::Hosts:
-        if (focus_ == 4)
+        if (focus_ == 3)
         {
             if (backend_.online && backend_.paired)
             {
@@ -514,15 +509,15 @@ void MoonlightApp::Activate()
             else
                 SetText(document_, "host-action-status", "Sunshine is currently unreachable");
         }
-        else if (focus_ == 5)
+        else if (focus_ == 4)
             RefreshBackend();
-        else if (focus_ == 6)
+        else if (focus_ == 5)
             TogglePairing();
         else
             StartManualHostEntry();
         break;
     case Screen::Games:
-        if (focus_ >= 4 && focus_ <= 9 && selected_app_ < backend_.app_count)
+        if (focus_ >= 3 && focus_ <= 8 && selected_app_ < backend_.app_count)
         {
             char text[160];
             unsigned width, height;
@@ -554,36 +549,36 @@ void MoonlightApp::Activate()
             SetText(document_, "launch-status", text);
             command_ = Command::StartStream;
         }
-        else if (focus_ == 10)
+        else if (focus_ == 9)
             StopActiveApp();
         else
             SetScreen(Screen::Hosts);
         break;
     case Screen::Settings:
-        if (focus_ == 4)
+        if (focus_ == 3)
         {
             config_.hdr_enabled = 0;
             config_.video_codec = config_.video_codec == MOONLIGHT_VIDEO_CODEC_H264
                                       ? MOONLIGHT_VIDEO_CODEC_HEVC
                                       : MOONLIGHT_VIDEO_CODEC_H264;
         }
-        else if (focus_ == 5)
+        else if (focus_ == 4)
         {
             config_.hdr_enabled = 0;
             config_.stream_resolution = (config_.stream_resolution + 1) % 3;
         }
-        else if (focus_ == 6)
+        else if (focus_ == 5)
         {
             bitrate_mbps_ = NextBitrate(bitrate_mbps_);
             config_.bitrate_mbps = bitrate_mbps_;
         }
-        else if (focus_ == 7)
+        else if (focus_ == 6)
         {
             config_.display_area = config_.display_area == MOONLIGHT_DISPLAY_AREA_TV_SAFE
                                        ? MOONLIGHT_DISPLAY_AREA_FULL
                                        : MOONLIGHT_DISPLAY_AREA_TV_SAFE;
         }
-        else if (focus_ == 8)
+        else if (focus_ == 7)
         {
             config_.hdr_enabled = !config_.hdr_enabled;
             if (config_.hdr_enabled)
@@ -595,9 +590,6 @@ void MoonlightApp::Activate()
         (void)moonlight_config_save(&config_);
         UpdateSettings();
         UpdateGames();
-        break;
-    case Screen::Diagnostics:
-        SetScreen(Screen::Hosts);
         break;
     default:
         break;
@@ -872,32 +864,39 @@ void MoonlightApp::RefreshBackend()
 void MoonlightApp::UpdateScreen()
 {
     const unsigned screen = static_cast<unsigned>(screen_);
-    const char *const ids[] = {"screen-hosts", "screen-games", "screen-settings",
-                               "screen-diagnostics"};
-    const char *const titles[] = {"Your PCs", "Games", "Settings", "Diagnostics"};
-    for (unsigned i = 0; i < 4; ++i)
+    const char *const ids[] = {"screen-hosts", "screen-games", "screen-settings"};
+    const char *const nav_ids[] = {"nav-hosts", "nav-games", "nav-settings"};
+    const char *const titles[] = {"Your PCs", "Games", "Settings"};
+    for (unsigned i = 0; i < static_cast<unsigned>(Screen::Count); ++i)
     {
         SetClass(document_, ids[i], "hidden", i != screen);
-        char nav_id[32];
-        std::snprintf(nav_id, sizeof(nav_id), "nav-%s",
-                      i == 0   ? "hosts"
-                      : i == 1 ? "games"
-                      : i == 2 ? "settings"
-                               : "diagnostics");
-        SetClass(document_, nav_id, "active", i == screen);
+        SetClass(document_, nav_ids[i], "active", i == screen);
     }
     SetText(document_, "page-title", titles[screen]);
 }
 
 void MoonlightApp::UpdateFocus()
 {
-    const char *const all[] = {
-        "nav-hosts",     "nav-games",          "nav-settings",    "nav-diagnostics",
-        "host-card",     "refresh-hosts",      "pair-host",       "add-host",
-        "app-card-0",    "app-card-1",         "app-card-2",      "app-card-3",
-        "app-card-4",    "app-card-5",         "stop-app",        "back-hosts",
-        "setting-codec", "setting-resolution", "setting-bitrate", "setting-display-area",
-        "setting-hdr",   "back-diagnostics"};
+    const char *const all[] = {"nav-hosts",
+                               "nav-games",
+                               "nav-settings",
+                               "host-card",
+                               "refresh-hosts",
+                               "pair-host",
+                               "add-host",
+                               "app-card-0",
+                               "app-card-1",
+                               "app-card-2",
+                               "app-card-3",
+                               "app-card-4",
+                               "app-card-5",
+                               "stop-app",
+                               "back-hosts",
+                               "setting-codec",
+                               "setting-resolution",
+                               "setting-bitrate",
+                               "setting-display-area",
+                               "setting-hdr"};
     for (const char *id : all)
         SetClass(document_, id, "focused", false);
 
@@ -1178,22 +1177,6 @@ void MoonlightApp::UpdateSettings()
                   : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_1440P ? "1440"
                                                                                    : "1080");
     SetText(document_, "header-mode", text);
-    SetText(document_, "diagnostic-decoder-copy",
-            config_.hdr_enabled ? "Videodec2 HEVC Main10 / 10-bit zero-copy"
-            : config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC
-                ? "Videodec2 HEVC Main / 8-bit NV12"
-                : "Videodec2 H.264 High / 8-bit NV12");
-    SetText(document_, "diagnostic-mode-value",
-            config_.hdr_enabled                                              ? "HDR10 EXPERIMENTAL"
-            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P ? "4K60 BETA"
-                                                                             : "60 FPS");
-    SetText(document_, "diagnostic-mode-copy",
-            config_.hdr_enabled ? "1080p Main10 BT.2020/PQ into native 10-bit HDR VideoOut"
-            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P
-                ? "4K60 decode into native 3840x2160 VideoOut"
-            : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_1440P
-                ? "1440p decode GPU-scaled into 3840x2160 VideoOut"
-                : "1080p60 live Sunshine path is hardware accepted");
     SetText(document_, "settings-note",
             "Stream shortcuts: Select+Triangle keyboard; Select+Square mouse; Select+R1 stats; "
             "Select+L1 return.");
@@ -1220,26 +1203,26 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
             MoveFocus(1);
         break;
     case RADIO_INPUT_LEFT:
-        if (screen_ == Screen::Hosts && focus_ == 4)
+        if (screen_ == Screen::Hosts && focus_ == 3)
             CycleHost(-1);
-        else if (screen_ == Screen::Games && focus_ >= 4 && focus_ <= 9)
+        else if (screen_ == Screen::Games && focus_ >= 3 && focus_ <= 8)
             CycleApp(-1);
-        else if (screen_ == Screen::Games && focus_ >= 10)
+        else if (screen_ == Screen::Games && focus_ >= 9)
         {
-            focus_ = focus_ == 10 ? 11 : 10;
+            focus_ = focus_ == 9 ? 10 : 9;
             UpdateFocus();
         }
         else
             MoveFocus(-1);
         break;
     case RADIO_INPUT_RIGHT:
-        if (screen_ == Screen::Hosts && focus_ == 4)
+        if (screen_ == Screen::Hosts && focus_ == 3)
             CycleHost(1);
-        else if (screen_ == Screen::Games && focus_ >= 4 && focus_ <= 9)
+        else if (screen_ == Screen::Games && focus_ >= 3 && focus_ <= 8)
             CycleApp(1);
-        else if (screen_ == Screen::Games && focus_ >= 10)
+        else if (screen_ == Screen::Games && focus_ >= 9)
         {
-            focus_ = focus_ == 10 ? 11 : 10;
+            focus_ = focus_ == 9 ? 10 : 9;
             UpdateFocus();
         }
         else
@@ -1285,13 +1268,14 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
     case RADIO_INPUT_L1:
     {
         const unsigned current = static_cast<unsigned>(screen_);
-        SetScreen(static_cast<Screen>(current == 0 ? 3 : current - 1));
+        SetScreen(static_cast<Screen>(current == 0 ? static_cast<unsigned>(Screen::Count) - 1
+                                                   : current - 1));
         break;
     }
     case RADIO_INPUT_R1:
     {
         const unsigned current = static_cast<unsigned>(screen_);
-        SetScreen(static_cast<Screen>((current + 1) % 4));
+        SetScreen(static_cast<Screen>((current + 1) % static_cast<unsigned>(Screen::Count)));
         break;
     }
     default:
