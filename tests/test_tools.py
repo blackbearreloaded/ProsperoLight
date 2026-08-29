@@ -88,6 +88,15 @@ class ToolTests(unittest.TestCase):
         self.assertIn("&clientHdrCapMetaDataId=NV_STATIC_METADATA_TYPE_1", source)
         self.assertIn("&clientHdrCapDisplayData=0x0x0x0x0x0x0x0x0x0x0", source)
 
+    def test_hdr_frames_wait_for_control_stream_confirmation(self):
+        source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        start = source.index("static int moonlight_renderer_submit(")
+        end = source.index("static void audio_ring_drop(", start)
+        submit = source[start:end]
+
+        self.assertIn("(hdr_transitions && !hdr_active)", submit)
+        self.assertNotIn("!decode_unit->hdrActive", submit)
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),

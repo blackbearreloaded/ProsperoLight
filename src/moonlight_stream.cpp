@@ -650,6 +650,8 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
     uint64_t output_arrival_us = 0;
     uint64_t output_pts_us = 0;
     int32_t output_frame = 0;
+    uint32_t hdr_active;
+    uint32_t hdr_transitions;
     uint32_t submission_index;
     int32_t result;
     const char *decode_phase = "decode";
@@ -659,8 +661,10 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
         return DR_NEED_IDR;
     if (!state->running)
         return DR_OK;
+    hdr_active = std::atomic_load_explicit(&host_hdr_active, std::memory_order_relaxed);
+    hdr_transitions = std::atomic_load_explicit(&host_hdr_transitions, std::memory_order_relaxed);
     if (state->mode->hdr &&
-        (!decode_unit->hdrActive || decode_unit->colorspace != COLORSPACE_REC_2020))
+        ((hdr_transitions && !hdr_active) || decode_unit->colorspace != COLORSPACE_REC_2020))
     {
         if (!state->hdr_mismatch_reported)
         {
@@ -668,12 +672,13 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
 
             state->hdr_mismatch_reported = 1;
             snprintf(receipt, sizeof(receipt),
-                     "Moonlight HDR unavailable: frame=%d active=%u colorspace=%u expected=%u",
-                     decode_unit->frameNumber, decode_unit->hdrActive ? 1u : 0u,
-                     decode_unit->colorspace, COLORSPACE_REC_2020);
+                     "Moonlight HDR unavailable: frame=%d reported=%u confirmed=%u transitions=%u "
+                     "colorspace=%u expected=%u",
+                     decode_unit->frameNumber, decode_unit->hdrActive ? 1u : 0u, hdr_active,
+                     hdr_transitions, decode_unit->colorspace, COLORSPACE_REC_2020);
             (void)lan_http_report_text(receipt);
             snprintf(hdr_notification.message, sizeof(hdr_notification.message),
-                     decode_unit->hdrActive
+                     hdr_active
                          ? "ProsperoLight HDR stopped: Sunshine sent an unexpected color space."
                          : "ProsperoLight HDR unavailable: enable HDR on Sunshine's captured "
                            "display and retry.");
