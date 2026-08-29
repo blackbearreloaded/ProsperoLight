@@ -19,6 +19,21 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="GPL-3.0-or-later"></a>
 </p>
 
+## Highlights
+
+- Native PS5 hardware streaming through VideoDec2 and AGC at 1080p60,
+  1440p60, and 2160p60.
+- H.264 High, HEVC Main, and HEVC Main10 HDR10 support at every available
+  resolution.
+- Low-latency DualSense, physical USB keyboard and mouse, controller-driven
+  mouse mode, and an on-screen password keyboard.
+- Automatic Sunshine discovery, manual-IP fallback, persistent multi-PC
+  pairing, application artwork, and launch/resume/stop controls.
+- Persistent stream preferences, edge-to-edge or TV-safe presentation, and
+  bitrate presets from 10 to 500 Mbps.
+- 48 kHz stereo Opus audio, native launcher sound effects, live performance
+  metrics, and graceful connection recovery.
+
 ProsperoLight is a native PS5 client for the open Moonlight/Sunshine streaming
 protocol. Its RmlUi launcher discovers and pairs with Sunshine hosts, browses
 their applications, and starts a native streaming session. Video access units
@@ -48,7 +63,7 @@ tooling are maintained in this repository.
 | Identity | Value |
 | --- | --- |
 | Shell title | `ProsperoLight` |
-| Title ID | `PPSA77003` |
+| Title ID | `PPSA99002` |
 | Category | Game |
 | Current version | `01.000.040` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
@@ -72,8 +87,8 @@ tooling are maintained in this repository.
   1:1 presentation from 2160p to a 3840x2160 target.
 - Select bitrate presets up to 500 Mbps. The best setting depends on the host,
   encoder, network, and selected codec rather than link speed alone.
-- Enable experimental 1080p60 HEVC Main10 HDR10 output when the Sunshine host
-  advertises support.
+- Enable HEVC Main10 HDR10 output at 1080p60, 1440p60, or 2160p60 when the
+  Sunshine host advertises support.
 - Decode Moonlight Opus audio and output 48 kHz stereo through PS5 AudioOut.
 - Forward low-latency DualSense controls, with controller/mouse switching and
   a stream keyboard that works at Windows sign-in.
@@ -142,8 +157,8 @@ make
 Outputs are written to:
 
 ```text
-dist/PPSA77003/           complete title folder
-dist/PPSA77003.ffpfsc     compressed installation image
+dist/PPSA99002/           complete title folder
+dist/PPSA99002.ffpfsc     compressed installation image
 ```
 
 Useful development gates are:
@@ -169,7 +184,7 @@ The [Build workflow](.github/workflows/tooling.yml) runs on every push to
 3. validates metadata and the release tag;
 4. runs lint, GoogleTest, runtime-allocation, and Python integration checks;
 5. independently reproduces and verifies `runtime/libc.prx`;
-6. builds `PPSA77003.ffpfsc`; and
+6. builds `PPSA99002.ffpfsc`; and
 7. generates `SHA256SUMS` and uploads both files as the Actions artifact.
 
 A tag matching the exact `contentVersion` verifies that build-time checksum
@@ -295,7 +310,7 @@ git tag 01.000.040
 git push origin main 01.000.040
 ```
 
-Keep `PPSA77003`, `conceptId`, and `contentId` stable for updates to this title.
+Keep `PPSA99002`, `conceptId`, and `contentId` stable for updates to this title.
 Changing the title ID creates a separate PS5 application and separate pairing
 storage. See [Configuration](docs/CONFIGURATION.md).
 

@@ -7,9 +7,9 @@
   "attribute": 1644167168,
   "attribute2": 0,
   "attribute3": 0,
-  "conceptId": "77003",
+  "conceptId": "99002",
   "contentBadgeType": 1,
-  "contentId": "UP9000-PPSA77003_00-PROSPEROLIGHT000",
+  "contentId": "UP9000-PPSA99002_00-PROSPEROLIGHT000",
   "contentVersion": "01.000.040",
   "downloadDataSize": 256,
   "gameIntent": {
@@ -33,6 +33,6 @@
   },
   "requiredSystemSoftwareVersion": "0x0000000000000000",
   "sdkVersion": "0x0000000000000000",
-  "titleId": "PPSA77003",
+  "titleId": "PPSA99002",
   "versionFileUri": ""
 }
