@@ -165,3 +165,16 @@ to the launcher instead of hanging; Sunshine identified the independent host
 failure as `steam://open/bigpicture` being denied by the Windows service
 account. Fixing that Sunshine application command remains a host-configuration
 task, not a client lifecycle failure.
+
+Commit `048d334` adds automatic Sunshine health recovery. The launcher checks
+the saved address asynchronously every five seconds, retries transient failures
+after one second, and requires three consecutive failures before displaying
+`OFFLINE`. The policy has a focused host test and the complete `make check`
+gate passed. The folder candidate was deployed to `PPSA77003`; its `eboot.bin`
+SHA-256 is
+`d0cd9430b421442008c404524f93cdf0946da71ddf45d009e8a21bbde2d0e2b9`.
+It entered `eboot`, ran for the bounded ten-second observation without a loader
+error or fatal signal, closed through the title-aware controller, and left FTP,
+klog, and elfldr reachable. This is a `partial-pass`: launcher lifecycle and
+cleanup passed, while an RDP/Windows-session transition must still verify the
+visible `RECONNECTING` to `ONLINE` recovery behavior.
