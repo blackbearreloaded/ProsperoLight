@@ -80,6 +80,25 @@ class ToolTests(unittest.TestCase):
         self.assertIn("ps5_controller_newest_sample(state, count)", poll)
         self.assertNotIn("&state->sample_batch[index]", poll)
 
+    def test_physical_input_loads_modules_and_batch_drains_all_handles(self):
+        source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        start = source.index("static int ps5_physical_input_init(")
+        end = source.index("static ps5_pad_sample_t *", start)
+        physical_input = source[start:end]
+
+        self.assertLess(
+            physical_input.index("sceSysmoduleLoadModule(UINT32_C(0x0106))"),
+            physical_input.index("sceKeyboardInit()"),
+        )
+        self.assertLess(
+            physical_input.index("sceSysmoduleLoadModule(UINT32_C(0x00a9))"),
+            physical_input.index("sceMouseInit()"),
+        )
+        self.assertIn("sceKeyboardRead(", physical_input)
+        self.assertNotIn("sceKeyboardReadState(", physical_input)
+        self.assertIn("state->keyboard_handles[slot]", physical_input)
+        self.assertIn("state->mouse_handles[slot]", physical_input)
+
     def test_launch_advertises_moonlight_hdr_capabilities_for_main10(self):
         source = (ROOT / "src/gamestream/client.c").read_text(encoding="utf-8")
         self.assertIn("configuration->supportedVideoFormats & VIDEO_FORMAT_MASK_10BIT", source)

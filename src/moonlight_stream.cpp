@@ -98,7 +98,7 @@ extern "C"
     int32_t scePadRead(int32_t handle, void *samples, int32_t capacity);
     int32_t sceKeyboardInit(void);
     int32_t sceKeyboardOpen(int32_t user_id, int32_t type, int32_t index, const void *params);
-    int32_t sceKeyboardReadState(int32_t handle, void *state);
+    int32_t sceKeyboardRead(int32_t handle, void *data, int32_t capacity);
     int32_t sceKeyboardClose(int32_t handle);
     int32_t sceMouseInit(void);
     int32_t sceMouseOpen(int32_t user_id, int32_t type, int32_t index, const void *params);
@@ -298,16 +298,25 @@ typedef struct ps5_controller_state
 
 typedef struct ps5_keyboard_state
 {
-    uint64_t reserved0[2];
-    uint8_t available;
-    uint8_t padding0[3];
-    uint32_t reserved1[2];
+    uint64_t timestamp_us;
+    uint8_t intercepted;
+    uint8_t reserved0[7];
+    uint8_t connected;
+    uint8_t reserved1[3];
+    int32_t length;
+    uint32_t leds;
     uint32_t modifiers;
     uint16_t keys[16];
-    uint64_t reserved2[4];
+    uint8_t reserved2[32];
 } ps5_keyboard_state_t;
 
 static_assert(sizeof(ps5_keyboard_state_t) == 96, "Keyboard state must use the verified PS5 ABI");
+static_assert(offsetof(ps5_keyboard_state_t, intercepted) == 0x08,
+              "Keyboard intercepted offset must stay verified");
+static_assert(offsetof(ps5_keyboard_state_t, connected) == 0x10,
+              "Keyboard connected offset must stay verified");
+static_assert(offsetof(ps5_keyboard_state_t, length) == 0x14,
+              "Keyboard length offset must stay verified");
 static_assert(offsetof(ps5_keyboard_state_t, modifiers) == 0x1c,
               "Keyboard modifier offset must stay verified");
 static_assert(offsetof(ps5_keyboard_state_t, keys) == 0x20,
@@ -336,15 +345,20 @@ typedef struct ps5_mouse_open_param
 
 typedef struct ps5_physical_input_state
 {
+    int32_t keyboard_module_result, keyboard_unload_result;
     int32_t keyboard_init_result, keyboard_open_result, keyboard_close_result;
+    int32_t mouse_module_result, mouse_unload_result;
     int32_t mouse_init_result, mouse_open_result, mouse_close_result;
-    int32_t keyboard_handle, mouse_handle;
+    int32_t keyboard_handles[12], mouse_handles[8];
+    uint32_t keyboard_handle_count, mouse_handle_count;
     uint32_t keyboard_polls, keyboard_read_errors, keyboard_events, keyboard_send_errors;
     uint32_t mouse_polls, mouse_samples, mouse_read_errors, mouse_motion_events;
     uint32_t mouse_button_events, mouse_scroll_events, mouse_send_errors;
-    uint32_t mouse_buttons;
-    ps5_keyboard_state_t keyboard;
-    ps5_mouse_data_t mouse_samples_batch[16];
+    uint32_t mouse_buttons[8];
+    ps5_keyboard_state_t keyboards[12];
+    ps5_keyboard_state_t keyboard_samples_batch[16];
+    ps5_mouse_data_t mouse_samples_batch[64];
+    int initialization_attempted;
 } ps5_physical_input_state_t;
 
 typedef struct ps5_audio_state
@@ -1327,9 +1341,13 @@ static void ps5_physical_send_key(ps5_physical_input_state_t *state, uint16_t us
 }
 
 static void ps5_physical_process_keyboard(ps5_physical_input_state_t *state,
-                                          const ps5_keyboard_state_t *current)
+                                          ps5_keyboard_state_t *previous,
+                                          const ps5_keyboard_state_t *sample)
 {
-    const uint32_t changed_modifiers = state->keyboard.modifiers ^ current->modifiers;
+    ps5_keyboard_state_t neutral = {};
+    const ps5_keyboard_state_t *current =
+        sample->connected && !sample->intercepted ? sample : &neutral;
+    const uint32_t changed_modifiers = previous->modifiers ^ current->modifiers;
 
     for (uint32_t bit = 1; bit <= prosperolight::physical_input::kRightMeta; bit <<= 1)
     {
@@ -1337,10 +1355,9 @@ static void ps5_physical_process_keyboard(ps5_physical_input_state_t *state,
             ps5_physical_send_key(state, prosperolight::physical_input::ModifierUsage(bit),
                                   (current->modifiers & bit) != 0, current->modifiers);
     }
-    for (size_t index = 0; index < sizeof(state->keyboard.keys) / sizeof(state->keyboard.keys[0]);
-         ++index)
+    for (size_t index = 0; index < sizeof(previous->keys) / sizeof(previous->keys[0]); ++index)
     {
-        const uint16_t key = state->keyboard.keys[index];
+        const uint16_t key = previous->keys[index];
 
         if (key != 0 && (key < 224 || key > 231) && !ps5_keyboard_has_key(current, key))
             ps5_physical_send_key(state, key, 0, current->modifiers);
@@ -1349,38 +1366,41 @@ static void ps5_physical_process_keyboard(ps5_physical_input_state_t *state,
     {
         const uint16_t key = current->keys[index];
 
-        if (key != 0 && (key < 224 || key > 231) && !ps5_keyboard_has_key(&state->keyboard, key))
+        if (key != 0 && (key < 224 || key > 231) && !ps5_keyboard_has_key(previous, key))
             ps5_physical_send_key(state, key, 1, current->modifiers);
     }
-    state->keyboard = *current;
+    *previous = *current;
 }
 
-static void ps5_physical_release_mouse_buttons(ps5_physical_input_state_t *state)
+static void ps5_physical_release_mouse_buttons(ps5_physical_input_state_t *state,
+                                               uint32_t *pressed_buttons)
 {
     static const int moonlight_buttons[] = {BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE, BUTTON_X1,
                                             BUTTON_X2};
 
     for (uint32_t bit = 1, index = 0; index < 5; bit <<= 1, ++index)
     {
-        if ((state->mouse_buttons & bit) == 0)
+        if ((*pressed_buttons & bit) == 0)
             continue;
         if (LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, moonlight_buttons[index]) != 0)
             ++state->mouse_send_errors;
         else
             ++state->mouse_button_events;
     }
-    state->mouse_buttons = 0;
+    *pressed_buttons = 0;
 }
 
 static void ps5_physical_process_mouse(ps5_physical_input_state_t *state,
-                                       const ps5_mouse_data_t *sample)
+                                       uint32_t *previous_buttons, const ps5_mouse_data_t *sample)
 {
     static const int moonlight_buttons[] = {BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE, BUTTON_X1,
                                             BUTTON_X2};
+    const int usable = sample->connected && (sample->buttons & UINT32_C(0x80000000)) == 0;
+    const uint32_t current_buttons = usable ? sample->buttons & UINT32_C(0x1f) : 0;
 
-    if (!sample->connected)
+    if (!usable)
     {
-        ps5_physical_release_mouse_buttons(state);
+        ps5_physical_release_mouse_buttons(state, previous_buttons);
         return;
     }
     if (sample->x_axis != 0 || sample->y_axis != 0)
@@ -1391,19 +1411,19 @@ static void ps5_physical_process_mouse(ps5_physical_input_state_t *state,
         else
             ++state->mouse_motion_events;
     }
-    const uint32_t changed_buttons = state->mouse_buttons ^ sample->buttons;
+    const uint32_t changed_buttons = *previous_buttons ^ current_buttons;
     for (uint32_t bit = 1, index = 0; index < 5; bit <<= 1, ++index)
     {
         if ((changed_buttons & bit) == 0)
             continue;
-        if (LiSendMouseButtonEvent((sample->buttons & bit) ? BUTTON_ACTION_PRESS
+        if (LiSendMouseButtonEvent((current_buttons & bit) ? BUTTON_ACTION_PRESS
                                                            : BUTTON_ACTION_RELEASE,
                                    moonlight_buttons[index]) != 0)
             ++state->mouse_send_errors;
         else
             ++state->mouse_button_events;
     }
-    state->mouse_buttons = sample->buttons & UINT32_C(0x1f);
+    *previous_buttons = current_buttons;
     if (sample->wheel != 0)
     {
         if (LiSendScrollEvent(prosperolight::physical_input::ClampScroll(sample->wheel)) != 0)
@@ -1426,41 +1446,93 @@ static int ps5_physical_input_init(ps5_physical_input_state_t *state, int32_t us
     uint64_t keyboard_parameter = 0;
 
     memset(state, 0, sizeof(*state));
-    state->keyboard_handle = -1;
-    state->mouse_handle = -1;
+    state->initialization_attempted = 1;
+    state->keyboard_module_result = -1;
+    state->keyboard_unload_result = -1;
+    state->keyboard_init_result = -1;
+    state->keyboard_open_result = -1;
     state->keyboard_close_result = -1;
+    state->mouse_module_result = -1;
+    state->mouse_unload_result = -1;
+    state->mouse_init_result = -1;
+    state->mouse_open_result = -1;
     state->mouse_close_result = -1;
-    state->keyboard_init_result = sceKeyboardInit();
-    state->keyboard_handle = sceKeyboardOpen(user_id, 0, 0, &keyboard_parameter);
-    state->keyboard_open_result = state->keyboard_handle;
-    state->mouse_init_result = sceMouseInit();
-    mouse_parameter.behavior_flag = 1;
-    state->mouse_handle = sceMouseOpen(user_id, 0, 0, &mouse_parameter);
-    state->mouse_open_result = state->mouse_handle;
-    return state->keyboard_handle >= 0 || state->mouse_handle >= 0 ? 0 : -1;
+    for (size_t index = 0;
+         index < sizeof(state->keyboard_handles) / sizeof(state->keyboard_handles[0]); ++index)
+        state->keyboard_handles[index] = -1;
+    for (size_t index = 0; index < sizeof(state->mouse_handles) / sizeof(state->mouse_handles[0]);
+         ++index)
+        state->mouse_handles[index] = -1;
+
+    state->keyboard_module_result = sceSysmoduleLoadModule(UINT32_C(0x0106));
+    if (state->keyboard_module_result >= 0)
+        state->keyboard_init_result = sceKeyboardInit();
+    if (state->keyboard_init_result >= 0)
+    {
+        for (size_t index = 0;
+             index < sizeof(state->keyboard_handles) / sizeof(state->keyboard_handles[0]); ++index)
+        {
+            const int32_t handle = sceKeyboardOpen(user_id, 0, (int32_t)index, &keyboard_parameter);
+            if (handle < 0)
+                continue;
+            state->keyboard_handles[index] = handle;
+            if (state->keyboard_open_result < 0)
+                state->keyboard_open_result = handle;
+            ++state->keyboard_handle_count;
+        }
+    }
+
+    state->mouse_module_result = sceSysmoduleLoadModule(UINT32_C(0x00a9));
+    if (state->mouse_module_result >= 0)
+        state->mouse_init_result = sceMouseInit();
+    if (state->mouse_init_result >= 0)
+    {
+        for (size_t index = 0;
+             index < sizeof(state->mouse_handles) / sizeof(state->mouse_handles[0]); ++index)
+        {
+            const int32_t handle = sceMouseOpen(user_id, 0, (int32_t)index, &mouse_parameter);
+            if (handle < 0)
+                continue;
+            state->mouse_handles[index] = handle;
+            if (state->mouse_open_result < 0)
+                state->mouse_open_result = handle;
+            ++state->mouse_handle_count;
+        }
+    }
+    return state->keyboard_handle_count || state->mouse_handle_count ? 0 : -1;
 }
 
 static void ps5_physical_input_poll(ps5_physical_input_state_t *state)
 {
-    if (state->keyboard_handle >= 0)
+    for (size_t slot = 0;
+         slot < sizeof(state->keyboard_handles) / sizeof(state->keyboard_handles[0]); ++slot)
     {
-        ps5_keyboard_state_t current = {};
-        const int result = sceKeyboardReadState(state->keyboard_handle, &current);
+        if (state->keyboard_handles[slot] < 0)
+            continue;
+        int count = sceKeyboardRead(state->keyboard_handles[slot], state->keyboard_samples_batch,
+                                    (int32_t)(sizeof(state->keyboard_samples_batch) /
+                                              sizeof(state->keyboard_samples_batch[0])));
 
         ++state->keyboard_polls;
-        if (result != 0)
+        if (count < 0)
             ++state->keyboard_read_errors;
-        else
-        {
-            if (!current.available)
-                memset(&current, 0, sizeof(current));
-            ps5_physical_process_keyboard(state, &current);
-        }
+        if (count <= 0)
+            continue;
+        if ((size_t)count >
+            sizeof(state->keyboard_samples_batch) / sizeof(state->keyboard_samples_batch[0]))
+            count = (int)(sizeof(state->keyboard_samples_batch) /
+                          sizeof(state->keyboard_samples_batch[0]));
+        for (int index = 0; index < count; ++index)
+            ps5_physical_process_keyboard(state, &state->keyboards[slot],
+                                          &state->keyboard_samples_batch[index]);
     }
-    if (state->mouse_handle >= 0)
+    for (size_t slot = 0; slot < sizeof(state->mouse_handles) / sizeof(state->mouse_handles[0]);
+         ++slot)
     {
-        const int count = sceMouseRead(
-            state->mouse_handle, state->mouse_samples_batch,
+        if (state->mouse_handles[slot] < 0)
+            continue;
+        int count = sceMouseRead(
+            state->mouse_handles[slot], state->mouse_samples_batch,
             (int32_t)(sizeof(state->mouse_samples_batch) / sizeof(state->mouse_samples_batch[0])));
 
         ++state->mouse_polls;
@@ -1468,9 +1540,14 @@ static void ps5_physical_input_poll(ps5_physical_input_state_t *state)
             ++state->mouse_read_errors;
         else
         {
+            if ((size_t)count >
+                sizeof(state->mouse_samples_batch) / sizeof(state->mouse_samples_batch[0]))
+                count = (int)(sizeof(state->mouse_samples_batch) /
+                              sizeof(state->mouse_samples_batch[0]));
             state->mouse_samples += (uint32_t)count;
             for (int index = 0; index < count; ++index)
-                ps5_physical_process_mouse(state, &state->mouse_samples_batch[index]);
+                ps5_physical_process_mouse(state, &state->mouse_buttons[slot],
+                                           &state->mouse_samples_batch[index]);
         }
     }
 }
@@ -1479,22 +1556,38 @@ static void ps5_physical_input_stop(ps5_physical_input_state_t *state)
 {
     const ps5_keyboard_state_t empty_keyboard = {};
 
-    ps5_physical_process_keyboard(state, &empty_keyboard);
-    ps5_physical_release_mouse_buttons(state);
+    for (size_t index = 0; index < sizeof(state->keyboards) / sizeof(state->keyboards[0]); ++index)
+        ps5_physical_process_keyboard(state, &state->keyboards[index], &empty_keyboard);
+    for (size_t index = 0; index < sizeof(state->mouse_buttons) / sizeof(state->mouse_buttons[0]);
+         ++index)
+        ps5_physical_release_mouse_buttons(state, &state->mouse_buttons[index]);
 }
 
 static void ps5_physical_input_shutdown(ps5_physical_input_state_t *state)
 {
-    if (state->keyboard_handle >= 0)
+    if (!state->initialization_attempted)
+        return;
+    for (size_t index = 0;
+         index < sizeof(state->keyboard_handles) / sizeof(state->keyboard_handles[0]); ++index)
     {
-        state->keyboard_close_result = sceKeyboardClose(state->keyboard_handle);
-        state->keyboard_handle = -1;
+        if (state->keyboard_handles[index] < 0)
+            continue;
+        state->keyboard_close_result = sceKeyboardClose(state->keyboard_handles[index]);
+        state->keyboard_handles[index] = -1;
     }
-    if (state->mouse_handle >= 0)
+    for (size_t index = 0; index < sizeof(state->mouse_handles) / sizeof(state->mouse_handles[0]);
+         ++index)
     {
-        state->mouse_close_result = sceMouseClose(state->mouse_handle);
-        state->mouse_handle = -1;
+        if (state->mouse_handles[index] < 0)
+            continue;
+        state->mouse_close_result = sceMouseClose(state->mouse_handles[index]);
+        state->mouse_handles[index] = -1;
     }
+    if (state->mouse_module_result == 0)
+        state->mouse_unload_result = sceSysmoduleUnloadModule(UINT32_C(0x00a9));
+    if (state->keyboard_module_result == 0)
+        state->keyboard_unload_result = sceSysmoduleUnloadModule(UINT32_C(0x0106));
+    state->initialization_attempted = 0;
 }
 
 static ps5_pad_sample_t *ps5_controller_newest_sample(ps5_controller_state_t *state, int count)
@@ -2241,9 +2334,13 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     controller.handle = -1;
     controller.arrival_result = -1;
     controller.removal_result = -1;
-    physical_input.keyboard_handle = -1;
-    physical_input.mouse_handle = -1;
+    physical_input.keyboard_module_result = -1;
+    physical_input.keyboard_unload_result = -1;
+    physical_input.keyboard_init_result = -1;
     physical_input.keyboard_open_result = -1;
+    physical_input.mouse_module_result = -1;
+    physical_input.mouse_unload_result = -1;
+    physical_input.mouse_init_result = -1;
     physical_input.mouse_open_result = -1;
     physical_input.keyboard_close_result = -1;
     physical_input.mouse_close_result = -1;
@@ -2442,12 +2539,15 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
              (uint32_t)controller.handle, controller_ready ? 1 : 0);
     (void)lan_http_report_text(notification.message);
     snprintf(notification.message, sizeof(notification.message),
-             "Moonlight physical input init: ready=%d keyboard_init=%08x keyboard_open=%08x "
-             "mouse_init=%08x mouse_open=%08x",
-             physical_input_ready, (uint32_t)physical_input.keyboard_init_result,
-             (uint32_t)physical_input.keyboard_open_result,
-             (uint32_t)physical_input.mouse_init_result,
-             (uint32_t)physical_input.mouse_open_result);
+             "Moonlight physical input init: ready=%d keyboard_module=%08x keyboard_init=%08x "
+             "keyboard_open=%08x handles=%u mouse_module=%08x mouse_init=%08x mouse_open=%08x "
+             "handles=%u",
+             physical_input_ready, (uint32_t)physical_input.keyboard_module_result,
+             (uint32_t)physical_input.keyboard_init_result,
+             (uint32_t)physical_input.keyboard_open_result, physical_input.keyboard_handle_count,
+             (uint32_t)physical_input.mouse_module_result,
+             (uint32_t)physical_input.mouse_init_result, (uint32_t)physical_input.mouse_open_result,
+             physical_input.mouse_handle_count);
     (void)lan_http_report_text(notification.message);
     result =
         start_connection_loading(&loading, frame_memory, frame_size, mode->hdr, mode->visible_width,
@@ -2697,20 +2797,25 @@ done:
         controller.mouse_button_events, controller.mouse_scroll_events, controller.mouse_errors);
     (void)lan_http_report_text(notification.message);
     ps5_physical_input_shutdown(&physical_input);
-    snprintf(
-        notification.message, sizeof(notification.message),
-        "Moonlight physical input result: ready=%d keyboard_open=%08x polls=%u events=%u "
-        "read_errors=%u send_errors=%u mouse_open=%08x polls=%u samples=%u motion=%u buttons=%u "
-        "scroll=%u read_errors=%u send_errors=%u keyboard_close=%08x mouse_close=%08x",
-        physical_input_ready, (uint32_t)physical_input.keyboard_open_result,
-        physical_input.keyboard_polls, physical_input.keyboard_events,
-        physical_input.keyboard_read_errors, physical_input.keyboard_send_errors,
-        (uint32_t)physical_input.mouse_open_result, physical_input.mouse_polls,
-        physical_input.mouse_samples, physical_input.mouse_motion_events,
-        physical_input.mouse_button_events, physical_input.mouse_scroll_events,
-        physical_input.mouse_read_errors, physical_input.mouse_send_errors,
-        (uint32_t)physical_input.keyboard_close_result,
-        (uint32_t)physical_input.mouse_close_result);
+    snprintf(notification.message, sizeof(notification.message),
+             "Moonlight physical input result: ready=%d keyboard_module=%08x open=%08x handles=%u "
+             "polls=%u events=%u read_errors=%u send_errors=%u mouse_module=%08x open=%08x "
+             "handles=%u polls=%u samples=%u motion=%u buttons=%u scroll=%u read_errors=%u "
+             "send_errors=%u keyboard_close=%08x mouse_close=%08x keyboard_unload=%08x "
+             "mouse_unload=%08x",
+             physical_input_ready, (uint32_t)physical_input.keyboard_module_result,
+             (uint32_t)physical_input.keyboard_open_result, physical_input.keyboard_handle_count,
+             physical_input.keyboard_polls, physical_input.keyboard_events,
+             physical_input.keyboard_read_errors, physical_input.keyboard_send_errors,
+             (uint32_t)physical_input.mouse_module_result,
+             (uint32_t)physical_input.mouse_open_result, physical_input.mouse_handle_count,
+             physical_input.mouse_polls, physical_input.mouse_samples,
+             physical_input.mouse_motion_events, physical_input.mouse_button_events,
+             physical_input.mouse_scroll_events, physical_input.mouse_read_errors,
+             physical_input.mouse_send_errors, (uint32_t)physical_input.keyboard_close_result,
+             (uint32_t)physical_input.mouse_close_result,
+             (uint32_t)physical_input.keyboard_unload_result,
+             (uint32_t)physical_input.mouse_unload_result);
     (void)lan_http_report_text(notification.message);
     ps5_controller_shutdown(&controller);
     if (session_started && !controller.requested_stop)

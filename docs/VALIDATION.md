@@ -342,3 +342,15 @@ build, deployment, launcher lifecycle, and cleanup are proven; physical USB
 motion, buttons, wheel, typing, modifiers, and reconnect still require the
 interactive Sunshine-stream acceptance step. Evidence is stored under
 `results/usb-input-032/`.
+
+The subsequent active-stream test exposed a deterministic crash in
+`01.000.032`: its new input path called the keyboard and mouse libraries without
+first loading sysmodules `0x0106` and `0x00a9`, assumed both devices used index
+zero, and sampled keyboard state instead of draining transition records. Version
+`01.000.033` replaces that shortcut with the device-validated contract from the
+native input investigation: load each module before initialization, retain every
+accepted device index, drain bounded keyboard and mouse batches oldest-first,
+neutralize intercepted or disconnected samples, and close every retained handle.
+The complete pre-deployment gate passes with 20 GoogleTests and 22 Python
+integration tests. Active-stream console acceptance remains required before this
+fix can be called fully validated.

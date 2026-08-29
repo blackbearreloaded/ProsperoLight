@@ -50,7 +50,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA77003` |
 | Category | Game |
-| Current version | `01.000.032` |
+| Current version | `01.000.033` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -289,8 +289,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.032
-git push origin main 01.000.032
+git tag 01.000.033
+git push origin main 01.000.033
 ```
 
 Keep `PPSA77003`, `conceptId`, and `contentId` stable for updates to this title.
