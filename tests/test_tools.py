@@ -71,6 +71,15 @@ class ToolTests(unittest.TestCase):
         self.assertLess(early_loading, early_loading_stop)
         self.assertLess(early_loading_stop, pad_init)
 
+    def test_stream_forwards_only_the_newest_pad_sample(self):
+        source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        start = source.index("static void ps5_controller_poll(")
+        end = source.index("static void ps5_controller_stop(", start)
+        poll = source[start:end]
+
+        self.assertIn("ps5_controller_newest_sample(state, count)", poll)
+        self.assertNotIn("&state->sample_batch[index]", poll)
+
     def test_loading_labels_match_the_embedded_dimensions(self):
         expected = {
             "loading-prosperolight-alpha.bin": (232, 35),

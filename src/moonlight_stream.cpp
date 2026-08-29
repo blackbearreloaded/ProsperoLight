@@ -48,7 +48,7 @@
 #define PS5_AUDIO_PORT_MAIN 0
 #define PS5_AUDIO_FORMAT_S16_STEREO 1
 #define VIDEO_SLICES_PER_FRAME 4
-#define HUD_STATS_REFRESH_FRAMES 15u
+#define HUD_STATS_REFRESH_FRAMES 60u
 
 #define PS5_PAD_BUTTON_L3 0x000002u
 #define PS5_PAD_BUTTON_R3 0x000004u
@@ -1226,6 +1226,18 @@ static int ps5_controller_init(ps5_controller_state_t *state)
     return state->handle < 0 ? state->handle : 0;
 }
 
+static ps5_pad_sample_t *ps5_controller_newest_sample(ps5_controller_state_t *state, int count)
+{
+    ps5_pad_sample_t *newest = &state->sample_batch[0];
+
+    for (int index = 1; index < count; ++index)
+    {
+        if (state->sample_batch[index].timestamp_us > newest->timestamp_us)
+            newest = &state->sample_batch[index];
+    }
+    return newest;
+}
+
 static controller_event_t ps5_controller_map_sample(const ps5_pad_sample_t *sample, int neutral)
 {
     controller_event_t event = {};
@@ -1571,9 +1583,8 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
     if ((uint32_t)count > state->max_batch)
         state->max_batch = (uint32_t)count;
 
-    for (int index = 0; index < count; ++index)
     {
-        ps5_pad_sample_t *sample = &state->sample_batch[index];
+        ps5_pad_sample_t *sample = ps5_controller_newest_sample(state, count);
         controller_event_t event;
         uint32_t raw_buttons = sample->buttons;
         uint32_t mouse_buttons;
@@ -1623,7 +1634,7 @@ static void ps5_controller_poll(ps5_controller_state_t *state)
                 ps5_controller_keyboard_input(state, raw_buttons, state->last_raw_buttons);
             state->last_raw_buttons = raw_buttons;
             ps5_controller_send(state, &neutral_event);
-            continue;
+            return;
         }
 
         event = ps5_controller_map_sample(sample, neutral);
