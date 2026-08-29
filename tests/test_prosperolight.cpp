@@ -10,6 +10,7 @@
 #include "moonlight_stream_keyboard.hpp"
 #include "moonlight_config.hpp"
 #include "moonlight_health.hpp"
+#include "moonlight_physical_input.hpp"
 
 #include <gtest/gtest.h>
 
@@ -121,6 +122,45 @@ TEST(StreamShortcuts, MouseAxisHasDeadzoneAndDirection)
     EXPECT_EQ(moonlight_stream_mouse_axis_delta(0), 0);
     EXPECT_GT(moonlight_stream_mouse_axis_delta(32766), 0);
     EXPECT_LT(moonlight_stream_mouse_axis_delta(-32766), 0);
+}
+
+TEST(PhysicalInput, MapsUsbKeyboardLikeMoonlightQt)
+{
+    using prosperolight::physical_input::MapKey;
+
+    EXPECT_EQ(MapKey(4).virtual_key, 0x41u);
+    EXPECT_EQ(MapKey(29).virtual_key, 0x5au);
+    EXPECT_EQ(MapKey(30).virtual_key, 0x31u);
+    EXPECT_EQ(MapKey(39).virtual_key, 0x30u);
+    EXPECT_EQ(MapKey(40).virtual_key, 0x0du);
+    EXPECT_EQ(MapKey(80).virtual_key, 0x25u);
+    EXPECT_EQ(MapKey(58).virtual_key, 0x70u);
+    EXPECT_EQ(MapKey(69).virtual_key, 0x7bu);
+    EXPECT_EQ(MapKey(100).virtual_key, 0xe2u);
+    EXPECT_EQ(MapKey(100).flags, prosperolight::physical_input::kNonNormalized);
+    EXPECT_FALSE(static_cast<bool>(MapKey(0)));
+}
+
+TEST(PhysicalInput, ConvertsBothSidesOfEveryModifier)
+{
+    using namespace prosperolight::physical_input;
+
+    EXPECT_EQ(MoonlightModifiers(kLeftShift | kRightShift), kModifierShift);
+    EXPECT_EQ(MoonlightModifiers(kRightControl | kLeftAlt | kRightMeta),
+              kModifierControl | kModifierAlt | kModifierMeta);
+    EXPECT_EQ(MapKey(ModifierUsage(kLeftControl)).virtual_key, 0xa2u);
+    EXPECT_EQ(MapKey(ModifierUsage(kRightMeta)).virtual_key, 0x5cu);
+}
+
+TEST(PhysicalInput, ClampsNativeMouseRangesForMoonlightPackets)
+{
+    using namespace prosperolight::physical_input;
+
+    EXPECT_EQ(ClampMotion(40000), INT16_MAX);
+    EXPECT_EQ(ClampMotion(-40000), INT16_MIN);
+    EXPECT_EQ(ClampMotion(12), 12);
+    EXPECT_EQ(ClampScroll(200), INT8_MAX);
+    EXPECT_EQ(ClampScroll(-200), -INT8_MAX);
 }
 
 TEST(StreamKeyboard, NavigationWrapsAndPreservesAValidColumn)

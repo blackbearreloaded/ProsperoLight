@@ -41,7 +41,12 @@ settings.
    useful error rather than remain black.
 8. Test mouse emulation using `Select + Square`, then return to controller
    mode with the same shortcut. Confirm both modes still accept input.
-9. If the host supports them, test HEVC and HDR separately. Verify image,
+9. Connect a physical USB keyboard and mouse. In Desktop, type letters,
+   punctuation, Shift/Ctrl combinations, Backspace, Enter, and an arrow key;
+   then verify relative pointer movement, left/right/middle click, and the
+   wheel. Disconnect only after releasing all keys and buttons, then return to
+   the launcher and reconnect to confirm no host input remains stuck.
+10. If the host supports them, test HEVC and HDR separately. Verify image,
    audio, input, cleanup, and recovery; do not treat HDR audio-only output as a
    pass.
 

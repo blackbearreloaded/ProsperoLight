@@ -9,13 +9,21 @@ configuration, discovery, pairing, application control
         |
 Moonlight stream coordinator (moonlight_stream.cpp)
    |                 |                 |
-VideoDec2 -> AGC     Opus -> AudioOut   DualSense -> Moonlight input
+VideoDec2 -> AGC     Opus -> AudioOut   DualSense + USB HID -> Moonlight input
 ```
 
 `moonlight_stream.cpp` owns the live session and its cleanup. Video access
 units are decoded by VideoDec2 into GPU-visible resources and handed to AGC for
 presentation. The application does not copy decoded pixels through a CPU frame
 buffer on this path.
+
+While a stream is active, the same 4 ms input loop polls `libScePad`,
+`libSceKeyboard`, and `libSceMouse`. Physical keyboard USB-HID usages are
+translated to the Windows virtual-key values used by Moonlight Qt, while
+physical mouse deltas, five buttons, and both wheel axes use Moonlight's native
+input packets. Key repeat remains host-driven. Teardown raises every tracked
+key and mouse button before the connection closes so returning to the launcher
+cannot leave input stuck on the host.
 
 The AGC presenter selects its VideoOut target at the stream boundary. A 1080p
 stream uses two 1920x1080 scanout buffers. Both 1440p and 2160p streams acquire

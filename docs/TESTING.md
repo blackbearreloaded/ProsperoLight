@@ -9,8 +9,9 @@ make app
 ```
 
 `make test` contains focused GoogleTest coverage for stream input shortcuts,
-configuration defaults, host-list updates, health failure debouncing and
-recovery, and failure fallback. Python
+physical USB keyboard mapping and mouse range conversion, configuration
+defaults, host-list updates, health failure debouncing and recovery, and
+failure fallback. Python
 regressions cover identity and safe deploy path resolution. These tests do not
 require a console or a Sunshine host.
 

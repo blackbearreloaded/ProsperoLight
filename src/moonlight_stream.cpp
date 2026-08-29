@@ -21,6 +21,7 @@
 
 #include "moonlight_stream.hpp"
 #include "moonlight_config.hpp"
+#include "moonlight_physical_input.hpp"
 #include "moonlight_stream_input.hpp"
 #include "moonlight_stream_keyboard.hpp"
 #include "lan_http_report.hpp"
@@ -95,6 +96,14 @@ extern "C"
     int32_t scePadOpen(int32_t user_id, int32_t port_type, int32_t index, const void *params);
     int32_t scePadClose(int32_t handle);
     int32_t scePadRead(int32_t handle, void *samples, int32_t capacity);
+    int32_t sceKeyboardInit(void);
+    int32_t sceKeyboardOpen(int32_t user_id, int32_t type, int32_t index, const void *params);
+    int32_t sceKeyboardReadState(int32_t handle, void *state);
+    int32_t sceKeyboardClose(int32_t handle);
+    int32_t sceMouseInit(void);
+    int32_t sceMouseOpen(int32_t user_id, int32_t type, int32_t index, const void *params);
+    int32_t sceMouseRead(int32_t handle, void *data, int32_t count);
+    int32_t sceMouseClose(int32_t handle);
     int32_t sceAudioOutInit(void);
     int32_t sceAudioOutOpen(int32_t user_id, int32_t type, int32_t index, uint32_t length,
                             uint32_t frequency, uint32_t format);
@@ -263,7 +272,7 @@ typedef struct controller_event
 typedef struct ps5_controller_state
 {
     int32_t user_service_result, user_result, pad_init_result;
-    int32_t handle, arrival_result, removal_result;
+    int32_t user_id, handle, arrival_result, removal_result;
     uint32_t polls, samples, empty_reads, max_batch, read_errors;
     uint32_t events, send_errors, nonneutral_samples;
     uint32_t disconnected_samples, intercepted_samples;
@@ -286,6 +295,57 @@ typedef struct ps5_controller_state
     std::atomic<int> requested_stop;
     ps5_pad_sample_t sample_batch[PS5_PAD_SAMPLE_CAPACITY];
 } ps5_controller_state_t;
+
+typedef struct ps5_keyboard_state
+{
+    uint64_t reserved0[2];
+    uint8_t available;
+    uint8_t padding0[3];
+    uint32_t reserved1[2];
+    uint32_t modifiers;
+    uint16_t keys[16];
+    uint64_t reserved2[4];
+} ps5_keyboard_state_t;
+
+static_assert(sizeof(ps5_keyboard_state_t) == 96, "Keyboard state must use the verified PS5 ABI");
+static_assert(offsetof(ps5_keyboard_state_t, modifiers) == 0x1c,
+              "Keyboard modifier offset must stay verified");
+static_assert(offsetof(ps5_keyboard_state_t, keys) == 0x20,
+              "Keyboard key array offset must stay verified");
+
+typedef struct ps5_mouse_data
+{
+    uint64_t timestamp_us;
+    uint8_t connected;
+    uint8_t padding0[3];
+    uint32_t buttons;
+    int32_t x_axis, y_axis, wheel, tilt;
+    uint8_t reserved[8];
+} ps5_mouse_data_t;
+
+static_assert(sizeof(ps5_mouse_data_t) == 40, "Mouse data must use the verified PS5 ABI");
+static_assert(offsetof(ps5_mouse_data_t, buttons) == 0x0c,
+              "Mouse button offset must stay verified");
+static_assert(offsetof(ps5_mouse_data_t, x_axis) == 0x10, "Mouse axis offset must stay verified");
+
+typedef struct ps5_mouse_open_param
+{
+    uint8_t behavior_flag;
+    uint8_t reserved[7];
+} ps5_mouse_open_param_t;
+
+typedef struct ps5_physical_input_state
+{
+    int32_t keyboard_init_result, keyboard_open_result, keyboard_close_result;
+    int32_t mouse_init_result, mouse_open_result, mouse_close_result;
+    int32_t keyboard_handle, mouse_handle;
+    uint32_t keyboard_polls, keyboard_read_errors, keyboard_events, keyboard_send_errors;
+    uint32_t mouse_polls, mouse_samples, mouse_read_errors, mouse_motion_events;
+    uint32_t mouse_button_events, mouse_scroll_events, mouse_send_errors;
+    uint32_t mouse_buttons;
+    ps5_keyboard_state_t keyboard;
+    ps5_mouse_data_t mouse_samples_batch[16];
+} ps5_physical_input_state_t;
 
 typedef struct ps5_audio_state
 {
@@ -1224,11 +1284,13 @@ static int ps5_controller_init(ps5_controller_state_t *state)
     int32_t user_id = -1;
 
     memset(state, 0, sizeof(*state));
+    state->user_id = -1;
     state->handle = -1;
     state->arrival_result = -1;
     state->removal_result = -1;
     state->user_service_result = sceUserServiceInitialize(NULL);
     state->user_result = sceUserServiceGetInitialUser(&user_id);
+    state->user_id = user_id;
     if (state->user_result < 0)
         return state->user_result;
     state->pad_init_result = scePadInit();
@@ -1236,6 +1298,203 @@ static int ps5_controller_init(ps5_controller_state_t *state)
         return state->pad_init_result;
     state->handle = scePadOpen(user_id, 0, 0, NULL);
     return state->handle < 0 ? state->handle : 0;
+}
+
+static int ps5_keyboard_has_key(const ps5_keyboard_state_t *state, uint16_t key)
+{
+    for (size_t index = 0; index < sizeof(state->keys) / sizeof(state->keys[0]); ++index)
+    {
+        if (state->keys[index] == key)
+            return 1;
+    }
+    return 0;
+}
+
+static void ps5_physical_send_key(ps5_physical_input_state_t *state, uint16_t usage, int down,
+                                  uint32_t modifiers)
+{
+    const auto mapping = prosperolight::physical_input::MapKey(usage);
+
+    if (!mapping)
+        return;
+    const int result = LiSendKeyboardEvent2(
+        (short)(UINT16_C(0x8000) | mapping.virtual_key), down ? KEY_ACTION_DOWN : KEY_ACTION_UP,
+        (char)prosperolight::physical_input::MoonlightModifiers(modifiers), (char)mapping.flags);
+    if (result != 0)
+        ++state->keyboard_send_errors;
+    else
+        ++state->keyboard_events;
+}
+
+static void ps5_physical_process_keyboard(ps5_physical_input_state_t *state,
+                                          const ps5_keyboard_state_t *current)
+{
+    const uint32_t changed_modifiers = state->keyboard.modifiers ^ current->modifiers;
+
+    for (uint32_t bit = 1; bit <= prosperolight::physical_input::kRightMeta; bit <<= 1)
+    {
+        if (changed_modifiers & bit)
+            ps5_physical_send_key(state, prosperolight::physical_input::ModifierUsage(bit),
+                                  (current->modifiers & bit) != 0, current->modifiers);
+    }
+    for (size_t index = 0; index < sizeof(state->keyboard.keys) / sizeof(state->keyboard.keys[0]);
+         ++index)
+    {
+        const uint16_t key = state->keyboard.keys[index];
+
+        if (key != 0 && (key < 224 || key > 231) && !ps5_keyboard_has_key(current, key))
+            ps5_physical_send_key(state, key, 0, current->modifiers);
+    }
+    for (size_t index = 0; index < sizeof(current->keys) / sizeof(current->keys[0]); ++index)
+    {
+        const uint16_t key = current->keys[index];
+
+        if (key != 0 && (key < 224 || key > 231) && !ps5_keyboard_has_key(&state->keyboard, key))
+            ps5_physical_send_key(state, key, 1, current->modifiers);
+    }
+    state->keyboard = *current;
+}
+
+static void ps5_physical_release_mouse_buttons(ps5_physical_input_state_t *state)
+{
+    static const int moonlight_buttons[] = {BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE, BUTTON_X1,
+                                            BUTTON_X2};
+
+    for (uint32_t bit = 1, index = 0; index < 5; bit <<= 1, ++index)
+    {
+        if ((state->mouse_buttons & bit) == 0)
+            continue;
+        if (LiSendMouseButtonEvent(BUTTON_ACTION_RELEASE, moonlight_buttons[index]) != 0)
+            ++state->mouse_send_errors;
+        else
+            ++state->mouse_button_events;
+    }
+    state->mouse_buttons = 0;
+}
+
+static void ps5_physical_process_mouse(ps5_physical_input_state_t *state,
+                                       const ps5_mouse_data_t *sample)
+{
+    static const int moonlight_buttons[] = {BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE, BUTTON_X1,
+                                            BUTTON_X2};
+
+    if (!sample->connected)
+    {
+        ps5_physical_release_mouse_buttons(state);
+        return;
+    }
+    if (sample->x_axis != 0 || sample->y_axis != 0)
+    {
+        if (LiSendMouseMoveEvent(prosperolight::physical_input::ClampMotion(sample->x_axis),
+                                 prosperolight::physical_input::ClampMotion(sample->y_axis)) != 0)
+            ++state->mouse_send_errors;
+        else
+            ++state->mouse_motion_events;
+    }
+    const uint32_t changed_buttons = state->mouse_buttons ^ sample->buttons;
+    for (uint32_t bit = 1, index = 0; index < 5; bit <<= 1, ++index)
+    {
+        if ((changed_buttons & bit) == 0)
+            continue;
+        if (LiSendMouseButtonEvent((sample->buttons & bit) ? BUTTON_ACTION_PRESS
+                                                           : BUTTON_ACTION_RELEASE,
+                                   moonlight_buttons[index]) != 0)
+            ++state->mouse_send_errors;
+        else
+            ++state->mouse_button_events;
+    }
+    state->mouse_buttons = sample->buttons & UINT32_C(0x1f);
+    if (sample->wheel != 0)
+    {
+        if (LiSendScrollEvent(prosperolight::physical_input::ClampScroll(sample->wheel)) != 0)
+            ++state->mouse_send_errors;
+        else
+            ++state->mouse_scroll_events;
+    }
+    if (sample->tilt != 0)
+    {
+        if (LiSendHScrollEvent(prosperolight::physical_input::ClampScroll(sample->tilt)) != 0)
+            ++state->mouse_send_errors;
+        else
+            ++state->mouse_scroll_events;
+    }
+}
+
+static int ps5_physical_input_init(ps5_physical_input_state_t *state, int32_t user_id)
+{
+    ps5_mouse_open_param_t mouse_parameter = {};
+    uint64_t keyboard_parameter = 0;
+
+    memset(state, 0, sizeof(*state));
+    state->keyboard_handle = -1;
+    state->mouse_handle = -1;
+    state->keyboard_close_result = -1;
+    state->mouse_close_result = -1;
+    state->keyboard_init_result = sceKeyboardInit();
+    state->keyboard_handle = sceKeyboardOpen(user_id, 0, 0, &keyboard_parameter);
+    state->keyboard_open_result = state->keyboard_handle;
+    state->mouse_init_result = sceMouseInit();
+    mouse_parameter.behavior_flag = 1;
+    state->mouse_handle = sceMouseOpen(user_id, 0, 0, &mouse_parameter);
+    state->mouse_open_result = state->mouse_handle;
+    return state->keyboard_handle >= 0 || state->mouse_handle >= 0 ? 0 : -1;
+}
+
+static void ps5_physical_input_poll(ps5_physical_input_state_t *state)
+{
+    if (state->keyboard_handle >= 0)
+    {
+        ps5_keyboard_state_t current = {};
+        const int result = sceKeyboardReadState(state->keyboard_handle, &current);
+
+        ++state->keyboard_polls;
+        if (result != 0)
+            ++state->keyboard_read_errors;
+        else
+        {
+            if (!current.available)
+                memset(&current, 0, sizeof(current));
+            ps5_physical_process_keyboard(state, &current);
+        }
+    }
+    if (state->mouse_handle >= 0)
+    {
+        const int count = sceMouseRead(
+            state->mouse_handle, state->mouse_samples_batch,
+            (int32_t)(sizeof(state->mouse_samples_batch) / sizeof(state->mouse_samples_batch[0])));
+
+        ++state->mouse_polls;
+        if (count < 0)
+            ++state->mouse_read_errors;
+        else
+        {
+            state->mouse_samples += (uint32_t)count;
+            for (int index = 0; index < count; ++index)
+                ps5_physical_process_mouse(state, &state->mouse_samples_batch[index]);
+        }
+    }
+}
+
+static void ps5_physical_input_stop(ps5_physical_input_state_t *state)
+{
+    const ps5_keyboard_state_t empty_keyboard = {};
+
+    ps5_physical_process_keyboard(state, &empty_keyboard);
+    ps5_physical_release_mouse_buttons(state);
+}
+
+static void ps5_physical_input_shutdown(ps5_physical_input_state_t *state)
+{
+    if (state->keyboard_handle >= 0)
+    {
+        state->keyboard_close_result = sceKeyboardClose(state->keyboard_handle);
+        state->keyboard_handle = -1;
+    }
+    if (state->mouse_handle >= 0)
+    {
+        state->mouse_close_result = sceMouseClose(state->mouse_handle);
+        state->mouse_handle = -1;
+    }
 }
 
 static ps5_pad_sample_t *ps5_controller_newest_sample(ps5_controller_state_t *state, int count)
@@ -1918,6 +2177,7 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     native_renderer_state_t renderer = {};
     connection_loading_state_t loading = {};
     ps5_controller_state_t controller{};
+    ps5_physical_input_state_t physical_input{};
     client_identity_t client_identity;
     gs_server_t gs_server;
     STREAM_CONFIGURATION stream_config;
@@ -1954,6 +2214,7 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     int identity_initialized = 0;
     int session_started = 0;
     int controller_ready = 0;
+    int physical_input_ready = 0;
     int first_frame_timed_out = 0;
     int terminated = 0;
     int reported_error = 0;
@@ -1976,9 +2237,16 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     controller.user_service_result = -1;
     controller.user_result = -1;
     controller.pad_init_result = -1;
+    controller.user_id = -1;
     controller.handle = -1;
     controller.arrival_result = -1;
     controller.removal_result = -1;
+    physical_input.keyboard_handle = -1;
+    physical_input.mouse_handle = -1;
+    physical_input.keyboard_open_result = -1;
+    physical_input.mouse_open_result = -1;
+    physical_input.keyboard_close_result = -1;
+    physical_input.mouse_close_result = -1;
     native_agc_set_tv_safe_area(!options ||
                                 options->display_area == MOONLIGHT_DISPLAY_AREA_TV_SAFE);
 
@@ -2164,12 +2432,22 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     stream_config.colorRange = COLOR_RANGE_LIMITED;
     stream_config.encryptionFlags = ENCFLG_NONE;
     controller_ready = ps5_controller_init(&controller) == 0;
+    if (controller.user_id >= 0)
+        physical_input_ready = ps5_physical_input_init(&physical_input, controller.user_id) == 0;
     snprintf(notification.message, sizeof(notification.message),
              "Moonlight controller init: ready=%d user_service=%08x user=%08x pad_init=%08x "
              "handle=%08x launch_mask=%x",
              controller_ready, (uint32_t)controller.user_service_result,
              (uint32_t)controller.user_result, (uint32_t)controller.pad_init_result,
              (uint32_t)controller.handle, controller_ready ? 1 : 0);
+    (void)lan_http_report_text(notification.message);
+    snprintf(notification.message, sizeof(notification.message),
+             "Moonlight physical input init: ready=%d keyboard_init=%08x keyboard_open=%08x "
+             "mouse_init=%08x mouse_open=%08x",
+             physical_input_ready, (uint32_t)physical_input.keyboard_init_result,
+             (uint32_t)physical_input.keyboard_open_result,
+             (uint32_t)physical_input.mouse_init_result,
+             (uint32_t)physical_input.mouse_open_result);
     (void)lan_http_report_text(notification.message);
     result =
         start_connection_loading(&loading, frame_memory, frame_size, mode->hdr, mode->visible_width,
@@ -2246,6 +2524,8 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         }
         if (controller_ready)
             ps5_controller_poll(&controller);
+        if (physical_input_ready)
+            ps5_physical_input_poll(&physical_input);
         if (std::atomic_load_explicit(&renderer.presented, std::memory_order_relaxed) == 0 &&
             monotonic_us() - first_frame_wait_start_us >= FIRST_VIDEO_FRAME_TIMEOUT_US)
         {
@@ -2269,6 +2549,8 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
 
     if (controller_ready)
         ps5_controller_stop(&controller);
+    if (physical_input_ready)
+        ps5_physical_input_stop(&physical_input);
     LiStopConnection();
     connection_active = 0;
     snprintf(
@@ -2344,6 +2626,8 @@ done:
     {
         if (controller_ready)
             ps5_controller_stop(&controller);
+        if (physical_input_ready)
+            ps5_physical_input_stop(&physical_input);
         LiStopConnection();
     }
     stop_connection_loading();
@@ -2411,6 +2695,22 @@ done:
         controller.last_event.left_y, controller.last_event.right_x, controller.last_event.right_y,
         controller.mouse_mode, controller.mouse_toggles, controller.mouse_motion_events,
         controller.mouse_button_events, controller.mouse_scroll_events, controller.mouse_errors);
+    (void)lan_http_report_text(notification.message);
+    ps5_physical_input_shutdown(&physical_input);
+    snprintf(
+        notification.message, sizeof(notification.message),
+        "Moonlight physical input result: ready=%d keyboard_open=%08x polls=%u events=%u "
+        "read_errors=%u send_errors=%u mouse_open=%08x polls=%u samples=%u motion=%u buttons=%u "
+        "scroll=%u read_errors=%u send_errors=%u keyboard_close=%08x mouse_close=%08x",
+        physical_input_ready, (uint32_t)physical_input.keyboard_open_result,
+        physical_input.keyboard_polls, physical_input.keyboard_events,
+        physical_input.keyboard_read_errors, physical_input.keyboard_send_errors,
+        (uint32_t)physical_input.mouse_open_result, physical_input.mouse_polls,
+        physical_input.mouse_samples, physical_input.mouse_motion_events,
+        physical_input.mouse_button_events, physical_input.mouse_scroll_events,
+        physical_input.mouse_read_errors, physical_input.mouse_send_errors,
+        (uint32_t)physical_input.keyboard_close_result,
+        (uint32_t)physical_input.mouse_close_result);
     (void)lan_http_report_text(notification.message);
     ps5_controller_shutdown(&controller);
     if (session_started && !controller.requested_stop)

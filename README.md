@@ -50,7 +50,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA77003` |
 | Category | Game |
-| Current version | `01.000.031` |
+| Current version | `01.000.032` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -77,6 +77,9 @@ tooling are maintained in this repository.
 - Decode Moonlight Opus audio and output 48 kHz stereo through PS5 AudioOut.
 - Forward low-latency DualSense controls, with controller/mouse switching and
   a stream keyboard that works at Windows sign-in.
+- Forward a physical USB keyboard and mouse directly to Sunshine during a
+  stream, including modifiers, navigation/function keys, five mouse buttons,
+  and vertical/horizontal scrolling.
 - Show Moonlight-style stream metrics for resolution, codec, frame rates,
   packet loss, network/host latency, and decode time.
 - Recover from connection failures and return from a stream to the launcher
@@ -230,6 +233,8 @@ title ID intentionally requires pairing again.
 | `Select + L1` | End the stream and return to ProsperoLight |
 | `Select + Square` | Toggle mouse/controller mode |
 | `Select + Triangle` | Toggle ProsperoLight's stream keyboard |
+| Physical USB keyboard | Forward keys and modifiers directly to Sunshine |
+| Physical USB mouse | Move, click, and scroll directly on the Sunshine host |
 | Either analog stick in mouse mode | Move the pointer |
 | Cross / Circle / Square in mouse mode | Left / right / middle mouse button |
 | L1 / R1 in mouse mode | Mouse X1 / X2 button |
@@ -255,6 +260,7 @@ src/moonlight_backend.cpp            pairing, app listing, artwork, and control
 src/moonlight_discovery.cpp          LAN discovery
 src/moonlight_config.cpp             /download0 host and preference persistence
 src/moonlight_stream.cpp             Moonlight session, VideoDec2, audio, input
+include/moonlight_physical_input.hpp USB-HID to Moonlight input mapping
 src/native_agc_present.cpp           zero-copy AGC presentation and overlays
 src/gamestream/                      retained Moonlight-compatible C boundary
 include/*.hpp                        application-owned public interfaces
@@ -283,8 +289,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.031
-git push origin main 01.000.031
+git tag 01.000.032
+git push origin main 01.000.032
 ```
 
 Keep `PPSA77003`, `conceptId`, and `contentId` stable for updates to this title.
