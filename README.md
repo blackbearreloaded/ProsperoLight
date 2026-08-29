@@ -58,6 +58,21 @@ presented by AGC without copying decoded pixels through a CPU framebuffer.
 > reproducible clean-room runtime, native FSELF tooling, tests, safe folder
 > deployment, and release automation.
 
+> [!IMPORTANT]
+> **Controller input work is documented in [PS5 Native Gamepad Input Research](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research).**
+> The companion repository records recovered native APIs, low-latency examples,
+> and DualSense behavior that informed ProsperoLight's controller integration.
+
+> [!IMPORTANT]
+> **Video work is documented in [PS5 Hardware Video Decoding Research](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research).**
+> The companion repository records VideoDec2, HEVC, HDR10, zero-copy AGC,
+> resolution, and performance findings that informed the streaming presenter.
+
+> [!IMPORTANT]
+> **Audio work is documented in [PS5 Audio Decoding Research](https://github.com/blackbearreloaded/ps5-audio-decoding-research).**
+> The companion repository records codec, AJM, hardware/firmware offload, and
+> output-path research that informed ProsperoLight's audio integration.
+
 The client uses the established
 [moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c)
 protocol implementation rather than reimplementing the wire protocol. The
