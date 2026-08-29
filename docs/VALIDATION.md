@@ -437,3 +437,17 @@ deployed over WSL to `PPSA77003`. The signed `eboot.bin` SHA-256 is
 `c82d7070d3b40083e553fb058c306e363c1f9861fb19ba5e66189d47cee8f8e3`; the
 verified `PPSA77003.ffpfsc` SHA-256 is
 `727e9a3b2a95c040c0e2df8080ffcc5b8fffd91b8662d0df9fc1a5d85862509d`.
+
+Version `01.000.039` gives the stop action a rendered pending state before its
+synchronous Sunshine request, identifies HDR on the metrics overlay's first
+line, and extends HEVC Main10 HDR selection to 1080p, 1440p, and 2160p. HDR now
+survives resolution changes and persisted configuration loading instead of
+forcing 1080p. The complete lint gate, 20 GoogleTests, and 29 Python integration
+tests pass; native folder and PFSC integrity checks report no errors. The folder
+candidate was deployed over WSL to `PPSA77003` without opening Chiaki. The
+signed `eboot.bin` SHA-256 is
+`ad6baf737e889b4c2c709c29deabce5826fd9319fc24d6525020f65b44d6ae12`; the
+verified `PPSA77003.ffpfsc` SHA-256 is
+`fc2c079d243070df67fb1aaceb818251f469a75b57c5b2e53d4beaa08faff005`.
+Live 1440p and 2160p Main10 acceptance remains an operator test because this
+deployment deliberately did not initiate a Remote Play session.

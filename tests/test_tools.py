@@ -48,7 +48,7 @@ class ToolTests(unittest.TestCase):
 
     def test_stop_refresh_preserves_the_last_application_catalog(self):
         source = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
-        start = source.index("void MoonlightApp::StopActiveApp()")
+        start = source.index("void MoonlightApp::FinishStopActiveApp()")
         end = source.index("void MoonlightApp::RefreshBackend()", start)
         stop = source[start:end]
 
@@ -60,6 +60,35 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn(
             "moonlight_backend_stop_app(SelectedHostAddress(), &backend_)", stop
         )
+
+    def test_stop_status_renders_before_the_sunshine_request(self):
+        source = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+        start = source.index("void MoonlightApp::RequestStopActiveApp()")
+        end = source.index("void MoonlightApp::FinishStopActiveApp()", start)
+        request = source[start:end]
+
+        self.assertIn('SetText(document_, "stop-app-label", "Stopping...")', request)
+        self.assertIn("stop_due_ms_ = SDL_GetTicks64() + 50", request)
+        self.assertNotIn("moonlight_backend_stop_app", request)
+
+    def test_hdr_supports_every_stream_resolution(self):
+        stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        modes = stream[stream.index("static const native_video_mode_t video_modes[]") :]
+        modes = modes[: modes.index("static_assert")]
+        self.assertEqual(modes.count("VIDEO_FORMAT_H265_MAIN10"), 3)
+        self.assertIn("MOONLIGHT_STREAM_RESOLUTION_1440P, VIDEO_FORMAT_H265_MAIN10", modes)
+        self.assertIn("MOONLIGHT_STREAM_RESOLUTION_2160P, VIDEO_FORMAT_H265_MAIN10", modes)
+
+        launcher = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+        settings = launcher[launcher.index("case Screen::Settings:") :]
+        settings = settings[: settings.index("default:")]
+        resolution = settings[settings.index("else if (focus_ == 4)") :]
+        resolution = resolution[: resolution.index("else if (focus_ == 5)")]
+        self.assertNotIn("hdr_enabled", resolution)
+
+    def test_hdr_overlay_identifies_hdr_on_the_first_line(self):
+        source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+        self.assertIn('metrics->video_codec ? "HEVC" : "H.264", hdr ? " / HDR" : ""', source)
 
     def test_stream_opens_pad_after_decoder_loading_worker_stops(self):
         source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")

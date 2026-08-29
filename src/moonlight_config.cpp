@@ -220,10 +220,7 @@ bool moonlight_config_load(moonlight_config_t *config)
     if (config->hdr_enabled > 1U)
         config->hdr_enabled = 0;
     if (config->hdr_enabled)
-    {
         config->video_codec = MOONLIGHT_VIDEO_CODEC_HEVC;
-        config->stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P;
-    }
     return true;
 }
 

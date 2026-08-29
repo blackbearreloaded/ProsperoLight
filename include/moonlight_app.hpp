@@ -54,9 +54,11 @@ private:
     bool confirm_unpair_ = false;
     bool manual_entry_active_ = false;
     bool pairing_active_ = false;
+    bool stop_pending_ = false;
     moonlight_backend_pair_state_t pairing_state_ = MOONLIGHT_BACKEND_PAIR_IDLE;
     uint64_t pairing_started_ms_ = 0;
     unsigned pairing_remaining_ = MOONLIGHT_BACKEND_PAIR_TIMEOUT_SECONDS + 1;
+    uint64_t stop_due_ms_ = 0;
     Command command_ = Command::None;
     moonlight_backend_snapshot_t backend_{};
     moonlight_config_t config_{};
@@ -99,7 +101,8 @@ private:
     void PollArtwork();
     void FinishArtworkWorker(bool clear_cache);
     static void* ArtworkWorker(void* argument);
-    void StopActiveApp();
+    void RequestStopActiveApp();
+    void FinishStopActiveApp();
     void RefreshBackend();
     void UpdateScreen();
     void UpdateFocus();

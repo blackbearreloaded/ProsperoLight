@@ -221,10 +221,15 @@ static const native_video_mode_t video_modes[] = {
      1, 153, 3840, 2176, 3840, 2160, 2176, 3840, 3840, 2160, 0, "HEVC Main 2160p60 beta"},
     {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_1080P, VIDEO_FORMAT_H265_MAIN10,
      0x000ee049, 2, 123, 1920, 1088, 1920, 1088, 0, 1920, 1920, 1080, 1, "HEVC Main10 HDR 1080p60"},
+    {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_1440P, VIDEO_FORMAT_H265_MAIN10,
+     0x000ee049, 2, 150, 2560, 1440, 2560, 1440, 0, 2560, 2560, 1440, 1, "HEVC Main10 HDR 1440p60"},
+    {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_2160P, VIDEO_FORMAT_H265_MAIN10,
+     0x000ee049, 2, 153, 3840, 2176, 3840, 2160, 2176, 3840, 3840, 2160, 1,
+     "HEVC Main10 HDR 2160p60"},
 };
 
-static_assert(sizeof(video_modes) / sizeof(video_modes[0]) == 7,
-              "every supported SDR mode plus Main10 HDR needs one mode");
+static_assert(sizeof(video_modes) / sizeof(video_modes[0]) == 9,
+              "every supported SDR and Main10 HDR mode needs one entry");
 
 static const native_video_mode_t *find_video_mode(uint32_t codec, uint32_t resolution, uint32_t hdr)
 {

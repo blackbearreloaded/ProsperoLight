@@ -132,7 +132,7 @@
                     <button id="setting-hdr" class="setting-row setting-row-4">
                         <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="126" alt=""/>
                         <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="126" alt=""/>
-                        <span class="setting-name">HDR</span><span id="setting-hdr-help" class="setting-help">Experimental 1080p HEVC Main10 / BT.2020 PQ</span>
+                        <span class="setting-name">HDR</span><span id="setting-hdr-help" class="setting-help">HEVC Main10 / BT.2020 PQ at the selected resolution</span>
                         <span id="setting-hdr-value" class="setting-value">Off / SDR</span>
                     </button>
                     <span id="settings-note" class="settings-note">Stream shortcuts: Select+Triangle keyboard; Select+Square mouse; Select+R1 stats; Select+L1 return.</span>

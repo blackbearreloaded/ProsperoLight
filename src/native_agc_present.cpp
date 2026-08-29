@@ -275,9 +275,9 @@ static void refresh_hud_surface(uint8_t *surface, const native_agc_metrics_t *me
     memset(luma, 76, HUD_Y_BYTES);
     memset(surface + HUD_Y_BYTES, 128, HUD_UV_BYTES);
 
-    snprintf(line, sizeof(line), "Video stream: %ux%u %u.%02u FPS (Codec: %s)", video_width,
+    snprintf(line, sizeof(line), "Video stream: %ux%u %u.%02u FPS (Codec: %s%s)", video_width,
              video_height, metrics->total_fps_x100 / 100u, metrics->total_fps_x100 % 100u,
-             metrics->video_codec ? "HEVC" : "H.264");
+             metrics->video_codec ? "HEVC" : "H.264", hdr ? " / HDR" : "");
     overlay_draw_text(luma, HUD_WIDTH, HUD_HEIGHT, line, HUD_TEXT_X, 4, text_luma);
     snprintf(line, sizeof(line), "Decoder: SceVideodec2 hardware / Output: %ux%u", output.width,
              output.height);

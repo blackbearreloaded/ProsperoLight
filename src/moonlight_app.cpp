@@ -153,6 +153,11 @@ void MoonlightApp::Poll()
 {
     if (manual_entry_active_ && !radio_ime_busy())
         manual_entry_active_ = false;
+    if (stop_pending_ && SDL_GetTicks64() >= stop_due_ms_)
+    {
+        FinishStopActiveApp();
+        return;
+    }
     PollPairing();
     PollHealth();
     PollArtwork();
@@ -572,7 +577,7 @@ void MoonlightApp::Activate()
             command_ = Command::StartStream;
         }
         else if (focus_ == 9)
-            StopActiveApp();
+            RequestStopActiveApp();
         else
         {
             prosperolight::ui_sound_play(prosperolight::UiSoundCue::Back);
@@ -589,7 +594,6 @@ void MoonlightApp::Activate()
         }
         else if (focus_ == 4)
         {
-            config_.hdr_enabled = 0;
             config_.stream_resolution = (config_.stream_resolution + 1) % 3;
         }
         else if (focus_ == 5)
@@ -607,10 +611,7 @@ void MoonlightApp::Activate()
         {
             config_.hdr_enabled = !config_.hdr_enabled;
             if (config_.hdr_enabled)
-            {
                 config_.video_codec = MOONLIGHT_VIDEO_CODEC_HEVC;
-                config_.stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P;
-            }
         }
         (void)moonlight_config_save(&config_);
         prosperolight::ui_sound_play(prosperolight::UiSoundCue::Setting);
@@ -812,10 +813,10 @@ void MoonlightApp::PollPairing()
     UpdateSettings();
 }
 
-void MoonlightApp::StopActiveApp()
+void MoonlightApp::RequestStopActiveApp()
 {
-    FinishHealthWorker();
-    FinishArtworkWorker(false);
+    if (stop_pending_)
+        return;
     if (!backend_.current_app_id)
     {
         prosperolight::ui_sound_play(prosperolight::UiSoundCue::Error);
@@ -823,7 +824,18 @@ void MoonlightApp::StopActiveApp()
         return;
     }
 
+    stop_pending_ = true;
+    stop_due_ms_ = SDL_GetTicks64() + 50;
+    SetClass(document_, "stop-app", "disabled", true);
+    SetText(document_, "stop-app-label", "Stopping...");
     SetText(document_, "launch-status", "Stopping the active Sunshine app...");
+}
+
+void MoonlightApp::FinishStopActiveApp()
+{
+    stop_pending_ = false;
+    FinishHealthWorker();
+    FinishArtworkWorker(false);
     moonlight_backend_snapshot_t refreshed{};
     const int result = moonlight_backend_stop_app(SelectedHostAddress(), &refreshed);
     if (result == 0 || refreshed.app_count)
@@ -1084,9 +1096,11 @@ void MoonlightApp::UpdateGames()
     char id[48];
     char text[192];
     const bool available = selected_app_ < backend_.app_count;
-    SetClass(document_, "stop-app", "disabled", !backend_.online || backend_.current_app_id == 0);
+    SetClass(document_, "stop-app", "disabled",
+             stop_pending_ || !backend_.online || backend_.current_app_id == 0);
     SetText(document_, "stop-app-label",
-            !backend_.online          ? (health_.Reconnecting() ? "PC reconnecting" : "PC offline")
+            stop_pending_             ? "Stopping..."
+            : !backend_.online        ? (health_.Reconnecting() ? "PC reconnecting" : "PC offline")
             : backend_.current_app_id ? "Stop active app"
                                       : "Nothing running");
     unsigned width, height;
@@ -1215,8 +1229,8 @@ void MoonlightApp::UpdateSettings()
     SetText(document_, "setting-hdr-help",
             config_.hdr_enabled && backend_.online && !backend_.main10_supported
                 ? "Unavailable: selected PC does not advertise HEVC Main10"
-            : config_.hdr_enabled ? "1080p HEVC Main10 / BT.2020 PQ with metrics HUD"
-                                  : "Experimental; enabling selects HEVC Main10 at 1080p60");
+            : config_.hdr_enabled ? "HEVC Main10 / BT.2020 PQ with metrics HUD"
+                                  : "Enabling selects HEVC Main10 at the current resolution");
     std::snprintf(text, sizeof(text), "%s / %sP60",
                   config_.hdr_enabled                                 ? "HDR10"
                   : config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC ? "HEVC"
@@ -1234,7 +1248,7 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
 {
     if (!event.pressed)
         return;
-    if (pairing_active_)
+    if (pairing_active_ || stop_pending_)
         return;
     const Screen previous_screen = screen_;
     const unsigned previous_focus = focus_;
@@ -1318,12 +1332,12 @@ void MoonlightApp::HandleInput(const radio_input_event_t &event)
             {
                 if (screen_ != Screen::Games)
                     SetScreen(Screen::Games);
-                StopActiveApp();
+                RequestStopActiveApp();
             }
         }
         else if (screen_ == Screen::Games)
         {
-            StopActiveApp();
+            RequestStopActiveApp();
         }
         break;
     case RADIO_INPUT_TRIANGLE:
