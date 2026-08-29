@@ -19,7 +19,9 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="GPL-3.0-or-later"></a>
 </p>
 
-![ProsperoLight Games screen configured for 4K HDR](docs/images/prosperolight.png)
+Demo available by clicking the image below.
+
+[![ProsperoLight Games screen configured for 4K HDR](docs/images/prosperolight.png)](https://imgur.com/a/19lB0sX)
 
 ## Highlights
 
