@@ -121,6 +121,22 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("stream_resolution", frame_rate)
         self.assertNotIn("bitrate", frame_rate)
 
+    def test_high_refresh_self_test_is_compile_time_disabled(self):
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        app = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("STREAM_SELF_TEST_FPS ?= 0", makefile)
+        self.assertIn(
+            "PROSPEROLIGHT_STREAM_SELF_TEST_FPS=$(STREAM_SELF_TEST_FPS)", makefile
+        )
+        self.assertIn("#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0", app)
+        self.assertIn("high_refresh_self_test_consumed", app)
+        self.assertIn("config_.stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P", app)
+        poll_body = app[
+            app.index("void MoonlightApp::Poll()") : app.index("void MoonlightApp::Shutdown()")
+        ]
+        self.assertNotIn("moonlight_config_save(&config_)", poll_body)
+
     def test_main10_descriptors_follow_the_visible_resolution(self):
         source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
         start = source.index("static void bind_main10_source")
@@ -250,7 +266,12 @@ class ToolTests(unittest.TestCase):
 
         self.assertIn("#define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)", presenter)
         self.assertIn("#define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)", presenter)
+        self.assertIn("#define VIDEO_OUT_REQUEST_90_HZ 0x0001000cu", presenter)
         self.assertIn("#define VIDEO_OUT_REQUEST_120_HZ 15u", presenter)
+        self.assertIn(
+            "#define VIDEO_OUT_RESOLUTION_90_VRR UINT64_C(0xffffffffc1ffffff)",
+            presenter,
+        )
         self.assertIn("sceVideoOutIsOutputSupported", presenter)
         self.assertIn("sceVideoOutConfigureOutput", presenter)
         self.assertIn("sceVideoOutConfigureOutputMode_", presenter)
@@ -298,7 +319,7 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["applicationCategoryType"], 0)
         self.assertEqual(configured["attribute"], 0x62000000)
         self.assertEqual(configured["attribute2"], 0)
-        self.assertEqual(configured["attribute3"], 0x40)
+        self.assertEqual(configured["attribute3"], 0x40040)
 
     def test_release_workflow_publishes_only_ffpfsc_and_checksum(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(

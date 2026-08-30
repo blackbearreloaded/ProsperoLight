@@ -59,7 +59,9 @@
 #define VIDEO_OUT_REFRESH_RATE_59_94 UINT64_C(3)
 #define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)
 #define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)
+#define VIDEO_OUT_REQUEST_90_HZ 0x0001000cu
 #define VIDEO_OUT_REQUEST_120_HZ 15u
+#define VIDEO_OUT_RESOLUTION_90_VRR UINT64_C(0xffffffffc1ffffff)
 #define LOADING_PITCH 1920u
 #define LOADING_SURFACE_HEIGHT 1088u
 #define LOADING_VISIBLE_HEIGHT 1080u
@@ -868,17 +870,20 @@ static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
                                          int32_t *support_result, int32_t *preset_result)
 {
     video_output_mode_t mode;
+    uint32_t request_type = 0;
 
     *support_result = 0;
     *preset_result = 0;
-    if (requested_fps == 120u)
+    if (requested_fps == 90u)
+        request_type = VIDEO_OUT_REQUEST_90_HZ;
+    else if (requested_fps == 120u)
+        request_type = VIDEO_OUT_REQUEST_120_HZ;
+    if (request_type)
     {
-        *support_result =
-            sceVideoOutIsOutputSupported(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
+        *support_result = sceVideoOutIsOutputSupported(handle, request_type, NULL, NULL, NULL);
         if (*support_result > 0)
         {
-            *preset_result =
-                sceVideoOutConfigureOutput(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
+            *preset_result = sceVideoOutConfigureOutput(handle, request_type, NULL, NULL, NULL);
             if (*preset_result == 0)
                 return 0;
         }
@@ -887,7 +892,7 @@ static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
     memset(&mode, 0xff, sizeof(mode));
     mode.size = sizeof(mode);
     mode.refresh_rate = video_output_refresh_rate(requested_fps);
-    mode.resolution = UINT64_MAX;
+    mode.resolution = requested_fps == 90u ? VIDEO_OUT_RESOLUTION_90_VRR : UINT64_MAX;
     return sceVideoOutConfigureOutputMode_(handle, 0, &mode, NULL, sizeof(mode), 16);
 }
 

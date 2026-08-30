@@ -18,8 +18,21 @@
 #include <cstdio>
 #include <cstring>
 
+#ifndef PROSPEROLIGHT_STREAM_SELF_TEST_FPS
+#define PROSPEROLIGHT_STREAM_SELF_TEST_FPS 0
+#endif
+
+static_assert(PROSPEROLIGHT_STREAM_SELF_TEST_FPS == 0 ||
+                  PROSPEROLIGHT_STREAM_SELF_TEST_FPS == MOONLIGHT_STREAM_FPS_90 ||
+                  PROSPEROLIGHT_STREAM_SELF_TEST_FPS == MOONLIGHT_STREAM_FPS_120,
+              "STREAM_SELF_TEST_FPS must be 0, 90, or 120");
+
 namespace
 {
+
+#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0
+bool high_refresh_self_test_consumed;
+#endif
 
 Rml::Element *Find(Rml::ElementDocument *document, const char *id)
 {
@@ -172,6 +185,26 @@ void MoonlightApp::Poll()
         FinishStopActiveApp();
         return;
     }
+#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0
+    if (!high_refresh_self_test_consumed && backend_.online && backend_.paired &&
+        backend_.app_count)
+    {
+        high_refresh_self_test_consumed = true;
+        screen_ = Screen::Games;
+        focus_ = 3;
+        selected_app_ = 0;
+        bitrate_mbps_ = 80;
+        config_.video_codec = MOONLIGHT_VIDEO_CODEC_HEVC;
+        config_.stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P;
+        config_.stream_fps = PROSPEROLIGHT_STREAM_SELF_TEST_FPS;
+        config_.hdr_enabled = 0;
+        UpdateScreen();
+        UpdateSettings();
+        UpdateFocus();
+        command_ = Command::StartStream;
+        return;
+    }
+#endif
     PollPairing();
     PollHealth();
     PollArtwork();
