@@ -284,6 +284,16 @@ class ToolTests(unittest.TestCase):
         self.assertIn("state->requested_fps", stream)
         self.assertIn("state->mode->visible_height, state->stream_fps, hud", stream)
 
+    def test_presenter_viewport_matches_registered_framebuffer(self):
+        presenter = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("render_width = output.width;", presenter)
+        self.assertIn("render_height = output.height;", presenter)
+        self.assertNotIn(
+            "render_width = presenter.scanout_width ? presenter.scanout_width : output.width;",
+            presenter,
+        )
+
     def test_renderer_bounds_latency_with_enqueue_time_and_stale_presentation_drops(self):
         source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
 

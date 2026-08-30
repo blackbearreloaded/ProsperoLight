@@ -912,8 +912,7 @@ static void update_presenter_output_status(const char *stage)
     const uint32_t reported_refresh =
         video_output_refresh_x100(output_result == 0 ? output_status[0] : resolution.refresh_rate);
 
-    if (resolution_result == 0 && reported_width && reported_height &&
-        reported_width <= presenter.output_width && reported_height <= presenter.output_height)
+    if (resolution_result == 0 && reported_width && reported_height)
     {
         presenter.scanout_width = reported_width;
         presenter.scanout_height = reported_height;
@@ -1169,8 +1168,8 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
 
     if (frame_number < 120u || frame_number % 120u == 0u)
         update_presenter_output_status(NULL);
-    render_width = presenter.scanout_width ? presenter.scanout_width : output.width;
-    render_height = presenter.scanout_height ? presenter.scanout_height : output.height;
+    render_width = output.width;
+    render_height = output.height;
     overlay_scale = render_width / BASE_OUTPUT_WIDTH;
     if (!overlay_scale)
         overlay_scale = 1u;
