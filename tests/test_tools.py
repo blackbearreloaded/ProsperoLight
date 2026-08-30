@@ -127,6 +127,7 @@ class ToolTests(unittest.TestCase):
 
         self.assertIn("STREAM_SELF_TEST_FPS ?= 0", makefile)
         self.assertIn("STREAM_SELF_TEST_RESOLUTION ?= 0", makefile)
+        self.assertIn("STOP_ACTIVE_APP_SELF_TEST ?= 0", makefile)
         self.assertIn(
             "PROSPEROLIGHT_STREAM_SELF_TEST_FPS=$(STREAM_SELF_TEST_FPS)", makefile
         )
@@ -134,8 +135,13 @@ class ToolTests(unittest.TestCase):
             "PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION=$(STREAM_SELF_TEST_RESOLUTION)",
             makefile,
         )
+        self.assertIn(
+            "PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST=$(STOP_ACTIVE_APP_SELF_TEST)",
+            makefile,
+        )
         self.assertIn("#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0", app)
         self.assertIn("high_refresh_self_test_consumed", app)
+        self.assertIn("stop_active_app_self_test_consumed", app)
         self.assertIn(
             "config_.stream_resolution = PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION", app
         )

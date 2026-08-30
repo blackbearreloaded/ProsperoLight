@@ -24,6 +24,9 @@
 #ifndef PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION
 #define PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION MOONLIGHT_STREAM_RESOLUTION_1080P
 #endif
+#ifndef PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST
+#define PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST 0
+#endif
 
 static_assert(PROSPEROLIGHT_STREAM_SELF_TEST_FPS == 0 ||
                   PROSPEROLIGHT_STREAM_SELF_TEST_FPS == MOONLIGHT_STREAM_FPS_90 ||
@@ -33,12 +36,18 @@ static_assert(PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESO
                   PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_1440P ||
                   PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_2160P,
               "STREAM_SELF_TEST_RESOLUTION must be 0, 1, or 2");
+static_assert(PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST == 0 ||
+                  PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST == 1,
+              "STOP_ACTIVE_APP_SELF_TEST must be 0 or 1");
 
 namespace
 {
 
 #if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0
 bool high_refresh_self_test_consumed;
+#endif
+#if PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST != 0
+bool stop_active_app_self_test_consumed;
 #endif
 
 Rml::Element *Find(Rml::ElementDocument *document, const char *id)
@@ -192,6 +201,19 @@ void MoonlightApp::Poll()
         FinishStopActiveApp();
         return;
     }
+#if PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST != 0
+    if (!stop_active_app_self_test_consumed && backend_.online && backend_.paired &&
+        backend_.current_app_id)
+    {
+        stop_active_app_self_test_consumed = true;
+        screen_ = Screen::Games;
+        focus_ = 9;
+        UpdateScreen();
+        UpdateFocus();
+        RequestStopActiveApp();
+        return;
+    }
+#endif
 #if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0
     if (!high_refresh_self_test_consumed && backend_.online && backend_.paired &&
         backend_.app_count)
