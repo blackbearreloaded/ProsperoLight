@@ -59,6 +59,7 @@
 #define VIDEO_OUT_REFRESH_RATE_59_94 UINT64_C(3)
 #define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)
 #define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)
+#define VIDEO_OUT_REQUEST_120_HZ 15u
 #define LOADING_PITCH 1920u
 #define LOADING_SURFACE_HEIGHT 1088u
 #define LOADING_VISIBLE_HEIGHT 1080u
@@ -161,6 +162,10 @@ extern "C"
     int sceVideoOutOpen(int32_t user_id, int32_t bus_type, int32_t index, const void *param);
     int sceVideoOutClose(int32_t handle);
     int sceVideoOutSetFlipRate(int32_t handle, int32_t rate);
+    int sceVideoOutConfigureOutput(int32_t handle, uint32_t request_type, const void *param3,
+                                   const void *param4, const void *param5);
+    int sceVideoOutIsOutputSupported(int32_t handle, uint32_t request_type, const void *param3,
+                                     const void *param4, const void *param5);
     int sceVideoOutConfigureOutputMode_(int32_t handle, uint32_t option,
                                         const video_output_mode_t *mode, const void *color,
                                         uint32_t mode_size, uint32_t color_size);
@@ -859,6 +864,33 @@ static uint32_t video_output_refresh_x100(uint64_t refresh_rate)
     return 0u;
 }
 
+static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
+                                         int32_t *support_result, int32_t *preset_result)
+{
+    video_output_mode_t mode;
+
+    *support_result = 0;
+    *preset_result = 0;
+    if (requested_fps == 120u)
+    {
+        *support_result =
+            sceVideoOutIsOutputSupported(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
+        if (*support_result > 0)
+        {
+            *preset_result =
+                sceVideoOutConfigureOutput(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
+            if (*preset_result == 0)
+                return 0;
+        }
+    }
+
+    memset(&mode, 0xff, sizeof(mode));
+    mode.size = sizeof(mode);
+    mode.refresh_rate = video_output_refresh_rate(requested_fps);
+    mode.resolution = UINT64_MAX;
+    return sceVideoOutConfigureOutputMode_(handle, 0, &mode, NULL, sizeof(mode), 16);
+}
+
 static void update_presenter_output_status(const char *stage)
 {
     video_resolution_status_t resolution = {};
@@ -939,6 +971,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
     int32_t result;
     int32_t link_result = -1;
     int32_t mode_result = 0;
+    int32_t mode_support_result = 0;
+    int32_t mode_preset_result = 0;
     uint8_t reused = agc_initialized;
     char receipt[512];
 
@@ -1024,16 +1058,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
 
     presenter.video = sceVideoOutOpen(0xff, 0, 0, NULL);
     if (presenter.video >= 0 && requested_fps > 60u)
-    {
-        video_output_mode_t mode;
-
-        memset(&mode, 0xff, sizeof(mode));
-        mode.size = sizeof(mode);
-        mode.refresh_rate = video_output_refresh_rate(requested_fps);
-        mode.resolution = UINT64_MAX;
-        mode_result =
-            sceVideoOutConfigureOutputMode_(presenter.video, 0, &mode, NULL, sizeof(mode), 16);
-    }
+        mode_result = configure_high_refresh_output(presenter.video, requested_fps,
+                                                    &mode_support_result, &mode_preset_result);
     if (presenter.video >= 0)
         result = sceVideoOutSetFlipRate(presenter.video, 0);
     else
@@ -1049,11 +1075,12 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
             sceKernelMapDirectMemory(&presenter.framebuffer, framebuffer_pool_bytes, MAP_PROTECTION,
                                      0, framebuffer_start, FRAMEBUFFER_ALIGNMENT);
     snprintf(receipt, sizeof(receipt),
-             "Native AGC stage 3: video=%08x mode_rc=%08x framebuffer_rc=%08x "
+             "Native AGC stage 3: video=%08x mode_rc=%08x support_rc=%08x preset_rc=%08x "
+             "framebuffer_rc=%08x "
              "framebuffer=%p/%zx output=%ux%u requested_fps=%u",
-             (uint32_t)presenter.video, (uint32_t)mode_result, (uint32_t)result,
-             presenter.framebuffer, framebuffer_pool_bytes, output.width, output.height,
-             requested_fps);
+             (uint32_t)presenter.video, (uint32_t)mode_result, (uint32_t)mode_support_result,
+             (uint32_t)mode_preset_result, (uint32_t)result, presenter.framebuffer,
+             framebuffer_pool_bytes, output.width, output.height, requested_fps);
     report_agc_receipt(receipt);
     if (result != 0 || !presenter.framebuffer)
         return result ? result : -4;

@@ -250,9 +250,16 @@ class ToolTests(unittest.TestCase):
 
         self.assertIn("#define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)", presenter)
         self.assertIn("#define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)", presenter)
+        self.assertIn("#define VIDEO_OUT_REQUEST_120_HZ 15u", presenter)
+        self.assertIn("sceVideoOutIsOutputSupported", presenter)
+        self.assertIn("sceVideoOutConfigureOutput", presenter)
         self.assertIn("sceVideoOutConfigureOutputMode_", presenter)
         self.assertIn("sceVideoOutGetResolutionStatus", presenter)
         self.assertIn("sceVideoOutGetOutputStatus", presenter)
+        self.assertLess(
+            presenter.index("sceVideoOutIsOutputSupported", presenter.index("configure_high_refresh_output")),
+            presenter.index("sceVideoOutConfigureOutput(handle", presenter.index("configure_high_refresh_output")),
+        )
         self.assertIn("state->requested_fps", stream)
         self.assertIn("state->mode->visible_height, state->stream_fps, hud", stream)
 
