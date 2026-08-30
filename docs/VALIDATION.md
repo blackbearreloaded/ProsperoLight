@@ -485,3 +485,9 @@ matching Sunshine log independently records a 120 Hz captured display and a
 requested frame rate of exactly 120 FPS. Its subsequent 60 FPS minimum target
 is Sunshine's documented static-content floor of half the requested rate, not
 a negotiation cap; moving-content cadence remains the operator acceptance.
+
+Version `01.000.045` keeps the validated 1080p 119.88 Hz preset but avoids that
+resolution-changing preset for 1440p-to-4K and native 2160p output. Those modes
+instead request the same 119.88 Hz refresh while preserving the current 4K
+resolution, preventing a 4K framebuffer from being paired with 1080p scanout.
+High-resolution 90/120 FPS hardware acceptance remains pending.

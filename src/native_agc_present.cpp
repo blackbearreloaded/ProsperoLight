@@ -931,16 +931,16 @@ static uint32_t video_output_refresh_x100(uint64_t refresh_rate)
     return 0u;
 }
 
-static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
-                                         int32_t *support_result, int32_t *preset_result,
-                                         int32_t *vrr_result)
+static int configure_high_refresh_output(int32_t handle, uint32_t output_width,
+                                         uint32_t requested_fps, int32_t *support_result,
+                                         int32_t *preset_result, int32_t *vrr_result)
 {
     video_output_mode_t mode;
 
     *support_result = 0;
     *preset_result = 0;
     *vrr_result = 0;
-    if (requested_fps == 90u || requested_fps == 120u)
+    if (output_width == BASE_OUTPUT_WIDTH && (requested_fps == 90u || requested_fps == 120u))
     {
         *support_result =
             sceVideoOutIsOutputSupported(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
@@ -1135,9 +1135,9 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
 
     presenter.video = sceVideoOutOpen(0xff, 0, 0, NULL);
     if (presenter.video >= 0 && requested_fps > 60u)
-        mode_result =
-            configure_high_refresh_output(presenter.video, requested_fps, &mode_support_result,
-                                          &mode_preset_result, &mode_vrr_result);
+        mode_result = configure_high_refresh_output(presenter.video, output.width, requested_fps,
+                                                    &mode_support_result, &mode_preset_result,
+                                                    &mode_vrr_result);
     if (presenter.video >= 0)
         result = sceVideoOutSetFlipRate(presenter.video, 0);
     else

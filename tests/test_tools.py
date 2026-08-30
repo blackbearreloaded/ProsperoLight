@@ -292,6 +292,8 @@ class ToolTests(unittest.TestCase):
         self.assertIn("sceVideoOutIsOutputSupported", presenter)
         self.assertIn("sceVideoOutConfigureOutput", presenter)
         self.assertIn("sceVideoOutConfigureOutputMode_", presenter)
+        self.assertIn("output_width == BASE_OUTPUT_WIDTH", presenter)
+        self.assertIn("mode.resolution = UINT64_MAX", presenter)
         self.assertIn(
             "videoout_stub=$(build_system_link_stub libSceVideoOut "
             "vendor/ps5/sdk/stubs/videoout_link_stub.c)",
