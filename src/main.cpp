@@ -17,6 +17,7 @@
 #include "bitmap_font_engine.hpp"
 #include "moonlight_app.hpp"
 #include "moonlight_stream.hpp"
+#include "native_agc_present.hpp"
 #include "ps5_pngdec.hpp"
 #include "radio_input.hpp"
 #include "radio_ime.hpp"
@@ -33,6 +34,14 @@
 #include <vector>
 
 extern "C" int sceKernelUsleep(std::uint32_t microseconds);
+extern "C" std::int64_t sceKernelGetDirectMemorySize(void);
+extern "C" int sceKernelAllocateDirectMemory(std::int64_t search_start, std::int64_t search_end,
+                                             std::size_t length, std::size_t alignment,
+                                             int memory_type, std::int64_t *direct_memory_start);
+extern "C" int sceKernelMapDirectMemory(void **address, std::size_t length, int protection,
+                                        int flags, std::int64_t direct_memory_start,
+                                        std::size_t alignment);
+extern "C" int sceKernelReleaseDirectMemory(std::int64_t direct_memory_start, std::size_t length);
 extern "C" int sceSystemServiceHideSplashScreen(void);
 extern "C" int sceSysmoduleLoadModule(std::uint16_t module_id);
 extern "C" void *mmap(void *address, std::size_t length, int protection, int flags, int descriptor,
@@ -43,6 +52,15 @@ extern "C" char __eh_frame_hdr_start[1] = {};
 extern "C" char __eh_frame_hdr_end[1] = {};
 extern "C" char __eh_frame_start[1] = {};
 extern "C" char __eh_frame_end[1] = {};
+
+#ifndef PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS
+#define PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS 0
+#endif
+
+static_assert(PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS == 0 ||
+                  PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS == 90 ||
+                  PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS == 120,
+              "VIDEO_OUTPUT_SELF_TEST_FPS must be 0, 90, or 120");
 
 namespace
 {
@@ -820,6 +838,96 @@ void PresentColor(SDL_Renderer *renderer, SDL_Window *window, Uint8 red, Uint8 g
     SDL_UpdateWindowSurface(window);
 }
 
+#if PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS != 0
+void RunVideoOutputSelfTest()
+{
+    constexpr std::uint32_t pitch = 1920;
+    constexpr std::uint32_t surface_height = 1088;
+    constexpr std::size_t visible_surface_bytes =
+        static_cast<std::size_t>(pitch) * surface_height * 3 / 2;
+    constexpr std::size_t surface_bytes = (visible_surface_bytes + 0x3fff) & ~std::size_t(0x3fff);
+    constexpr std::uint32_t surface_count = 3;
+    constexpr std::size_t surface_pool_bytes = surface_bytes * surface_count;
+    constexpr std::uint32_t frame_count = PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS * 18;
+    std::int64_t surface_start = -1;
+    void *surface = nullptr;
+    FILE *receipt = std::fopen("/download0/prosperolight-videoout-selftest.txt", "w");
+
+    int result = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(),
+                                               surface_pool_bytes, 0x4000, 12, &surface_start);
+    if (result == 0)
+        result =
+            sceKernelMapDirectMemory(&surface, surface_pool_bytes, 0x32, 0, surface_start, 0x4000);
+    if (receipt)
+    {
+        std::fprintf(receipt, "requested=%u allocation_rc=%08x surface=%p\n",
+                     PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS, static_cast<unsigned>(result),
+                     surface);
+        std::fflush(receipt);
+    }
+    if (result != 0 || !surface)
+    {
+        if (surface_start >= 0)
+            (void)sceKernelReleaseDirectMemory(surface_start, surface_pool_bytes);
+        KeepProcessAlive();
+    }
+
+    int present_result = 0;
+    for (std::uint32_t index = 0; index < surface_count; ++index)
+    {
+        void *frame_surface = static_cast<std::uint8_t *>(surface) + index * surface_bytes;
+        present_result =
+            native_agc_present_loading(frame_surface, visible_surface_bytes, index, 0, pitch, 1080,
+                                       PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS);
+        if (present_result != 0)
+            break;
+    }
+
+    const std::uint64_t frequency = SDL_GetPerformanceFrequency();
+    const std::uint64_t started = SDL_GetPerformanceCounter();
+    std::uint32_t presented = 0;
+    for (std::uint32_t frame = 0; frame < frame_count && present_result == 0; ++frame)
+    {
+        void *frame_surface =
+            static_cast<std::uint8_t *>(surface) + (frame % surface_count) * surface_bytes;
+        present_result =
+            native_agc_present_nv12(frame_surface, visible_surface_bytes, pitch, surface_height,
+                                    pitch, 1080, PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS, nullptr);
+        if (present_result != 0)
+            break;
+        ++presented;
+        const std::uint64_t deadline = started + static_cast<std::uint64_t>(presented) * frequency /
+                                                     PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS;
+        const std::uint64_t now = SDL_GetPerformanceCounter();
+        if (deadline > now)
+        {
+            const std::uint64_t remaining_us = (deadline - now) * 1000000 / frequency;
+            if (remaining_us != 0)
+                sceKernelUsleep(static_cast<std::uint32_t>(remaining_us));
+        }
+    }
+    const std::uint64_t elapsed = SDL_GetPerformanceCounter() - started;
+    const std::uint64_t measured_fps_x100 =
+        elapsed != 0 ? static_cast<std::uint64_t>(presented) * frequency * 100 / elapsed : 0;
+    const int shutdown_result = native_agc_present_shutdown();
+    const int unmap_result = munmap(surface, surface_pool_bytes);
+    const int release_result = sceKernelReleaseDirectMemory(surface_start, surface_pool_bytes);
+    if (receipt)
+    {
+        std::fprintf(receipt,
+                     "presented=%u present_rc=%08x measured=%llu.%02llu shutdown_rc=%08x "
+                     "unmap_rc=%08x release_rc=%08x\n",
+                     presented, static_cast<unsigned>(present_result),
+                     static_cast<unsigned long long>(measured_fps_x100 / 100),
+                     static_cast<unsigned long long>(measured_fps_x100 % 100),
+                     static_cast<unsigned>(shutdown_result), static_cast<unsigned>(unmap_result),
+                     static_cast<unsigned>(release_result));
+        std::fclose(receipt);
+    }
+    KeepProcessAlive();
+}
+#endif
+
 MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stream_error,
                                   bool play_open_sound)
 {
@@ -955,6 +1063,10 @@ int main()
     {
         KeepProcessAlive();
     }
+
+#if PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS != 0
+    RunVideoOutputSelfTest();
+#endif
 
     png_decoder_available = sceSysmoduleLoadModule(kPngDecModule) >= 0;
     char stream_error[192]{};

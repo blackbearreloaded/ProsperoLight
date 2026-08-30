@@ -40,6 +40,7 @@ int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t 
 int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr,
                                uint32_t output_source_width, uint32_t output_source_height,
                                uint32_t requested_fps);
+int native_agc_wait_source_idle(const void *source);
 void native_agc_set_hud_enabled(int enabled);
 int native_agc_hud_enabled(void);
 void native_agc_set_keyboard_state(int enabled, uint32_t selected, int shifted);

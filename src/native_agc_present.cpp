@@ -59,9 +59,8 @@
 #define VIDEO_OUT_REFRESH_RATE_59_94 UINT64_C(3)
 #define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)
 #define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)
-#define VIDEO_OUT_REQUEST_90_HZ 0x0001000cu
 #define VIDEO_OUT_REQUEST_120_HZ 15u
-#define VIDEO_OUT_RESOLUTION_90_VRR UINT64_C(0xffffffffc1ffffff)
+#define SOURCE_MARKER_COUNT 4u
 #define LOADING_PITCH 1920u
 #define LOADING_SURFACE_HEIGHT 1088u
 #define LOADING_VISIBLE_HEIGHT 1080u
@@ -171,6 +170,7 @@ extern "C"
     int sceVideoOutConfigureOutputMode_(int32_t handle, uint32_t option,
                                         const video_output_mode_t *mode, const void *color,
                                         uint32_t mode_size, uint32_t color_size);
+    int sceVideoOutVrrUnpegFromFixedRate(int32_t handle);
     int sceVideoOutGetResolutionStatus(int32_t handle, video_resolution_status_t *status);
     int sceVideoOutGetOutputStatus(int32_t handle, void *status);
     void sceVideoOutSetBufferAttribute2(video_attribute_t *attribute, uint64_t pixel_format,
@@ -810,6 +810,9 @@ typedef struct native_agc_presenter
     uint32_t requested_fps;
     size_t framebuffer_bytes;
     size_t framebuffer_pool_bytes;
+    const void *source[SOURCE_MARKER_COUNT];
+    int64_t source_marker[SOURCE_MARKER_COUNT];
+    int64_t overlay_marker;
     uint8_t overlay_kind;
     uint8_t hdr;
     uint8_t ready;
@@ -834,6 +837,9 @@ static native_agc_presenter_t presenter = {
     .requested_fps = 60,
     .framebuffer_bytes = 0,
     .framebuffer_pool_bytes = 0,
+    .source = {},
+    .source_marker = {},
+    .overlay_marker = 0,
     .overlay_kind = 0,
     .hdr = 0,
     .ready = 0,
@@ -846,13 +852,72 @@ static std::atomic<uint32_t> keyboard_selected = 0;
 static std::atomic<int> keyboard_shifted = 0;
 static std::atomic<uint32_t> keyboard_generation = 0;
 
-static uint64_t video_output_refresh_rate(uint32_t requested_fps)
+static int wait_for_marker(int64_t marker, unsigned *waits_out)
 {
-    if (requested_fps == 90u)
-        return VIDEO_OUT_REFRESH_RATE_89_91;
-    if (requested_fps == 120u)
-        return VIDEO_OUT_REFRESH_RATE_119_88;
-    return VIDEO_OUT_REFRESH_RATE_59_94;
+    uint64_t status[16] = {};
+    unsigned waits = 0;
+
+    if (marker > 0 && presenter.video >= 0)
+    {
+        for (; waits < 120u; ++waits)
+        {
+            if (sceVideoOutGetFlipStatus(presenter.video, status) == 0 &&
+                (int64_t)status[3] >= marker)
+                break;
+            sceVideoOutWaitVblank(presenter.video);
+        }
+    }
+    if (waits_out)
+        *waits_out = waits;
+    return waits == 120u ? -5 : 0;
+}
+
+int native_agc_wait_source_idle(const void *source)
+{
+    if (!source)
+        return -1;
+    if (!presenter.ready || presenter.requested_fps <= 60u)
+        return 0;
+    for (uint32_t index = 0; index < SOURCE_MARKER_COUNT; ++index)
+    {
+        if (presenter.source[index] == source)
+        {
+            const int result = wait_for_marker(presenter.source_marker[index], NULL);
+            if (result == 0)
+            {
+                presenter.source[index] = NULL;
+                presenter.source_marker[index] = 0;
+            }
+            return result;
+        }
+    }
+    return 0;
+}
+
+static int remember_source_marker(const void *source, int64_t marker)
+{
+    uint32_t available = SOURCE_MARKER_COUNT;
+
+    for (uint32_t index = 0; index < SOURCE_MARKER_COUNT; ++index)
+    {
+        if (presenter.source[index] == source)
+        {
+            available = index;
+            break;
+        }
+        if (!presenter.source[index] && available == SOURCE_MARKER_COUNT)
+            available = index;
+    }
+    if (available == SOURCE_MARKER_COUNT)
+    {
+        const int result = wait_for_marker(presenter.source_marker[0], NULL);
+        if (result != 0)
+            return result;
+        available = 0;
+    }
+    presenter.source[available] = source;
+    presenter.source_marker[available] = marker;
+    return 0;
 }
 
 static uint32_t video_output_refresh_x100(uint64_t refresh_rate)
@@ -867,33 +932,40 @@ static uint32_t video_output_refresh_x100(uint64_t refresh_rate)
 }
 
 static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
-                                         int32_t *support_result, int32_t *preset_result)
+                                         int32_t *support_result, int32_t *preset_result,
+                                         int32_t *vrr_result)
 {
     video_output_mode_t mode;
-    uint32_t request_type = 0;
 
     *support_result = 0;
     *preset_result = 0;
-    if (requested_fps == 90u)
-        request_type = VIDEO_OUT_REQUEST_90_HZ;
-    else if (requested_fps == 120u)
-        request_type = VIDEO_OUT_REQUEST_120_HZ;
-    if (request_type)
+    *vrr_result = 0;
+    if (requested_fps == 90u || requested_fps == 120u)
     {
-        *support_result = sceVideoOutIsOutputSupported(handle, request_type, NULL, NULL, NULL);
+        *support_result =
+            sceVideoOutIsOutputSupported(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
         if (*support_result > 0)
         {
-            *preset_result = sceVideoOutConfigureOutput(handle, request_type, NULL, NULL, NULL);
+            *preset_result =
+                sceVideoOutConfigureOutput(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
             if (*preset_result == 0)
-                return 0;
+            {
+                if (requested_fps == 90u)
+                    *vrr_result = sceVideoOutVrrUnpegFromFixedRate(handle);
+                return *vrr_result;
+            }
         }
     }
 
     memset(&mode, 0xff, sizeof(mode));
     mode.size = sizeof(mode);
-    mode.refresh_rate = video_output_refresh_rate(requested_fps);
-    mode.resolution = requested_fps == 90u ? VIDEO_OUT_RESOLUTION_90_VRR : UINT64_MAX;
-    return sceVideoOutConfigureOutputMode_(handle, 0, &mode, NULL, sizeof(mode), 16);
+    mode.refresh_rate = VIDEO_OUT_REFRESH_RATE_119_88;
+    mode.resolution = UINT64_MAX;
+    const int mode_result =
+        sceVideoOutConfigureOutputMode_(handle, 0, &mode, NULL, sizeof(mode), 16);
+    if (mode_result == 0 && requested_fps == 90u)
+        *vrr_result = sceVideoOutVrrUnpegFromFixedRate(handle);
+    return mode_result != 0 ? mode_result : *vrr_result;
 }
 
 static void update_presenter_output_status(const char *stage)
@@ -977,6 +1049,7 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
     int32_t mode_result = 0;
     int32_t mode_support_result = 0;
     int32_t mode_preset_result = 0;
+    int32_t mode_vrr_result = 0;
     uint8_t reused = agc_initialized;
     char receipt[512];
 
@@ -1062,8 +1135,9 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
 
     presenter.video = sceVideoOutOpen(0xff, 0, 0, NULL);
     if (presenter.video >= 0 && requested_fps > 60u)
-        mode_result = configure_high_refresh_output(presenter.video, requested_fps,
-                                                    &mode_support_result, &mode_preset_result);
+        mode_result =
+            configure_high_refresh_output(presenter.video, requested_fps, &mode_support_result,
+                                          &mode_preset_result, &mode_vrr_result);
     if (presenter.video >= 0)
         result = sceVideoOutSetFlipRate(presenter.video, 0);
     else
@@ -1080,11 +1154,13 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
                                      0, framebuffer_start, FRAMEBUFFER_ALIGNMENT);
     snprintf(receipt, sizeof(receipt),
              "Native AGC stage 3: video=%08x mode_rc=%08x support_rc=%08x preset_rc=%08x "
+             "vrr_rc=%08x "
              "framebuffer_rc=%08x "
              "framebuffer=%p/%zx output=%ux%u requested_fps=%u",
              (uint32_t)presenter.video, (uint32_t)mode_result, (uint32_t)mode_support_result,
-             (uint32_t)mode_preset_result, (uint32_t)result, presenter.framebuffer,
-             framebuffer_pool_bytes, output.width, output.height, requested_fps);
+             (uint32_t)mode_preset_result, (uint32_t)mode_vrr_result, (uint32_t)result,
+             presenter.framebuffer, framebuffer_pool_bytes, output.width, output.height,
+             requested_fps);
     report_agc_receipt(receipt);
     if (result != 0 || !presenter.framebuffer)
         return result ? result : -4;
@@ -1192,6 +1268,9 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
 
         if (presenter.overlay_kind != 2u || presenter.keyboard_generation != generation)
         {
+            result = wait_for_marker(presenter.overlay_marker, NULL);
+            if (result != 0)
+                return result;
             refresh_keyboard_surface(
                 presenter.shader_memory + HUD_SURFACE_OFFSET,
                 std::atomic_load_explicit(&keyboard_selected, std::memory_order_relaxed),
@@ -1204,6 +1283,9 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     {
         if (presenter.overlay_kind != 1u || frame_number % HUD_REFRESH_FRAMES == 0)
         {
+            result = wait_for_marker(presenter.overlay_marker, NULL);
+            if (result != 0)
+                return result;
             refresh_hud_surface(presenter.shader_memory + HUD_SURFACE_OFFSET, metrics,
                                 visible_width, visible_height, render_width, render_height,
                                 presenter.scanout_refresh_x100, hdr);
@@ -1217,21 +1299,21 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
                           visible_width, visible_height, render_width, render_height, render_marker,
                           &words, hdr, draw_overlay, overlay_width, overlay_height, overlay_x,
                           overlay_y, overlay_scale, overlay_alpha);
-    if (result == 0)
+    if (result == 0 && presenter.requested_fps <= 60u)
     {
-        for (render_waits = 0; render_waits < 120; ++render_waits)
-        {
-            if (sceVideoOutGetFlipStatus(presenter.video, status) == 0 &&
-                status[3] == (uint64_t)render_marker)
-                break;
-            sceVideoOutWaitVblank(presenter.video);
-        }
-        if (render_waits == 120)
-            result = -5;
+        result = wait_for_marker(render_marker, &render_waits);
+        (void)sceVideoOutGetFlipStatus(presenter.video, status);
     }
     else
     {
         render_waits = 0;
+    }
+
+    if (result == 0 && presenter.requested_fps > 60u)
+    {
+        result = remember_source_marker(source, render_marker);
+        if (draw_overlay)
+            presenter.overlay_marker = render_marker;
     }
 
     if (result != 0 || frame_number == 0)
@@ -1348,6 +1430,12 @@ int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t pha
 
     if (!surface || surface_bytes < required_bytes)
         return -1;
+
+    {
+        const int result = native_agc_wait_source_idle(surface);
+        if (result != 0)
+            return result;
+    }
 
     if (hdr)
     {

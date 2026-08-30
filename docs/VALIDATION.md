@@ -465,3 +465,23 @@ SHA-256 is
 verified `PPSA77003.ffpfsc` SHA-256 is
 `e07e86c5734371a184e7a90e0462b8d4320b46af55ce588a62f64a91d9c871b7`.
 Live 1440p and 2160p Main10 image acceptance remains the operator test.
+
+Version `01.000.044` validates native high-refresh VideoOut independently of
+Sunshine. The 90 FPS path requests the proven 119.88 Hz mode and unpegs VRR;
+the 120 FPS path retains fixed 119.88 Hz output. A three-surface bounded
+presenter waits for a completed flip before a decoder surface is reused while
+allowing high-refresh submissions to proceed without serializing every frame
+on its own vblank. On hardware, the isolated 18-second oracles measured 89.99
+FPS and 119.85 FPS respectively, with all requested frames presented, clean
+AGC/VideoOut teardown, no GPU fault or kernel panic, and ports 2121, 3232, and
+9021 still healthy. The 120 FPS animated-loading control measured 109.33 FPS,
+which isolates that lower figure to regenerating and flushing the complete
+1080p loading surface rather than to a PS5 GPU or VideoOut ceiling. A bounded
+50-second live-path smoke then entered 1920x1080 at 119.88 Hz, remained alive,
+and closed normally without a GPU fault or kernel panic. Because LAN telemetry
+was disabled for that run, this proves the high-refresh presenter handoff but
+does not yet prove that Sunshine delivered 120 decoded frames per second. The
+matching Sunshine log independently records a 120 Hz captured display and a
+requested frame rate of exactly 120 FPS. Its subsequent 60 FPS minimum target
+is Sunshine's documented static-content floor of half the requested rate, not
+a negotiation cap; moving-content cadence remains the operator acceptance.

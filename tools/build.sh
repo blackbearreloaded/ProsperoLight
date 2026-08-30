@@ -226,10 +226,11 @@ common_dialog_stub=$(build_system_link_stub libSceCommonDialog vendor/ps5/sdk/st
 agc_stub=$(build_system_link_stub libSceAgc vendor/ps5/sdk/stubs/agc_link_stub.c)
 agc_driver_stub=$(build_system_link_stub libSceAgcDriver vendor/ps5/sdk/stubs/agc_driver_link_stub.c)
 mouse_stub=$(build_system_link_stub libSceMouse vendor/ps5/sdk/stubs/mouse_link_stub.c)
+videoout_stub=$(build_system_link_stub libSceVideoOut vendor/ps5/sdk/stubs/videoout_link_stub.c)
 
 link_inputs=("$build/obj/app_crt.o" "$build/obj/app_cpp_runtime.o" "${objects[@]}" \
     "$pngdec_stub" "$videodec2_stub" "$common_dialog_stub" "$agc_stub" "$agc_driver_stub" \
-    "$mouse_stub")
+    "$mouse_stub" "$videoout_stub")
 for archive in "${archives[@]}"; do
     [[ $archive =~ ^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\.a$ && -f $root/$archive ]] || {
         echo "invalid static archive: $archive" >&2; exit 2;
@@ -253,6 +254,7 @@ fi
     --stub "$agc_stub" \
     --stub "$agc_driver_stub" \
     --stub "$mouse_stub" \
+    --stub "$videoout_stub" \
     --module-sdk "$module_sdk" \
     --companion-sdk "$companion_sdk" --file-name eboot.elf
 

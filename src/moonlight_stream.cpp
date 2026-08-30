@@ -839,6 +839,12 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
     slot = state->access_units % PIPELINE_BUFFER_COUNT;
     input_slot = (uint8_t *)state->input_memory + slot * state->input_size;
     frame_slot = (uint8_t *)state->frame_memory + slot * state->frame_size;
+    result = native_agc_wait_source_idle(frame_slot);
+    if (result != 0)
+    {
+        state->last_result = result;
+        return DR_NEED_IDR;
+    }
     started = monotonic_us();
     for (entry = decode_unit->bufferList; entry; entry = entry->next)
     {
