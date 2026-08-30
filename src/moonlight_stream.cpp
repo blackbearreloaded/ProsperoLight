@@ -109,6 +109,7 @@ extern "C"
                             uint32_t frequency, uint32_t format);
     int32_t sceAudioOutOutput(int32_t handle, const void *buffer);
     int32_t sceAudioOutClose(int32_t handle);
+    uint64_t PltGetMicroseconds(void);
 }
 typedef struct notification_request
 {
@@ -208,24 +209,24 @@ typedef struct native_video_mode
 
 static const native_video_mode_t video_modes[] = {
     {MOONLIGHT_VIDEO_CODEC_H264, MOONLIGHT_STREAM_RESOLUTION_1080P, VIDEO_FORMAT_H264, 1, 100, 51,
-     1920, 1088, 1920, 1088, 0, 2048, 1920, 1080, 0, "H.264 1080p60"},
+     1920, 1088, 1920, 1088, 0, 2048, 1920, 1080, 0, "H.264 1080p"},
     {MOONLIGHT_VIDEO_CODEC_H264, MOONLIGHT_STREAM_RESOLUTION_1440P, VIDEO_FORMAT_H264, 1, 100, 51,
-     2560, 1440, 2560, 1440, 0, 2560, 2560, 1440, 0, "H.264 1440p60"},
+     2560, 1440, 2560, 1440, 0, 2560, 2560, 1440, 0, "H.264 1440p"},
     {MOONLIGHT_VIDEO_CODEC_H264, MOONLIGHT_STREAM_RESOLUTION_2160P, VIDEO_FORMAT_H264, 1, 100, 52,
-     3840, 2176, 3840, 2160, 2176, 3840, 3840, 2160, 0, "H.264 2160p60 beta"},
+     3840, 2176, 3840, 2160, 2176, 3840, 3840, 2160, 0, "H.264 2160p beta"},
     {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_1080P, VIDEO_FORMAT_H265, 0x000ee049,
-     1, 123, 1920, 1088, 1920, 1088, 0, 2048, 1920, 1080, 0, "HEVC Main 1080p60"},
+     1, 123, 1920, 1088, 1920, 1088, 0, 2048, 1920, 1080, 0, "HEVC Main 1080p"},
     {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_1440P, VIDEO_FORMAT_H265, 0x000ee049,
-     1, 150, 2560, 1440, 2560, 1440, 0, 2560, 2560, 1440, 0, "HEVC Main 1440p60"},
+     1, 150, 2560, 1440, 2560, 1440, 0, 2560, 2560, 1440, 0, "HEVC Main 1440p"},
     {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_2160P, VIDEO_FORMAT_H265, 0x000ee049,
-     1, 153, 3840, 2176, 3840, 2160, 2176, 3840, 3840, 2160, 0, "HEVC Main 2160p60 beta"},
+     1, 153, 3840, 2176, 3840, 2160, 2176, 3840, 3840, 2160, 0, "HEVC Main 2160p beta"},
     {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_1080P, VIDEO_FORMAT_H265_MAIN10,
-     0x000ee049, 2, 123, 1920, 1088, 1920, 1088, 0, 1920, 1920, 1080, 1, "HEVC Main10 HDR 1080p60"},
+     0x000ee049, 2, 123, 1920, 1088, 1920, 1088, 0, 1920, 1920, 1080, 1, "HEVC Main10 HDR 1080p"},
     {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_1440P, VIDEO_FORMAT_H265_MAIN10,
-     0x000ee049, 2, 150, 2560, 1440, 2560, 1440, 0, 2560, 2560, 1440, 1, "HEVC Main10 HDR 1440p60"},
+     0x000ee049, 2, 150, 2560, 1440, 2560, 1440, 0, 2560, 2560, 1440, 1, "HEVC Main10 HDR 1440p"},
     {MOONLIGHT_VIDEO_CODEC_HEVC, MOONLIGHT_STREAM_RESOLUTION_2160P, VIDEO_FORMAT_H265_MAIN10,
      0x000ee049, 2, 153, 3840, 2176, 3840, 2160, 2176, 3840, 3840, 2160, 1,
-     "HEVC Main10 HDR 2160p60"},
+     "HEVC Main10 HDR 2160p"},
 };
 
 static_assert(sizeof(video_modes) / sizeof(video_modes[0]) == 9,
@@ -243,6 +244,25 @@ static const native_video_mode_t *find_video_mode(uint32_t codec, uint32_t resol
             return &video_modes[index];
     }
     return NULL;
+}
+
+static uint32_t decoder_max_level(const native_video_mode_t *mode, uint32_t stream_fps)
+{
+    if (!mode || stream_fps <= MOONLIGHT_STREAM_FPS_60)
+        return mode ? mode->max_level : 0u;
+    if (mode->codec_type == 1u)
+    {
+        if (mode->resolution_preference == MOONLIGHT_STREAM_RESOLUTION_2160P)
+            return 60u;
+        if (mode->resolution_preference == MOONLIGHT_STREAM_RESOLUTION_1440P)
+            return 52u;
+        return 51u;
+    }
+    if (mode->resolution_preference == MOONLIGHT_STREAM_RESOLUTION_2160P)
+        return 156u;
+    if (mode->resolution_preference == MOONLIGHT_STREAM_RESOLUTION_1440P)
+        return 153u;
+    return 150u;
 }
 
 typedef struct ps5_pad_sample
@@ -429,6 +449,7 @@ static std::atomic<uint32_t> host_hdr_transitions;
 typedef struct native_renderer_state
 {
     const native_video_mode_t *mode;
+    uint32_t stream_fps;
     void *decoder;
     void *input_memory;
     void *frame_memory;
@@ -464,6 +485,7 @@ typedef struct native_renderer_state
     uint64_t callback_to_flip_min_us;
     uint64_t callback_to_flip_max_us;
     uint64_t submission_arrival_us[SUBMISSION_QUEUE_CAPACITY];
+    uint64_t submission_enqueue_us[SUBMISSION_QUEUE_CAPACITY];
     uint64_t submission_pts_us[SUBMISSION_QUEUE_CAPACITY];
     int32_t submission_frame[SUBMISSION_QUEUE_CAPACITY];
     uint32_t submission_head;
@@ -473,6 +495,10 @@ typedef struct native_renderer_state
     uint64_t last_video_us;
     uint64_t first_present_us;
     uint64_t last_present_us;
+    uint64_t queue_delay_total_us;
+    uint64_t queue_delay_max_us;
+    uint32_t queue_delay_calls;
+    uint32_t stale_presentation_drops;
     int32_t last_result;
     uint32_t hdr_mismatch_reported;
     std::atomic<int> running;
@@ -508,6 +534,7 @@ typedef struct connection_loading_state
     int hdr;
     uint32_t output_source_width;
     uint32_t output_source_height;
+    uint32_t requested_fps;
     std::atomic<int> animation_enabled;
     std::atomic<int> animation_presenting;
     std::atomic<int> active;
@@ -537,7 +564,7 @@ static void *connection_loading_thread(void *context)
             if (std::atomic_load_explicit(&state->animation_enabled, std::memory_order_acquire))
                 state->present_result = native_agc_present_loading(
                     state->surface, state->surface_bytes, phase++, state->hdr,
-                    state->output_source_width, state->output_source_height);
+                    state->output_source_width, state->output_source_height, state->requested_fps);
             if (state->present_result != 0)
             {
                 std::atomic_store_explicit(&state->animation_enabled, 0, std::memory_order_release);
@@ -577,7 +604,7 @@ static void *connection_loading_thread(void *context)
 
 static int start_connection_loading(connection_loading_state_t *state, void *surface,
                                     size_t surface_bytes, int hdr, uint32_t output_source_width,
-                                    uint32_t output_source_height,
+                                    uint32_t output_source_height, uint32_t requested_fps,
                                     ps5_controller_state_t *controller)
 {
     state->surface = surface;
@@ -585,6 +612,7 @@ static int start_connection_loading(connection_loading_state_t *state, void *sur
     state->hdr = hdr;
     state->output_source_width = output_source_width;
     state->output_source_height = output_source_height;
+    state->requested_fps = requested_fps;
     state->controller = controller;
     state->started_us = monotonic_us();
     state->present_result = 0;
@@ -592,8 +620,9 @@ static int start_connection_loading(connection_loading_state_t *state, void *sur
     std::atomic_store_explicit(&state->animation_presenting, 0, std::memory_order_relaxed);
     if (surface && surface_bytes)
     {
-        state->present_result = native_agc_present_loading(
-            surface, surface_bytes, 0, hdr, output_source_width, output_source_height);
+        state->present_result =
+            native_agc_present_loading(surface, surface_bytes, 0, hdr, output_source_width,
+                                       output_source_height, requested_fps);
         std::atomic_store_explicit(&state->animation_enabled, state->present_result == 0,
                                    std::memory_order_relaxed);
         if (state->present_result != 0)
@@ -686,7 +715,7 @@ static int moonlight_renderer_setup(int video_format, int width, int height, int
 
     if (!state || !state->mode || video_format != state->mode->video_format ||
         width != (int)state->mode->visible_width || height != (int)state->mode->visible_height ||
-        redraw_rate != 60 || dr_flags != 0)
+        redraw_rate != (int)state->stream_fps || dr_flags != 0)
         return -1;
 
     active_renderer = state;
@@ -732,8 +761,10 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
     uint64_t started;
     uint64_t elapsed;
     uint64_t callback_arrival_us = monotonic_us();
+    uint64_t network_enqueue_us;
     uint64_t decode_completed_us;
     uint64_t output_arrival_us = 0;
+    uint64_t output_enqueue_us = 0;
     uint64_t output_pts_us = 0;
     int32_t output_frame = 0;
     uint32_t hdr_active;
@@ -784,13 +815,15 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
         return DR_NEED_IDR;
     }
 
+    network_enqueue_us =
+        decode_unit->enqueueTimeUs ? decode_unit->enqueueTimeUs : PltGetMicroseconds();
     if (!state->first_video_us)
-        state->first_video_us = callback_arrival_us;
+        state->first_video_us = network_enqueue_us;
     else if (decode_unit->frameNumber > state->last_network_frame + 1)
         state->network_dropped_frames +=
             (uint32_t)(decode_unit->frameNumber - (state->last_network_frame + 1));
     state->last_network_frame = decode_unit->frameNumber;
-    state->last_video_us = callback_arrival_us;
+    state->last_video_us = network_enqueue_us;
     if (decode_unit->frameHostProcessingLatency)
     {
         uint32_t latency = decode_unit->frameHostProcessingLatency;
@@ -874,6 +907,7 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
     submission_index =
         (state->submission_head + state->submission_count) % SUBMISSION_QUEUE_CAPACITY;
     state->submission_arrival_us[submission_index] = callback_arrival_us;
+    state->submission_enqueue_us[submission_index] = network_enqueue_us;
     state->submission_pts_us[submission_index] = decode_unit->presentationTimeUs;
     state->submission_frame[submission_index] = decode_unit->frameNumber;
     ++state->submission_count;
@@ -933,6 +967,7 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
         const native_agc_metrics_t *hud = NULL;
 
         output_arrival_us = state->submission_arrival_us[state->submission_head];
+        output_enqueue_us = state->submission_enqueue_us[state->submission_head];
         output_pts_us = state->submission_pts_us[state->submission_head];
         output_frame = state->submission_frame[state->submission_head];
         state->submission_head = (state->submission_head + 1u) % SUBMISSION_QUEUE_CAPACITY;
@@ -944,6 +979,20 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
             state->callback_to_decode_min_us = elapsed;
         if (elapsed > state->callback_to_decode_max_us)
             state->callback_to_decode_max_us = elapsed;
+
+        elapsed = PltGetMicroseconds() - output_enqueue_us;
+        state->queue_delay_total_us += elapsed;
+        if (elapsed > state->queue_delay_max_us)
+            state->queue_delay_max_us = elapsed;
+        ++state->queue_delay_calls;
+
+        if (state->presented != 0 &&
+            elapsed > UINT64_C(2000000) / (state->stream_fps ? state->stream_fps : 60u))
+        {
+            ++state->stale_presentation_drops;
+            state->last_result = 0;
+            return DR_OK;
+        }
 
         if (native_agc_hud_enabled())
         {
@@ -985,6 +1034,11 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
                     : 0;
             hud_metrics.decode_average_us =
                 state->decode_calls ? state->decode_total_us / state->decode_calls : 0;
+            hud_metrics.queue_delay_average_us =
+                state->queue_delay_calls ? state->queue_delay_total_us / state->queue_delay_calls
+                                         : 0;
+            hud_metrics.queue_delay_max_us = state->queue_delay_max_us;
+            hud_metrics.stale_presentation_drops = state->stale_presentation_drops;
             hud = &hud_metrics;
         }
         started = monotonic_us();
@@ -992,10 +1046,10 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
             state->mode->hdr
                 ? native_agc_present_main10(output.buffer, (size_t)output.buffer_size, output.pitch,
                                             output.height, state->mode->visible_width,
-                                            state->mode->visible_height, hud)
+                                            state->mode->visible_height, state->stream_fps, hud)
                 : native_agc_present_nv12(output.buffer, (size_t)output.buffer_size, output.pitch,
                                           output.height, state->mode->visible_width,
-                                          state->mode->visible_height, hud);
+                                          state->mode->visible_height, state->stream_fps, hud);
         elapsed = monotonic_us() - started;
         state->present_total_us += elapsed;
         if (elapsed > state->present_max_us)
@@ -1021,12 +1075,15 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
             snprintf(receipt, sizeof(receipt),
                      "Moonlight callback progress: submit_frame=%d output_frame=%d "
                      "output_pts_us=%llu au=%u presented=%u pending=%u callback_to_flip_us=%llu "
-                     "fragments=%u bytes=%zx decoder=%p pool=%p agc=%p in_pool=%u",
+                     "queue_us=%llu stale=%u fragments=%u bytes=%zx decoder=%p pool=%p agc=%p "
+                     "in_pool=%u",
                      decode_unit->frameNumber, output_frame, (unsigned long long)output_pts_us,
                      state->access_units,
                      std::atomic_load_explicit(&state->presented, std::memory_order_relaxed),
-                     state->submission_count, (unsigned long long)elapsed, state->fragments,
-                     state->stream_bytes, output.buffer, state->frame_memory, output.buffer,
+                     state->submission_count, (unsigned long long)elapsed,
+                     (unsigned long long)(PltGetMicroseconds() - output_enqueue_us),
+                     state->stale_presentation_drops, state->fragments, state->stream_bytes,
+                     output.buffer, state->frame_memory, output.buffer,
                      frame_is_in_pool(output.buffer, state->frame_memory, state->frame_size));
             (void)lan_http_report_text(receipt);
         }
@@ -2327,6 +2384,11 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         options && options->app_name && options->app_name[0] ? options->app_name : "Desktop";
     const int app_id = options ? options->app_id : 0;
     const uint32_t bitrate_kbps = options && options->bitrate_kbps ? options->bitrate_kbps : 20000u;
+    const uint32_t requested_fps = options ? options->stream_fps : MOONLIGHT_STREAM_FPS_60;
+    const uint32_t stream_fps =
+        requested_fps == MOONLIGHT_STREAM_FPS_90 || requested_fps == MOONLIGHT_STREAM_FPS_120
+            ? requested_fps
+            : MOONLIGHT_STREAM_FPS_60;
     const native_video_mode_t *mode =
         find_video_mode(options ? options->video_codec : MOONLIGHT_VIDEO_CODEC_H264,
                         options ? options->stream_resolution : MOONLIGHT_STREAM_RESOLUTION_1080P,
@@ -2360,13 +2422,13 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     lan_http_report_set_host(host);
 
     result = start_connection_loading(&loading, NULL, 0, mode->hdr, mode->visible_width,
-                                      mode->visible_height, NULL);
+                                      mode->visible_height, stream_fps, NULL);
     if (result != 0)
         goto done;
 
     snprintf(notification.message, sizeof(notification.message),
-             "Native zero-copy stage 1: mode=%s bitrate=%u kbps input_slot=%x", mode->name,
-             bitrate_kbps, INPUT_SLOT_BYTES);
+             "Native zero-copy stage 1: mode=%s fps=%u bitrate=%u kbps input_slot=%x", mode->name,
+             stream_fps, bitrate_kbps, INPUT_SLOT_BYTES);
     (void)lan_http_report_text(notification.message);
     sceSystemServiceHideSplashScreen();
     result = sceSysmoduleLoadModule(207);
@@ -2410,7 +2472,7 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     config.resource_type = 1;
     config.codec_type = mode->codec_type;
     config.profile = mode->profile;
-    config.max_level = mode->max_level;
+    config.max_level = decoder_max_level(mode, stream_fps);
     config.max_width = (int32_t)mode->max_width;
     config.max_height = (int32_t)mode->max_height;
     config.max_dpb_frames = 4;
@@ -2502,6 +2564,7 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
 
     renderer.decoder = decoder;
     renderer.mode = mode;
+    renderer.stream_fps = stream_fps;
     renderer.input_memory = input_memory;
     renderer.frame_memory = frame_memory;
     renderer.input_size = input_size;
@@ -2523,13 +2586,13 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     LiInitializeStreamConfiguration(&stream_config);
     stream_config.width = (int)mode->visible_width;
     stream_config.height = (int)mode->visible_height;
-    stream_config.fps = 60;
+    stream_config.fps = (int)stream_fps;
     stream_config.bitrate = (int)bitrate_kbps;
     stream_config.packetSize = 1392;
     stream_config.streamingRemotely = STREAM_CFG_LOCAL;
     stream_config.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
     stream_config.supportedVideoFormats = mode->video_format;
-    stream_config.clientRefreshRateX100 = 6000;
+    stream_config.clientRefreshRateX100 = (int)(stream_fps * 100u);
     stream_config.colorSpace = mode->hdr ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
     stream_config.colorRange = COLOR_RANGE_LIMITED;
     stream_config.encryptionFlags = ENCFLG_NONE;
@@ -2554,9 +2617,9 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
              (uint32_t)physical_input.mouse_init_result, (uint32_t)physical_input.mouse_open_result,
              physical_input.mouse_handle_count);
     (void)lan_http_report_text(notification.message);
-    result =
-        start_connection_loading(&loading, frame_memory, frame_size, mode->hdr, mode->visible_width,
-                                 mode->visible_height, controller_ready ? &controller : NULL);
+    result = start_connection_loading(&loading, frame_memory, frame_size, mode->hdr,
+                                      mode->visible_width, mode->visible_height, stream_fps,
+                                      controller_ready ? &controller : NULL);
     snprintf(notification.message, sizeof(notification.message),
              "Native connecting animation: present=%08x thread=%08x hdr=%u", (uint32_t)result,
              (uint32_t)loading.create_result, mode->hdr ? 1u : 0u);

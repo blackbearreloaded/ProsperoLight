@@ -91,6 +91,7 @@ struct LauncherSelection
     unsigned display_area = MOONLIGHT_DISPLAY_AREA_TV_SAFE;
     unsigned video_codec = MOONLIGHT_VIDEO_CODEC_H264;
     unsigned stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P;
+    unsigned stream_fps = MOONLIGHT_STREAM_FPS_60;
     unsigned hdr_enabled = 0;
 };
 
@@ -911,6 +912,7 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
                 selection->display_area = app.DisplayArea();
                 selection->video_codec = app.VideoCodec();
                 selection->stream_resolution = app.StreamResolution();
+                selection->stream_fps = app.StreamFps();
                 selection->hdr_enabled = app.HdrEnabled();
             }
             running = false;
@@ -979,6 +981,7 @@ int main()
         options.display_area = selection.display_area;
         options.video_codec = selection.video_codec;
         options.stream_resolution = selection.stream_resolution;
+        options.stream_fps = selection.stream_fps;
         options.hdr_enabled = selection.hdr_enabled;
         (void)moonlight_stream_run(&options, &metrics);
         std::snprintf(stream_error, sizeof(stream_error), "%s", metrics.error);

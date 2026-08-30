@@ -90,6 +90,37 @@ class ToolTests(unittest.TestCase):
         source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
         self.assertIn('metrics->video_codec ? "HEVC" : "H.264", hdr ? " / HDR" : ""', source)
 
+    def test_selectable_frame_rate_reaches_sunshine_and_decoder(self):
+        config = (ROOT / "include/moonlight_config.hpp").read_text(encoding="utf-8")
+        launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+        stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        ui = (ROOT / "ui/main.rml").read_text(encoding="utf-8")
+
+        for fps in (60, 90, 120):
+            self.assertIn(f"#define MOONLIGHT_STREAM_FPS_{fps} {fps}U", config)
+        self.assertIn('id="setting-framerate"', ui)
+        self.assertIn("selection->stream_fps = app.StreamFps();", launcher)
+        self.assertIn("options.stream_fps = selection.stream_fps;", launcher)
+        self.assertIn("stream_config.fps = (int)stream_fps;", stream)
+        self.assertIn(
+            "stream_config.clientRefreshRateX100 = (int)(stream_fps * 100u);", stream
+        )
+        self.assertIn("redraw_rate != (int)state->stream_fps", stream)
+
+    def test_frame_rate_is_independent_of_resolution_and_bitrate(self):
+        source = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+        settings = source[source.index("case Screen::Settings:") :]
+        settings = settings[: settings.index("default:")]
+        resolution = settings[settings.index("else if (focus_ == 4)") :]
+        resolution = resolution[: resolution.index("else if (focus_ == 5)")]
+        frame_rate = settings[settings.index("else if (focus_ == 5)") :]
+        frame_rate = frame_rate[: frame_rate.index("else if (focus_ == 6)")]
+
+        self.assertNotIn("stream_fps", resolution)
+        self.assertIn("config_.stream_fps = NextFrameRate(config_.stream_fps);", frame_rate)
+        self.assertNotIn("stream_resolution", frame_rate)
+        self.assertNotIn("bitrate", frame_rate)
+
     def test_main10_descriptors_follow_the_visible_resolution(self):
         source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
         start = source.index("static void bind_main10_source")
@@ -211,6 +242,30 @@ class ToolTests(unittest.TestCase):
         self.assertLess(
             initialize.index("sceVideoOutSetBufferAttribute2"),
             initialize.index("sceVideoOutRegisterBuffers2"),
+        )
+
+    def test_high_refresh_videoout_uses_firmware_mode_ids_and_reports_scanout(self):
+        presenter = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+        stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("#define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)", presenter)
+        self.assertIn("#define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)", presenter)
+        self.assertIn("sceVideoOutConfigureOutputMode_", presenter)
+        self.assertIn("sceVideoOutGetResolutionStatus", presenter)
+        self.assertIn("sceVideoOutGetOutputStatus", presenter)
+        self.assertIn("state->requested_fps", stream)
+        self.assertIn("state->mode->visible_height, state->stream_fps, hud", stream)
+
+    def test_renderer_bounds_latency_with_enqueue_time_and_stale_presentation_drops(self):
+        source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("decode_unit->enqueueTimeUs", source)
+        self.assertIn("submission_enqueue_us", source)
+        self.assertIn("queue_delay_total_us", source)
+        self.assertIn("stale_presentation_drops", source)
+        self.assertIn(
+            "UINT64_C(2000000) / (state->stream_fps ? state->stream_fps : 60u)",
+            source,
         )
 
     def test_stream_sampler_uses_the_filtered_probe_variant(self):

@@ -22,6 +22,7 @@ typedef struct moonlight_stream_options {
     uint32_t display_area;
     uint32_t video_codec;
     uint32_t stream_resolution;
+    uint32_t stream_fps;
     uint32_t hdr_enabled;
 } moonlight_stream_options_t;
 

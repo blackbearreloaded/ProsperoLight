@@ -23,17 +23,23 @@ typedef struct native_agc_metrics
     uint32_t host_min_tenths_ms;
     uint32_t host_max_tenths_ms;
     uint32_t host_average_tenths_ms;
+    uint32_t stale_presentation_drops;
     uint64_t decode_average_us;
+    uint64_t queue_delay_average_us;
+    uint64_t queue_delay_max_us;
 } native_agc_metrics_t;
 
 int native_agc_present_nv12(const void *source, size_t source_bytes, uint32_t pitch,
                             uint32_t surface_height, uint32_t visible_width,
-                            uint32_t visible_height, const native_agc_metrics_t *metrics);
+                            uint32_t visible_height, uint32_t requested_fps,
+                            const native_agc_metrics_t *metrics);
 int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t pitch,
                               uint32_t surface_height, uint32_t visible_width,
-                              uint32_t visible_height, const native_agc_metrics_t *metrics);
+                              uint32_t visible_height, uint32_t requested_fps,
+                              const native_agc_metrics_t *metrics);
 int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t phase, int hdr,
-                               uint32_t output_source_width, uint32_t output_source_height);
+                               uint32_t output_source_width, uint32_t output_source_height,
+                               uint32_t requested_fps);
 void native_agc_set_hud_enabled(int enabled);
 int native_agc_hud_enabled(void);
 void native_agc_set_keyboard_state(int enabled, uint32_t selected, int shifted);

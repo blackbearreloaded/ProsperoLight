@@ -106,32 +106,38 @@
                     <span class="screen-heading">Settings</span>
                     <span class="screen-copy">Recommended local-network values are selected.</span>
                     <button id="setting-codec" class="setting-row setting-row-0">
-                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="126" alt=""/>
-                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="126" alt=""/>
+                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="102" alt=""/>
+                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="102" alt=""/>
                         <span class="setting-name">Video codec</span><span id="setting-codec-help" class="setting-help">H.264 High hardware decode</span>
                         <span id="setting-codec-value" class="setting-value">H.264 High</span>
                     </button>
                     <button id="setting-resolution" class="setting-row setting-row-1">
-                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="126" alt=""/>
-                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="126" alt=""/>
+                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="102" alt=""/>
+                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="102" alt=""/>
                         <span class="setting-name">Stream resolution</span><span class="setting-help">Cross cycles 1080p / 1440p / 4K beta</span>
-                        <span id="setting-resolution-value" class="setting-value">1920 x 1080 / 60 FPS</span>
+                        <span id="setting-resolution-value" class="setting-value">1920 x 1080</span>
                     </button>
-                    <button id="setting-bitrate" class="setting-row setting-row-2">
-                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="126" alt=""/>
-                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="126" alt=""/>
+                    <button id="setting-framerate" class="setting-row setting-row-2">
+                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="102" alt=""/>
+                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="102" alt=""/>
+                        <span class="setting-name">Stream frame rate</span><span class="setting-help">Cross cycles 60 / 90 / 120 FPS independently</span>
+                        <span id="setting-framerate-value" class="setting-value">60 FPS</span>
+                    </button>
+                    <button id="setting-bitrate" class="setting-row setting-row-3">
+                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="102" alt=""/>
+                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="102" alt=""/>
                         <span class="setting-name">Video bitrate</span><span class="setting-help">Cross cycles local-network presets up to 500 Mbps</span>
                         <span id="setting-bitrate-value" class="setting-value">20 Mbps</span>
                     </button>
-                    <button id="setting-display-area" class="setting-row setting-row-3">
-                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="126" alt=""/>
-                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="126" alt=""/>
+                    <button id="setting-display-area" class="setting-row setting-row-4">
+                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="102" alt=""/>
+                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="102" alt=""/>
                         <span class="setting-name">Display area</span><span class="setting-help">TV safe preserves edges; Edge to edge may be cropped by TVs</span>
                         <span id="setting-display-area-value" class="setting-value">TV safe</span>
                     </button>
-                    <button id="setting-hdr" class="setting-row setting-row-4">
-                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="126" alt=""/>
-                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="126" alt=""/>
+                    <button id="setting-hdr" class="setting-row setting-row-5">
+                        <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="102" alt=""/>
+                        <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="102" alt=""/>
                         <span class="setting-name">HDR</span><span id="setting-hdr-help" class="setting-help">HEVC Main10 / BT.2020 PQ at the selected resolution</span>
                         <span id="setting-hdr-value" class="setting-value">Off / SDR</span>
                     </button>

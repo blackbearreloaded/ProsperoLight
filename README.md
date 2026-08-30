@@ -25,16 +25,16 @@ Demo available by clicking the image below.
 
 ## Highlights
 
-- Native PS5 hardware streaming through VideoDec2 and AGC at 1080p60,
-  1440p60, and 2160p60.
+- Native PS5 hardware streaming through VideoDec2 and AGC at 1080p, 1440p,
+  and 2160p, with independently selectable 60, 90, and 120 FPS stream targets.
 - H.264 High, HEVC Main, and HEVC Main10 HDR10 support at every available
   resolution.
 - Low-latency DualSense, physical USB keyboard and mouse, controller-driven
   mouse mode, and an on-screen password keyboard.
 - Automatic Sunshine discovery, manual-IP fallback, persistent multi-PC
   pairing, application artwork, and launch/resume/stop controls.
-- Persistent stream preferences, edge-to-edge or TV-safe presentation, and
-  bitrate presets from 10 to 500 Mbps.
+- Persistent stream preferences, edge-to-edge or TV-safe presentation,
+  independent frame-rate selection, and bitrate presets from 10 to 500 Mbps.
 - 48 kHz stereo Opus audio, native launcher sound effects, live performance
   metrics, and graceful connection recovery.
 
@@ -97,17 +97,18 @@ tooling are maintained in this repository.
   confirmation.
 - Browse up to 64 advertised Sunshine applications with paged artwork,
   launch/resume feedback, and active-application stop controls.
-- Decode H.264 High and HEVC Main streams through VideoDec2 at 1080p60,
-  1440p60, and 2160p60. All three modes are hardware-validated; broader
-  higher-resolution compatibility remains beta.
+- Decode H.264 High and HEVC Main streams through VideoDec2 at 1080p, 1440p,
+  and 2160p. Select 60, 90, or 120 FPS independently of resolution and bitrate;
+  the 60 FPS combinations are hardware-validated, while 90/120 FPS remain
+  local-development targets pending broader PS5/TV acceptance.
 - Present decoded GPU surfaces directly through AGC, with edge-to-edge and
   television-safe display modes. The presenter uses native 1080p scanout for
   1080p streams, bilinear GPU scaling from 1440p to a 3840x2160 target, and
   1:1 presentation from 2160p to a 3840x2160 target.
 - Select bitrate presets up to 500 Mbps. The best setting depends on the host,
   encoder, network, and selected codec rather than link speed alone.
-- Enable HEVC Main10 HDR10 output at 1080p60, 1440p60, or 2160p60 when the
-  Sunshine host advertises support.
+- Enable HEVC Main10 HDR10 output at any available resolution and frame-rate
+  selection when the Sunshine host advertises support.
 - Decode Moonlight Opus audio and output 48 kHz stereo through PS5 AudioOut.
 - Forward low-latency DualSense controls, with controller/mouse switching and
   a stream keyboard that works at Windows sign-in.

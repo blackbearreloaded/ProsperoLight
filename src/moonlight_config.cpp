@@ -12,7 +12,7 @@
 #include <string.h>
 
 #define CONFIG_MAGIC UINT32_C(0x504c4346)
-#define CONFIG_VERSION 3U
+#define CONFIG_VERSION 4U
 #define CONFIG_PATH "/download0/prosperolight-config.bin"
 #define CONFIG_TEMP_PATH "/download0/prosperolight-config.tmp"
 #define OPEN_READ_ONLY 0x0000
@@ -65,6 +65,27 @@ typedef struct legacy_config_file_v2
     uint32_t reserved;
     legacy_config_v2_t config;
 } legacy_config_file_v2_t;
+
+typedef struct legacy_config_v3
+{
+    uint32_t host_count;
+    uint32_t selected_host;
+    uint32_t bitrate_mbps;
+    uint32_t display_area;
+    uint32_t video_codec;
+    uint32_t stream_resolution;
+    uint32_t hdr_enabled;
+    moonlight_config_host_t hosts[MOONLIGHT_CONFIG_MAX_HOSTS];
+} legacy_config_v3_t;
+
+typedef struct legacy_config_file_v3
+{
+    uint32_t magic;
+    uint32_t version;
+    uint32_t checksum;
+    uint32_t reserved;
+    legacy_config_v3_t config;
+} legacy_config_file_v3_t;
 
 extern "C"
 {
@@ -153,12 +174,14 @@ void moonlight_config_defaults(moonlight_config_t *config)
     config->display_area = MOONLIGHT_DISPLAY_AREA_FULL;
     config->video_codec = MOONLIGHT_VIDEO_CODEC_H264;
     config->stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P;
+    config->stream_fps = MOONLIGHT_STREAM_FPS_60;
     config->hdr_enabled = 0;
 }
 
 bool moonlight_config_load(moonlight_config_t *config)
 {
     config_file_t file;
+    legacy_config_file_v3_t legacy_v3;
     legacy_config_file_v2_t legacy_v2;
     legacy_config_file_v1_t legacy;
     uint32_t index;
@@ -172,6 +195,20 @@ bool moonlight_config_load(moonlight_config_t *config)
         file.config.host_count <= MOONLIGHT_CONFIG_MAX_HOSTS)
     {
         *config = file.config;
+    }
+    else if (read_exact(CONFIG_PATH, &legacy_v3, sizeof(legacy_v3)) &&
+             legacy_v3.magic == CONFIG_MAGIC && legacy_v3.version == 3U &&
+             legacy_v3.checksum == checksum(&legacy_v3.config, sizeof(legacy_v3.config)) &&
+             legacy_v3.config.host_count <= MOONLIGHT_CONFIG_MAX_HOSTS)
+    {
+        config->host_count = legacy_v3.config.host_count;
+        config->selected_host = legacy_v3.config.selected_host;
+        config->bitrate_mbps = legacy_v3.config.bitrate_mbps;
+        config->display_area = legacy_v3.config.display_area;
+        config->video_codec = legacy_v3.config.video_codec;
+        config->stream_resolution = legacy_v3.config.stream_resolution;
+        config->hdr_enabled = legacy_v3.config.hdr_enabled;
+        memcpy(config->hosts, legacy_v3.config.hosts, sizeof(config->hosts));
     }
     else if (read_exact(CONFIG_PATH, &legacy_v2, sizeof(legacy_v2)) &&
              legacy_v2.magic == CONFIG_MAGIC && legacy_v2.version == 2U &&
@@ -217,6 +254,10 @@ bool moonlight_config_load(moonlight_config_t *config)
         config->video_codec = MOONLIGHT_VIDEO_CODEC_H264;
     if (config->stream_resolution > MOONLIGHT_STREAM_RESOLUTION_2160P)
         config->stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P;
+    if (config->stream_fps != MOONLIGHT_STREAM_FPS_60 &&
+        config->stream_fps != MOONLIGHT_STREAM_FPS_90 &&
+        config->stream_fps != MOONLIGHT_STREAM_FPS_120)
+        config->stream_fps = MOONLIGHT_STREAM_FPS_60;
     if (config->hdr_enabled > 1U)
         config->hdr_enabled = 0;
     if (config->hdr_enabled)

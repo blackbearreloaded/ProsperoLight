@@ -36,6 +36,7 @@ public:
     unsigned DisplayArea() const;
     unsigned VideoCodec() const;
     unsigned StreamResolution() const;
+    unsigned StreamFps() const;
     unsigned HdrEnabled() const;
     void ShowStreamError(const char* message);
 

@@ -56,8 +56,9 @@ const char *const kGameFocus[] = {"nav-hosts",  "nav-games",  "nav-settings", "a
                                   "app-card-1", "app-card-2", "app-card-3",   "app-card-4",
                                   "app-card-5", "stop-app",   "back-hosts"};
 const char *const kSettingFocus[] = {
-    "nav-hosts",          "nav-games",       "nav-settings",         "setting-codec",
-    "setting-resolution", "setting-bitrate", "setting-display-area", "setting-hdr"};
+    "nav-hosts",          "nav-games",         "nav-settings",    "setting-codec",
+    "setting-resolution", "setting-framerate", "setting-bitrate", "setting-display-area",
+    "setting-hdr"};
 
 FocusList FocusFor(unsigned screen)
 {
@@ -116,6 +117,19 @@ unsigned NextBitrate(unsigned current)
         if (value > current)
             return value;
     return values[0];
+}
+
+unsigned NextFrameRate(unsigned current)
+{
+    switch (current)
+    {
+    case MOONLIGHT_STREAM_FPS_60:
+        return MOONLIGHT_STREAM_FPS_90;
+    case MOONLIGHT_STREAM_FPS_90:
+        return MOONLIGHT_STREAM_FPS_120;
+    default:
+        return MOONLIGHT_STREAM_FPS_60;
+    }
 }
 
 } // namespace
@@ -568,10 +582,11 @@ void MoonlightApp::Activate()
             }
             StreamDimensions(config_.stream_resolution, width, height);
             stream_error_[0] = '\0';
-            std::snprintf(text, sizeof(text), "%s %s %ux%u@60 stream...",
+            std::snprintf(text, sizeof(text), "%s %s %ux%u@%u stream...",
                           backend_.current_app_id == backend_.apps[selected_app_].id ? "Resuming"
                                                                                      : "Starting",
-                          CodecName(config_.video_codec, config_.hdr_enabled), width, height);
+                          CodecName(config_.video_codec, config_.hdr_enabled), width, height,
+                          config_.stream_fps);
             SetText(document_, "launch-status", text);
             prosperolight::ui_sound_play(prosperolight::UiSoundCue::StreamStart);
             command_ = Command::StartStream;
@@ -598,16 +613,20 @@ void MoonlightApp::Activate()
         }
         else if (focus_ == 5)
         {
+            config_.stream_fps = NextFrameRate(config_.stream_fps);
+        }
+        else if (focus_ == 6)
+        {
             bitrate_mbps_ = NextBitrate(bitrate_mbps_);
             config_.bitrate_mbps = bitrate_mbps_;
         }
-        else if (focus_ == 6)
+        else if (focus_ == 7)
         {
             config_.display_area = config_.display_area == MOONLIGHT_DISPLAY_AREA_TV_SAFE
                                        ? MOONLIGHT_DISPLAY_AREA_FULL
                                        : MOONLIGHT_DISPLAY_AREA_TV_SAFE;
         }
-        else if (focus_ == 7)
+        else if (focus_ == 8)
         {
             config_.hdr_enabled = !config_.hdr_enabled;
             if (config_.hdr_enabled)
@@ -937,26 +956,13 @@ void MoonlightApp::UpdateScreen()
 
 void MoonlightApp::UpdateFocus()
 {
-    const char *const all[] = {"nav-hosts",
-                               "nav-games",
-                               "nav-settings",
-                               "host-card",
-                               "refresh-hosts",
-                               "pair-host",
-                               "add-host",
-                               "app-card-0",
-                               "app-card-1",
-                               "app-card-2",
-                               "app-card-3",
-                               "app-card-4",
-                               "app-card-5",
-                               "stop-app",
-                               "back-hosts",
-                               "setting-codec",
-                               "setting-resolution",
-                               "setting-bitrate",
-                               "setting-display-area",
-                               "setting-hdr"};
+    const char *const all[] = {
+        "nav-hosts",          "nav-games",         "nav-settings",    "host-card",
+        "refresh-hosts",      "pair-host",         "add-host",        "app-card-0",
+        "app-card-1",         "app-card-2",        "app-card-3",      "app-card-4",
+        "app-card-5",         "stop-app",          "back-hosts",      "setting-codec",
+        "setting-resolution", "setting-framerate", "setting-bitrate", "setting-display-area",
+        "setting-hdr"};
     for (const char *id : all)
         SetClass(document_, id, "focused", false);
 
@@ -1175,7 +1181,7 @@ void MoonlightApp::UpdateGames()
             !backend_.online ? (health_.Reconnecting() ? "RECONNECTING" : "PC OFFLINE")
             : backend_.current_app_id == app.id ? "CURRENTLY RUNNING"
                                                 : "READY TO STREAM");
-    std::snprintf(text, sizeof(text), "%u x %u / 60 FPS", width, height);
+    std::snprintf(text, sizeof(text), "%u x %u / %u FPS", width, height, config_.stream_fps);
     SetText(document_, "selected-app-stream", text);
     if (!backend_.online)
         std::snprintf(text, sizeof(text), "%s",
@@ -1219,8 +1225,10 @@ void MoonlightApp::UpdateSettings()
                     ? "8-bit HEVC Main hardware decode"
                     : "H.264 High hardware decode");
     }
-    std::snprintf(text, sizeof(text), "%u x %u / 60 FPS", width, height);
+    std::snprintf(text, sizeof(text), "%u x %u", width, height);
     SetText(document_, "setting-resolution-value", text);
+    std::snprintf(text, sizeof(text), "%u FPS", config_.stream_fps);
+    SetText(document_, "setting-framerate-value", text);
     SetText(document_, "setting-display-area-value",
             config_.display_area == MOONLIGHT_DISPLAY_AREA_FULL ? "Edge to edge" : "TV safe");
     std::snprintf(text, sizeof(text), "%u Mbps", bitrate_mbps_);
@@ -1231,13 +1239,14 @@ void MoonlightApp::UpdateSettings()
                 ? "Unavailable: selected PC does not advertise HEVC Main10"
             : config_.hdr_enabled ? "HEVC Main10 / BT.2020 PQ with metrics HUD"
                                   : "Enabling selects HEVC Main10 at the current resolution");
-    std::snprintf(text, sizeof(text), "%s / %sP60",
+    std::snprintf(text, sizeof(text), "%s / %sP%u",
                   config_.hdr_enabled                                 ? "HDR10"
                   : config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC ? "HEVC"
                                                                       : "H.264",
                   config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_2160P   ? "2160"
                   : config_.stream_resolution == MOONLIGHT_STREAM_RESOLUTION_1440P ? "1440"
-                                                                                   : "1080");
+                                                                                   : "1080",
+                  config_.stream_fps);
     SetText(document_, "header-mode", text);
     SetText(document_, "settings-note",
             "Stream shortcuts: Select+Triangle keyboard; Select+Square mouse; Select+R1 stats; "
@@ -1410,6 +1419,11 @@ unsigned MoonlightApp::VideoCodec() const
 unsigned MoonlightApp::StreamResolution() const
 {
     return config_.stream_resolution;
+}
+
+unsigned MoonlightApp::StreamFps() const
+{
+    return config_.stream_fps;
 }
 
 unsigned MoonlightApp::HdrEnabled() const

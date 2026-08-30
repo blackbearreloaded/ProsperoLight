@@ -44,7 +44,7 @@ button {
 .host-chrome { width: 820px; height: 246px; }
 .game-chrome { width: 480px; height: 470px; }
 .app-chrome { width: 260px; height: 340px; }
-.setting-chrome { width: 1380px; height: 126px; }
+.setting-chrome { width: 1380px; height: 102px; }
 .action-chrome { width: 250px; height: 72px; }
 .panel-chrome { position: absolute; left: 0px; top: 0px; }
 .detail-panel-chrome { width: 530px; height: 478px; }
@@ -130,11 +130,11 @@ button.focused > .focused-chrome { display: block; }
 .games-back { left: 1164px; top: 670px; }
 .games-status { left: 34px; top: 862px; width: 1380px; }
 
-.setting-row { position: absolute; left: 34px; width: 1380px; height: 126px; overflow: hidden; }
-.setting-row-0 { top: 164px; } .setting-row-1 { top: 296px; } .setting-row-2 { top: 428px; } .setting-row-3 { top: 560px; } .setting-row-4 { top: 692px; }
-.setting-name { position: absolute; left: 28px; top: 24px; width: 450px; height: 40px; font-size: 24px; line-height: 38px; }
-.setting-help { position: absolute; left: 28px; top: 68px; width: 700px; height: 34px; color: #84c9ff; font-size: 20px; line-height: 30px; }
-.setting-value { position: absolute; left: 900px; top: 43px; width: 430px; height: 42px; color: #c8eaff; font-size: 24px; line-height: 38px; text-align: right; }
+.setting-row { position: absolute; left: 34px; width: 1380px; height: 102px; overflow: hidden; }
+.setting-row-0 { top: 164px; } .setting-row-1 { top: 272px; } .setting-row-2 { top: 380px; } .setting-row-3 { top: 488px; } .setting-row-4 { top: 596px; } .setting-row-5 { top: 704px; }
+.setting-name { position: absolute; left: 28px; top: 12px; width: 450px; height: 40px; font-size: 24px; line-height: 38px; }
+.setting-help { position: absolute; left: 28px; top: 54px; width: 700px; height: 34px; color: #84c9ff; font-size: 20px; line-height: 30px; }
+.setting-value { position: absolute; left: 900px; top: 31px; width: 430px; height: 42px; color: #c8eaff; font-size: 24px; line-height: 38px; text-align: right; }
 .setting-fixed { border-color: #376b9b; background-color: #0a254a; }
 .settings-note { position: absolute; left: 34px; top: 834px; width: 1320px; height: 38px; color: #84c9ff; font-size: 20px; line-height: 30px; }
 
