@@ -284,14 +284,14 @@ class ToolTests(unittest.TestCase):
         for name, (width, height) in expected.items():
             self.assertEqual((ROOT / "assets/private" / name).stat().st_size, width * height)
 
-    def test_release_metadata_preserves_hdr_capability(self):
+    def test_release_metadata_preserves_hdr_and_hfr_capabilities(self):
         configured = json.loads(
             (ROOT / "sce_sys/param.json").read_text(encoding="utf-8")
         )
         self.assertEqual(configured["applicationCategoryType"], 0)
         self.assertEqual(configured["attribute"], 0x62000000)
         self.assertEqual(configured["attribute2"], 0)
-        self.assertEqual(configured["attribute3"], 0)
+        self.assertEqual(configured["attribute3"], 0x40)
 
     def test_release_workflow_publishes_only_ffpfsc_and_checksum(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(

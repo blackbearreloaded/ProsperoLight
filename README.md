@@ -84,7 +84,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA99002` |
 | Category | Game |
-| Current version | `01.000.040` |
+| Current version | `01.000.041` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -99,8 +99,9 @@ tooling are maintained in this repository.
   launch/resume feedback, and active-application stop controls.
 - Decode H.264 High and HEVC Main streams through VideoDec2 at 1080p, 1440p,
   and 2160p. Select 60, 90, or 120 FPS independently of resolution and bitrate;
-  the 60 FPS combinations are hardware-validated, while 90/120 FPS remain
-  local-development targets pending broader PS5/TV acceptance.
+  the 60 FPS combinations are hardware-validated, while 90/120 FPS require a
+  compatible high-refresh display and remain local-development targets pending
+  broader PS5/TV acceptance.
 - Present decoded GPU surfaces directly through AGC, with edge-to-edge and
   television-safe display modes. The presenter uses native 1080p scanout for
   1080p streams, bilinear GPU scaling from 1440p to a 3840x2160 target, and
@@ -326,8 +327,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.040
-git push origin main 01.000.040
+git tag 01.000.041
+git push origin main 01.000.041
 ```
 
 Keep `PPSA99002`, `conceptId`, and `contentId` stable for updates to this title.
