@@ -126,12 +126,19 @@ class ToolTests(unittest.TestCase):
         app = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
 
         self.assertIn("STREAM_SELF_TEST_FPS ?= 0", makefile)
+        self.assertIn("STREAM_SELF_TEST_RESOLUTION ?= 0", makefile)
         self.assertIn(
             "PROSPEROLIGHT_STREAM_SELF_TEST_FPS=$(STREAM_SELF_TEST_FPS)", makefile
         )
+        self.assertIn(
+            "PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION=$(STREAM_SELF_TEST_RESOLUTION)",
+            makefile,
+        )
         self.assertIn("#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0", app)
         self.assertIn("high_refresh_self_test_consumed", app)
-        self.assertIn("config_.stream_resolution = MOONLIGHT_STREAM_RESOLUTION_1080P", app)
+        self.assertIn(
+            "config_.stream_resolution = PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION", app
+        )
         poll_body = app[
             app.index("void MoonlightApp::Poll()") : app.index("void MoonlightApp::Shutdown()")
         ]
