@@ -147,6 +147,14 @@ class ToolTests(unittest.TestCase):
         self.assertIn("#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0", app)
         self.assertIn("high_refresh_self_test_consumed", app)
         self.assertIn("RunVideoOutputSelfTest", (ROOT / "src/main.cpp").read_text(encoding="utf-8"))
+        self.assertIn(
+            "PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_2160P",
+            (ROOT / "src/main.cpp").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "present_result = native_agc_wait_source_idle(frame_surface);",
+            (ROOT / "src/main.cpp").read_text(encoding="utf-8"),
+        )
         self.assertIn("stop_active_app_self_test_consumed", app)
         self.assertIn(
             "config_.stream_resolution = PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION", app
@@ -288,12 +296,20 @@ class ToolTests(unittest.TestCase):
         self.assertIn("#define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)", presenter)
         self.assertIn("#define VIDEO_OUT_REQUEST_120_HZ 15u", presenter)
         self.assertIn("sceVideoOutVrrUnpegFromFixedRate", presenter)
-        self.assertIn("requested_fps == 90u || requested_fps == 120u", presenter)
+        self.assertNotIn("VIDEO_OUT_BUS_TYPE_4K_HIGH_REFRESH", presenter)
+        self.assertNotIn("sceVideoOutOpen4kHighRefresh", presenter)
+        self.assertIn("if (presenter.requested_fps > 60u)", presenter)
+        self.assertIn("sceKernelUsleep(500);", presenter)
+        self.assertIn("if (requested_fps == 90u)", presenter)
         self.assertIn("sceVideoOutIsOutputSupported", presenter)
         self.assertIn("sceVideoOutConfigureOutput", presenter)
-        self.assertIn("sceVideoOutConfigureOutputMode_", presenter)
-        self.assertIn("output_width == BASE_OUTPUT_WIDTH", presenter)
-        self.assertIn("mode.resolution = UINT64_MAX", presenter)
+        self.assertNotIn("sceVideoOutSysConfigureOutput", presenter)
+        self.assertNotIn("VIDEO_OUT_REQUEST_HIGH_RES", presenter)
+        self.assertIn("*vrr_result = sceVideoOutVrrUnpegFromFixedRate(handle);", presenter)
+        self.assertIn(
+            "native_agc_output_geometry(output_source_width, output_source_height, requested_fps)",
+            presenter,
+        )
         self.assertIn(
             "videoout_stub=$(build_system_link_stub libSceVideoOut "
             "vendor/ps5/sdk/stubs/videoout_link_stub.c)",
@@ -302,6 +318,11 @@ class ToolTests(unittest.TestCase):
         self.assertIn('--stub "$videoout_stub"', build_script)
         self.assertIn("sceVideoOutGetResolutionStatus", presenter)
         self.assertIn("sceVideoOutGetOutputStatus", presenter)
+        self.assertIn(
+            "reported_refresh = video_output_refresh_x100(resolution.refresh_rate)",
+            presenter,
+        )
+        self.assertIn("const uint32_t reported_width = presenter.output_width;", presenter)
         self.assertLess(
             presenter.index("sceVideoOutIsOutputSupported", presenter.index("configure_high_refresh_output")),
             presenter.index("sceVideoOutConfigureOutput(handle", presenter.index("configure_high_refresh_output")),
@@ -309,8 +330,7 @@ class ToolTests(unittest.TestCase):
         self.assertIn("state->requested_fps", stream)
         self.assertIn("state->mode->visible_height, state->stream_fps, hud", stream)
         self.assertIn("native_agc_wait_source_idle(frame_slot)", stream)
-        self.assertIn("presenter.requested_fps <= 60u", presenter)
-        self.assertIn("remember_source_marker(source, render_marker)", presenter)
+        self.assertIn("if (result == 0)\n    {\n        result = wait_for_marker", presenter)
 
     def test_presenter_viewport_matches_registered_framebuffer(self):
         presenter = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")

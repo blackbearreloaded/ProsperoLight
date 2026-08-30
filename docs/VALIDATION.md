@@ -486,8 +486,21 @@ requested frame rate of exactly 120 FPS. Its subsequent 60 FPS minimum target
 is Sunshine's documented static-content floor of half the requested rate, not
 a negotiation cap; moving-content cadence remains the operator acceptance.
 
-Version `01.000.045` keeps the validated 1080p 119.88 Hz preset but avoids that
-resolution-changing preset for 1440p-to-4K and native 2160p output. Those modes
-instead request the same 119.88 Hz refresh while preserving the current 4K
-resolution, preventing a 4K framebuffer from being paired with 1080p scanout.
-High-resolution 90/120 FPS hardware acceptance remains pending.
+Version `01.000.045` established that the public HFR contract used by a retail
+PS5 title is ordinary `sceVideoOutConfigureOutput` request 15 with the HFR bit
+set in `attribute3`; it does not use a restricted system or VR output API. The
+public preset selects a 1920x1080 119.88 Hz VideoOut surface. ProsperoLight now
+keeps high-resolution capture and decode independent from that surface and
+lets AGC perform the final hardware scale.
+
+Version `01.000.046` completed the high-resolution HFR matrix on August 30,
+2026. Isolated five-second presenter tests produced all requested frames with
+clean teardown: 2560x1440 at 89.99 FPS and 3840x2160 at 119.88 FPS. Subsequent
+bounded live Sunshine sessions confirmed a 2560x1440 desktop captured at 90 Hz
+with an exact 90 FPS client request, and a 3840x2160 desktop captured at 120 Hz
+with an exact 120 FPS client request. In both cases the PS5 used its public
+1920x1080 119.88 Hz HFR output, while VideoDec2 retained the negotiated source
+resolution and AGC performed the final scale. Ports 2121, 3232, and 9021 stayed
+healthy after every cycle, and the system log contained no kernel panic or GPU
+fault. At 60 FPS the accepted 1440p-to-4K and native 2160p presentation paths
+remain unchanged.

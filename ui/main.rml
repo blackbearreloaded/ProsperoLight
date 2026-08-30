@@ -120,7 +120,7 @@
                     <button id="setting-framerate" class="setting-row setting-row-2">
                         <img class="button-chrome setting-chrome base-chrome" src="chrome/setting-normal.tga" width="1380" height="102" alt=""/>
                         <img class="button-chrome setting-chrome focused-chrome" src="chrome/setting-focused.tga" width="1380" height="102" alt=""/>
-                        <span class="setting-name">Stream frame rate</span><span class="setting-help">Cross cycles 60 / 90 / 120 FPS independently</span>
+                        <span class="setting-name">Stream frame rate</span><span class="setting-help">60 / 90 / 120 FPS; HFR uses PS5 high-refresh output</span>
                         <span id="setting-framerate-value" class="setting-value">60 FPS</span>
                     </button>
                     <button id="setting-bitrate" class="setting-row setting-row-3">

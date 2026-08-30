@@ -841,16 +841,27 @@ void PresentColor(SDL_Renderer *renderer, SDL_Window *window, Uint8 red, Uint8 g
 #if PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS != 0
 void RunVideoOutputSelfTest()
 {
-    constexpr std::uint32_t pitch = 1920;
-    constexpr std::uint32_t surface_height = 1088;
+    constexpr std::uint32_t pitch =
+        PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_2160P   ? 3840
+        : PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_1440P ? 2560
+                                                                                         : 1920;
+    constexpr std::uint32_t visible_height =
+        PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_2160P   ? 2160
+        : PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_1440P ? 1440
+                                                                                         : 1080;
+    constexpr std::uint32_t surface_height =
+        PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_2160P ? 2176
+        : visible_height == 1080                                                       ? 1088
+                                 : visible_height;
     constexpr std::size_t visible_surface_bytes =
         static_cast<std::size_t>(pitch) * surface_height * 3 / 2;
     constexpr std::size_t surface_bytes = (visible_surface_bytes + 0x3fff) & ~std::size_t(0x3fff);
     constexpr std::uint32_t surface_count = 3;
     constexpr std::size_t surface_pool_bytes = surface_bytes * surface_count;
-    constexpr std::uint32_t frame_count = PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS * 18;
+    constexpr std::uint32_t frame_count = PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS * 5;
     std::int64_t surface_start = -1;
     void *surface = nullptr;
+    (void)std::remove("/download0/prosperolight-agc-selftest.log");
     FILE *receipt = std::fopen("/download0/prosperolight-videoout-selftest.txt", "w");
 
     int result = sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(),
@@ -860,9 +871,9 @@ void RunVideoOutputSelfTest()
             sceKernelMapDirectMemory(&surface, surface_pool_bytes, 0x32, 0, surface_start, 0x4000);
     if (receipt)
     {
-        std::fprintf(receipt, "requested=%u allocation_rc=%08x surface=%p\n",
-                     PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS, static_cast<unsigned>(result),
-                     surface);
+        std::fprintf(receipt, "requested=%u width=%u height=%u allocation_rc=%08x surface=%p\n",
+                     PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS, pitch, visible_height,
+                     static_cast<unsigned>(result), surface);
         std::fflush(receipt);
     }
     if (result != 0 || !surface)
@@ -877,8 +888,8 @@ void RunVideoOutputSelfTest()
     {
         void *frame_surface = static_cast<std::uint8_t *>(surface) + index * surface_bytes;
         present_result =
-            native_agc_present_loading(frame_surface, visible_surface_bytes, index, 0, pitch, 1080,
-                                       PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS);
+            native_agc_present_loading(frame_surface, visible_surface_bytes, index, 0, pitch,
+                                       visible_height, PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS);
         if (present_result != 0)
             break;
     }
@@ -890,9 +901,11 @@ void RunVideoOutputSelfTest()
     {
         void *frame_surface =
             static_cast<std::uint8_t *>(surface) + (frame % surface_count) * surface_bytes;
-        present_result =
-            native_agc_present_nv12(frame_surface, visible_surface_bytes, pitch, surface_height,
-                                    pitch, 1080, PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS, nullptr);
+        present_result = native_agc_wait_source_idle(frame_surface);
+        if (present_result == 0)
+            present_result = native_agc_present_nv12(
+                frame_surface, visible_surface_bytes, pitch, surface_height, pitch, visible_height,
+                PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS, nullptr);
         if (present_result != 0)
             break;
         ++presented;

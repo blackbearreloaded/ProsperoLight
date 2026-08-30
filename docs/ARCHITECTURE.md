@@ -25,16 +25,16 @@ input packets. Key repeat remains host-driven. Teardown raises every tracked
 key and mouse button before the connection closes so returning to the launcher
 cannot leave input stuck on the host.
 
-The AGC presenter selects its VideoOut target at the stream boundary. A 1080p
-stream uses two 1920x1080 scanout buffers. Both 1440p and 2160p streams acquire
-the public 4K-buffer privilege and use two 3840x2160 scanout buffers; 2160p is
-therefore presented 1:1, while 1440p is scaled by AGC. The Connecting animation,
-TV-safe viewport, metrics HUD, and stream keyboard use the same selected output
-geometry so presentation cannot become fixed at the animation's 1080p source
-size. Per-stream teardown unregisters and releases the dynamically sized pool.
-The recovered zero-copy shader currently uses integer point sampling. Native
-2160p removes the former destructive 4K-to-1080p reduction, but 1440p-to-4K
-filtered scaling remains a separate shader-quality milestone.
+The AGC presenter selects its VideoOut target at the stream boundary. At
+60 FPS, a 1080p stream uses two 1920x1080 buffers, while 1440p and 2160p use two
+3840x2160 buffers; 2160p is presented 1:1 and 1440p is filtered by AGC. At 90
+or 120 FPS, ProsperoLight retains the requested host capture and VideoDec2
+source dimensions but uses the public PS5 1920x1080 HFR output selected by
+ordinary VideoOut request 15. AGC performs the final hardware scale. This
+matches the retail PS5 HFR contract and avoids restricted system/VR output
+interfaces. The Connecting animation, TV-safe viewport, metrics HUD, and
+stream keyboard use the same selected output geometry. Per-stream teardown
+unregisters and releases the dynamically sized pool.
 
 The launcher and all PS5-specific application integration are C++20, with
 application interfaces named `*.hpp`. The proven Moonlight-compatible HTTP,
