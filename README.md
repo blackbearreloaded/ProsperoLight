@@ -15,6 +15,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-PlayStation%205-003791?logo=playstation&amp;logoColor=white" alt="PlayStation 5">
   <img src="https://img.shields.io/badge/video-H.264%20%7C%20HEVC-70E1DC" alt="H.264 and HEVC">
+  <img src="https://img.shields.io/badge/frame%20rate-60%20%7C%2090%20%7C%20120%20FPS-5BBEFF" alt="60, 90, and 120 FPS">
   <img src="https://img.shields.io/badge/UI-RmlUi-5DDFA4" alt="RmlUi">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="GPL-3.0-or-later"></a>
 </p>
@@ -84,7 +85,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA99002` |
 | Category | Game |
-| Current version | `01.000.046` |
+| Current version | `01.000.050` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -102,9 +103,9 @@ tooling are maintained in this repository.
   live 1440p/90 and 2160p/120 Sunshine sessions are hardware-validated.
 - Present decoded GPU surfaces directly through AGC, with edge-to-edge and
   television-safe display modes. At 60 FPS, 1440p is GPU-scaled into a
-  3840x2160 target and 2160p is presented 1:1. At 90 or 120 FPS, the requested
-  host capture/decode resolution is retained and AGC scales it into the PS5's
-  public 1920x1080 high-refresh output path.
+  3840x2160 target and 2160p is presented 1:1. High-refresh streams retain the
+  same 4K output geometry: 1440p is GPU-scaled to 4K, while 2160p/120 is
+  presented through the PS5's native 3840x2160 119.88 Hz output path.
 - Select bitrate presets up to 500 Mbps. The best setting depends on the host,
   encoder, network, and selected codec rather than link speed alone.
 - Enable HEVC Main10 HDR10 output at any available resolution and frame-rate
@@ -132,14 +133,19 @@ return-to-launcher, relaunch, and cleanup—has been exercised on PS5 hardware
 with Sunshine. Hardware runs also confirm HEVC 1440p-to-4K filtered GPU
 presentation and native HEVC 2160p-to-4K presentation with the metrics HUD at
 60 FPS. Bounded live sessions additionally confirm 2560x1440 at 90 FPS and
-3840x2160 at 120 FPS from Sunshine, presented through the PS5's public 1080p
-HFR output.
+3840x2160 at 120 FPS from Sunshine. An isolated hardware oracle additionally
+confirms native 3840x2160 119.88 Hz VideoOut presentation at 119.88 FPS.
 
 ProsperoLight is still alpha software. HEVC, 1440p, 2160p, HDR, very high
 bitrates, network recovery, and long gameplay sessions need broader validation
 across GPUs, Sunshine configurations, networks, TVs, firmware versions, and
 homebrew loaders. See the evidence and open acceptance items in
 [Validation](docs/VALIDATION.md).
+
+> [!IMPORTANT]
+> Wired Ethernet is strongly recommended for reliable streaming, particularly
+> at 1440p or 2160p, 90 or 120 FPS, and higher bitrates. Wi-Fi can work, but
+> interference and variable latency may cause dropped frames or input delay.
 
 ## Requirements
 
@@ -239,7 +245,8 @@ behavior.
 
 ## Pairing and first stream
 
-1. Start Sunshine on a PC connected to the same trusted LAN.
+1. Start Sunshine on a PC connected to the same trusted LAN. Wired Ethernet
+   for both the PC and PS5 is strongly recommended.
 2. Open ProsperoLight and choose a discovered PC, or select **Add PC** and enter
    its IPv4 address.
 3. Select **Pair PC**, then enter the displayed PIN in Sunshine within two
@@ -250,6 +257,14 @@ behavior.
 
 Pairing credentials and settings are title-scoped. Installing under a different
 title ID intentionally requires pairing again.
+
+> [!TIP]
+> For the smoothest 90 or 120 FPS result, choose the resolution, frame rate,
+> codec, and bitrate before launching the Sunshine application. If you change
+> them after returning to the launcher, stop the active application first and
+> then launch it again so Sunshine creates a fresh capture/encoder session.
+> Tune bitrate upward case by case; a higher value can reduce smoothness at
+> 4K or high frame rates even when the network link is fast.
 
 ## Controls
 
@@ -329,8 +344,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.046
-git push origin main 01.000.046
+git tag 01.000.050
+git push origin main 01.000.050
 ```
 
 Keep `PPSA99002`, `conceptId`, and `contentId` stable for updates to this title.
@@ -341,6 +356,7 @@ storage. See [Configuration](docs/CONFIGURATION.md).
 
 | Document | Purpose |
 | --- | --- |
+| [Changelog](CHANGELOG.md) | User-visible changes in each published version |
 | [Getting started](docs/GETTING_STARTED.md) | Clean-machine prerequisites and first build |
 | [Architecture](docs/ARCHITECTURE.md) | Launcher, protocol, video, audio, and input flow |
 | [Configuration](docs/CONFIGURATION.md) | Identity, versioning, settings, and build variables |

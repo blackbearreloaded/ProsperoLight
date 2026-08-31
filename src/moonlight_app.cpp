@@ -170,12 +170,19 @@ bool MoonlightApp::Initialize(Rml::ElementDocument *document)
         return false;
     (void)moonlight_config_load(&config_);
     bitrate_mbps_ = config_.bitrate_mbps;
-    RefreshBackend();
-    if (config_.host_count == 1 && backend_.online && backend_.paired && backend_.app_count)
+    const moonlight_config_host_t *host = SelectedHost();
+    if (host)
     {
-        screen_ = Screen::Games;
-        focus_ = 3;
+        std::snprintf(backend_.host, sizeof(backend_.host), "%s", host->address);
+        std::snprintf(backend_.name, sizeof(backend_.name), "%s", host->name);
+        if (config_.host_count == 1)
+        {
+            screen_ = Screen::Games;
+            focus_ = 3;
+        }
     }
+    else
+        initial_discovery_pending_ = true;
     UpdateScreen();
     UpdateSettings();
     UpdateFocus();
@@ -194,6 +201,12 @@ void MoonlightApp::ShowStreamError(const char *message)
 
 void MoonlightApp::Poll()
 {
+    if (initial_discovery_pending_)
+    {
+        initial_discovery_pending_ = false;
+        RefreshBackend();
+        return;
+    }
     if (manual_entry_active_ && !radio_ime_busy())
         manual_entry_active_ = false;
     if (stop_pending_ && SDL_GetTicks64() >= stop_due_ms_)

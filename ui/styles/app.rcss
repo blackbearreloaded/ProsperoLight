@@ -31,6 +31,8 @@ button {
 }
 
 #app-shell { position: relative; width: 1920px; height: 1080px; overflow: hidden; background-color: #030d24; }
+#startup-splash { position: absolute; left: 0px; top: 0px; width: 1920px; height: 1080px; }
+#startup-splash img { position: absolute; left: 0px; top: 0px; width: 1920px; height: 1080px; }
 #header { position: absolute; left: 0px; top: 0px; width: 1920px; height: 96px; border-bottom: 1px #4f9adc; background-color: #081d3c; }
 #brand-mark { position: absolute; left: 64px; top: 20px; width: 56px; height: 56px; color: #07182b; }
 .prosperolight-brand-icon { position: absolute; left: 0px; top: 0px; width: 56px; height: 56px; }

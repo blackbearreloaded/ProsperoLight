@@ -23,11 +23,9 @@ constexpr std::uint32_t kNativeAgcBilinearSamplerWord = 0x09500000u;
 
 constexpr NativeAgcOutputGeometry native_agc_output_geometry(std::uint32_t source_width,
                                                              std::uint32_t source_height,
-                                                             std::uint32_t requested_fps = 60u)
+                                                             std::uint32_t /*requested_fps*/ = 60u)
 {
-    return requested_fps > 60u
-               ? NativeAgcOutputGeometry{1920u, 1080u, 0x0a00000u}
-           : source_width > 1920u || source_height > 1080u
+    return source_width > 1920u || source_height > 1080u
                ? NativeAgcOutputGeometry{3840u, 2160u, 0x2000000u}
                : NativeAgcOutputGeometry{1920u, 1080u, 0x0a00000u};
 }

@@ -131,6 +131,22 @@ loading renderer and `Select + L1` monitor were available.
 Only diagnostics workstations running the telemetry receiver should build with
 `LAN_TELEMETRY=1`. Never enable it in a distributed package.
 
+## A resumed 90 or 120 FPS stream is not smooth after changing settings
+
+Choose the resolution, frame rate, codec, and bitrate before launching the
+Sunshine application. Returning to ProsperoLight and resuming an application
+that is still running can retain timing from the previous host capture/encoder
+session. Stop the active application, apply the new settings, and launch it
+again so Sunshine creates a fresh session.
+
+## A high-bitrate 4K or HFR stream stutters
+
+Do not assume the highest bitrate will be the smoothest setting. Encoder load,
+frame rate, codec, network jitter, and decoder/presentation pressure all vary
+by configuration. Start with a moderate bitrate, test motion and input latency,
+then increase it incrementally until frame pacing worsens and step back to the
+last stable value. Recreate the Sunshine session after changing the setting.
+
 ## Pairing says that Sunshine has an active session
 
 Sunshine only permits pairing while its server state is idle. A host can remain

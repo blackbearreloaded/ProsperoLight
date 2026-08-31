@@ -28,13 +28,14 @@ cannot leave input stuck on the host.
 The AGC presenter selects its VideoOut target at the stream boundary. At
 60 FPS, a 1080p stream uses two 1920x1080 buffers, while 1440p and 2160p use two
 3840x2160 buffers; 2160p is presented 1:1 and 1440p is filtered by AGC. At 90
-or 120 FPS, ProsperoLight retains the requested host capture and VideoDec2
-source dimensions but uses the public PS5 1920x1080 HFR output selected by
-ordinary VideoOut request 15. AGC performs the final hardware scale. This
-matches the retail PS5 HFR contract and avoids restricted system/VR output
-interfaces. The Connecting animation, TV-safe viewport, metrics HUD, and
-stream keyboard use the same selected output geometry. Per-stream teardown
-unregisters and releases the dynamically sized pool.
+or 120 FPS, ProsperoLight retains the same resolution-aware output geometry.
+The title advertises the high-resolution 120-Hz capability in `attribute3`,
+then selects HFR through ordinary VideoOut request 15: 2160p/120 maps to the
+native 3840x2160 119.88-Hz scanout and 1440p HFR is filtered into that 4K
+target. This matches the public retail PS5 path and avoids restricted system
+or VR output interfaces. The Connecting animation, TV-safe viewport, metrics
+HUD, and stream keyboard use the same selected output geometry. Per-stream
+teardown unregisters and releases the dynamically sized pool.
 
 The launcher and all PS5-specific application integration are C++20, with
 application interfaces named `*.hpp`. The proven Moonlight-compatible HTTP,

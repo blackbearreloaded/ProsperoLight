@@ -168,6 +168,7 @@
                     <span id="pair-modal-status">Preparing a secure PIN...</span>
                 </div>
             </div>
+            <div id="startup-splash"><img src="startup-background.tga" width="1920" height="1080" alt=""/></div>
         </div>
     </body>
 </rml>

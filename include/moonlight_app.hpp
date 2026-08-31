@@ -54,6 +54,7 @@ private:
     unsigned bitrate_mbps_ = 20;
     bool confirm_unpair_ = false;
     bool manual_entry_active_ = false;
+    bool initial_discovery_pending_ = false;
     bool pairing_active_ = false;
     bool stop_pending_ = false;
     moonlight_backend_pair_state_t pairing_state_ = MOONLIGHT_BACKEND_PAIR_IDLE;

@@ -164,6 +164,37 @@ class ToolTests(unittest.TestCase):
         ]
         self.assertNotIn("moonlight_config_save(&config_)", poll_body)
 
+    def test_launcher_presents_before_refreshing_sunshine(self):
+        app = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+        launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+        initialize = app[app.index("bool MoonlightApp::Initialize(") :]
+        initialize = initialize[: initialize.index("void MoonlightApp::ShowStreamError")]
+        run_launcher = launcher[launcher.index("MoonlightApp::Command RunLauncher(") :]
+        run_launcher = run_launcher[: run_launcher.index("} // namespace")]
+
+        self.assertNotIn("RefreshBackend();", initialize)
+        self.assertIn("initial_discovery_pending_ = true;", initialize)
+        self.assertNotIn("PresentColor(renderer, window, 2, 9, 20);", run_launcher)
+        self.assertLess(
+            run_launcher.index("PresentLauncher(context, renderer, window);"),
+            run_launcher.index("sceSystemServiceHideSplashScreen();"),
+        )
+
+    def test_launcher_bridges_the_hfr_hdmi_resync_with_app_side_artwork(self):
+        launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+        markup = (ROOT / "ui/main.rml").read_text(encoding="utf-8")
+        styles = (ROOT / "ui/styles/app.rcss").read_text(encoding="utf-8")
+
+        self.assertIn('id="startup-splash"', markup)
+        self.assertIn('src="startup-background.tga"', markup)
+        self.assertIn("#startup-splash", styles)
+        self.assertIn("document && play_open_sound", launcher)
+        self.assertIn("kStartupHoldMilliseconds = 1500", launcher)
+        self.assertIn("kStartupFadeFrames = 45", launcher)
+        self.assertIn('startup_splash->SetProperty("opacity", opacity);', launcher)
+        self.assertIn('startup_splash->SetClass("hidden", true);', launcher)
+        self.assertTrue((ROOT / "ui/startup-background.tga").is_file())
+
     def test_main10_descriptors_follow_the_visible_resolution(self):
         source = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
         start = source.index("static void bind_main10_source")
@@ -289,12 +320,17 @@ class ToolTests(unittest.TestCase):
 
     def test_high_refresh_videoout_uses_firmware_mode_ids_and_reports_scanout(self):
         presenter = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
+        launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
         stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
         build_script = (ROOT / "tools/build.sh").read_text(encoding="utf-8")
 
         self.assertIn("#define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)", presenter)
         self.assertIn("#define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)", presenter)
         self.assertIn("#define VIDEO_OUT_REQUEST_120_HZ 15u", presenter)
+        self.assertIn("#define VIDEO_OUT_REQUEST_DEFAULT 1u", presenter)
+        self.assertNotIn("native_agc_restore_launcher_output", presenter)
+        self.assertNotIn("native_agc_restore_launcher_output();", launcher)
+        self.assertIn("restore_result = configure_launcher_output(presenter.video);", presenter)
         self.assertIn("sceVideoOutVrrUnpegFromFixedRate", presenter)
         self.assertNotIn("VIDEO_OUT_BUS_TYPE_4K_HIGH_REFRESH", presenter)
         self.assertNotIn("sceVideoOutOpen4kHighRefresh", presenter)
@@ -318,10 +354,19 @@ class ToolTests(unittest.TestCase):
         self.assertIn('--stub "$videoout_stub"', build_script)
         self.assertIn("sceVideoOutGetResolutionStatus", presenter)
         self.assertIn("sceVideoOutGetOutputStatus", presenter)
+        self.assertIn("static_assert(sizeof(video_output_status_t) == 48", presenter)
+        self.assertIn("offsetof(video_output_status_t, refresh_rate) == 8", presenter)
+        self.assertIn("video_output_status_t output = {};", presenter)
+        self.assertNotIn("uint64_t output_status[8]", presenter)
         self.assertIn(
             "reported_refresh = video_output_refresh_x100(resolution.refresh_rate)",
             presenter,
         )
+        self.assertIn(
+            "reported_refresh = video_output_refresh_x100(output.refresh_rate)",
+            presenter,
+        )
+        self.assertNotIn("video_output_refresh_x100(output_status[0])", presenter)
         self.assertIn("const uint32_t reported_width = presenter.output_width;", presenter)
         self.assertLess(
             presenter.index("sceVideoOutIsOutputSupported", presenter.index("configure_high_refresh_output")),
@@ -370,14 +415,14 @@ class ToolTests(unittest.TestCase):
         for name, (width, height) in expected.items():
             self.assertEqual((ROOT / "assets/private" / name).stat().st_size, width * height)
 
-    def test_release_metadata_preserves_hdr_and_hfr_capabilities(self):
+    def test_release_metadata_preserves_hdr_and_high_resolution_hfr_capabilities(self):
         configured = json.loads(
             (ROOT / "sce_sys/param.json").read_text(encoding="utf-8")
         )
         self.assertEqual(configured["applicationCategoryType"], 0)
         self.assertEqual(configured["attribute"], 0x62000000)
         self.assertEqual(configured["attribute2"], 0)
-        self.assertEqual(configured["attribute3"], 0x40040)
+        self.assertEqual(configured["attribute3"], 0x80040)
 
     def test_release_workflow_publishes_only_ffpfsc_and_checksum(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(

@@ -489,18 +489,42 @@ a negotiation cap; moving-content cadence remains the operator acceptance.
 Version `01.000.045` established that the public HFR contract used by a retail
 PS5 title is ordinary `sceVideoOutConfigureOutput` request 15 with the HFR bit
 set in `attribute3`; it does not use a restricted system or VR output API. The
-public preset selects a 1920x1080 119.88 Hz VideoOut surface. ProsperoLight now
-keeps high-resolution capture and decode independent from that surface and
-lets AGC perform the final hardware scale.
+legacy metadata preset selects a 1920x1080 119.88 Hz VideoOut surface.
 
 Version `01.000.046` completed the high-resolution HFR matrix on August 30,
 2026. Isolated five-second presenter tests produced all requested frames with
 clean teardown: 2560x1440 at 89.99 FPS and 3840x2160 at 119.88 FPS. Subsequent
 bounded live Sunshine sessions confirmed a 2560x1440 desktop captured at 90 Hz
 with an exact 90 FPS client request, and a 3840x2160 desktop captured at 120 Hz
-with an exact 120 FPS client request. In both cases the PS5 used its public
-1920x1080 119.88 Hz HFR output, while VideoDec2 retained the negotiated source
-resolution and AGC performed the final scale. Ports 2121, 3232, and 9021 stayed
-healthy after every cycle, and the system log contained no kernel panic or GPU
-fault. At 60 FPS the accepted 1440p-to-4K and native 2160p presentation paths
-remain unchanged.
+with an exact 120 FPS client request. Those initial sessions used the legacy
+1920x1080 119.88 Hz HFR output while VideoDec2 retained the negotiated source
+resolution and AGC performed the final scale.
+
+The subsequent high-resolution entitlement probe replaced the legacy VRR bit
+with `attribute3=0x80040` and retained ordinary VideoOut request 15. A bounded
+native presenter run registered two 3840x2160 buffers, switched the physical
+output to 3840x2160 at 119.88 Hz, presented all 600 frames at 119.87 FPS, and
+returned to 59.94 Hz on teardown. Ports 2121, 3232, and 9021 stayed healthy;
+there was no kernel panic or GPU fault. This establishes the public native
+4K/120 presentation contract without a restricted VideoOut or VR API.
+
+A second oracle used a true 3840x2160 source surface rather than a lower-
+resolution source scaled into the 4K target. It again registered 3840x2160
+buffers and presented all 600 frames at 119.87 FPS with clean AGC shutdown,
+unmap, and release. This separates native 4K source processing from the
+VideoOut timing result and confirms both parts of the 2160p/120 path.
+
+Firmware 12.70 was independently validated with the same true-4K-source
+oracle under an isolated `PPSA77120` development-folder title. VideoOut
+reported `2160P_11988`, AGC registered 3840x2160 buffers, and all 600 frames
+were presented at 119.88 FPS before returning to 59.94 Hz. The process exited
+cleanly, no kernel panic or GPU fault appeared, and ports 2121, 3232, and 9021
+remained healthy after the cycle.
+
+The first diagnostic wrapper then restored and relaunched the production title
+before ShadowMount reported that the oracle's runtime layers were released,
+which exposed a post-test mount race and powered down the console. The oracle
+had already exited cleanly and production files had already been restored. The
+wrapper now waits for the title-specific `runtime layers released` marker
+before restoring or relaunching, and production deployment remains a separate
+bounded cycle.

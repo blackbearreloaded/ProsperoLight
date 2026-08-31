@@ -96,17 +96,17 @@ TEST(VideoOutput, Uses4kFor1440pAnd2160pSources)
     EXPECT_EQ(output_2160p.framebuffer_bytes, 0x2000000u);
 }
 
-TEST(VideoOutput, Uses1080pHfrScanoutForHighResolutionStreams)
+TEST(VideoOutput, Preserves4kOutputForHighResolutionHfrStreams)
 {
     const auto output_1440p = native_agc_output_geometry(2560u, 1440u, 90u);
     const auto output_2160p = native_agc_output_geometry(3840u, 2160u, 120u);
 
-    EXPECT_EQ(output_1440p.width, 1920u);
-    EXPECT_EQ(output_1440p.height, 1080u);
-    EXPECT_EQ(output_1440p.framebuffer_bytes, 0x0a00000u);
-    EXPECT_EQ(output_2160p.width, 1920u);
-    EXPECT_EQ(output_2160p.height, 1080u);
-    EXPECT_EQ(output_2160p.framebuffer_bytes, 0x0a00000u);
+    EXPECT_EQ(output_1440p.width, 3840u);
+    EXPECT_EQ(output_1440p.height, 2160u);
+    EXPECT_EQ(output_1440p.framebuffer_bytes, 0x2000000u);
+    EXPECT_EQ(output_2160p.width, 3840u);
+    EXPECT_EQ(output_2160p.height, 2160u);
+    EXPECT_EQ(output_2160p.framebuffer_bytes, 0x2000000u);
 }
 
 TEST(VideoOutput, UsesHardwareValidatedBilinearSampler)

@@ -8,6 +8,7 @@
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/FileInterface.h>
 #include <RmlUi/Core/RenderInterface.h>
@@ -72,6 +73,11 @@ constexpr int kMapPrivateAnonymous = 0x1002;
 constexpr std::uint16_t kPngDecModule = 0x008c;
 constexpr std::uint32_t kArtworkWidth = 144;
 constexpr std::uint32_t kArtworkHeight = 204;
+// HFR-capable titles switch the HDMI link before user code starts. Keep our
+// replacement artwork up long enough for slower TVs to lock onto 4K/120,
+// then fade it at the launcher's 60 Hz presentation cadence.
+constexpr std::uint32_t kStartupHoldMilliseconds = 1500;
+constexpr std::uint32_t kStartupFadeFrames = 45;
 bool png_decoder_available = false;
 
 struct ArtworkFit
@@ -838,6 +844,16 @@ void PresentColor(SDL_Renderer *renderer, SDL_Window *window, Uint8 red, Uint8 g
     SDL_UpdateWindowSurface(window);
 }
 
+void PresentLauncher(Rml::Context *context, SDL_Renderer *renderer, SDL_Window *window)
+{
+    context->Update();
+    SDL_SetRenderDrawColor(renderer, 7, 16, 22, 255);
+    SDL_RenderClear(renderer);
+    context->Render();
+    SDL_RenderFlush(renderer);
+    SDL_UpdateWindowSurface(window);
+}
+
 #if PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS != 0
 void RunVideoOutputSelfTest()
 {
@@ -961,8 +977,6 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
     if (!window || !renderer)
         return MoonlightApp::Command::None;
 
-    PresentColor(renderer, window, 2, 9, 20);
-
     AppSystemInterface system_interface;
     AppFileInterface file_interface;
     SdlRenderInterface render_interface(renderer, surface);
@@ -980,6 +994,8 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
         running ? Rml::CreateContext("moonlight-ps5", {1920, 1080}, adapted_render_interface)
                 : nullptr;
     Rml::ElementDocument *document = context ? context->LoadDocument("ui/main.rml") : nullptr;
+    Rml::Element *startup_splash =
+        document && play_open_sound ? document->GetElementById("startup-splash") : nullptr;
     MoonlightApp app;
     MoonlightApp::Command command = MoonlightApp::Command::None;
     bool input_ready = false;
@@ -987,6 +1003,20 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
     if (document)
     {
         document->Show();
+        if (!startup_splash)
+        {
+            if (Rml::Element *element = document->GetElementById("startup-splash"))
+                element->SetClass("hidden", true);
+        }
+        std::uint64_t startup_presented_at = 0;
+        if (startup_splash)
+        {
+            PresentLauncher(context, renderer, window);
+            sceSystemServiceHideSplashScreen();
+            startup_presented_at = SDL_GetPerformanceCounter();
+            if (sound_ready)
+                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Open);
+        }
         input_ready = radio_input_init();
         ime_ready = input_ready && radio_ime_init();
         running = input_ready && app.Initialize(document);
@@ -994,9 +1024,34 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
             app.ShowStreamError(stream_error);
         if (running)
         {
-            sceSystemServiceHideSplashScreen();
-            if (sound_ready && play_open_sound)
-                prosperolight::ui_sound_play(prosperolight::UiSoundCue::Open);
+            if (startup_splash)
+            {
+                const std::uint64_t frequency = SDL_GetPerformanceFrequency();
+                const std::uint64_t hold_until =
+                    startup_presented_at + frequency * kStartupHoldMilliseconds / 1000u;
+                while (SDL_GetPerformanceCounter() < hold_until)
+                {
+                    PresentLauncher(context, renderer, window);
+                    sceKernelUsleep(16667);
+                }
+                for (std::uint32_t frame = 1; frame <= kStartupFadeFrames; ++frame)
+                {
+                    char opacity[16];
+                    std::snprintf(opacity, sizeof(opacity), "%.3f",
+                                  1.0f - static_cast<float>(frame) / kStartupFadeFrames);
+                    startup_splash->SetProperty("opacity", opacity);
+                    PresentLauncher(context, renderer, window);
+                    sceKernelUsleep(16667);
+                }
+                startup_splash->SetClass("hidden", true);
+            }
+            PresentLauncher(context, renderer, window);
+            if (!startup_splash)
+            {
+                sceSystemServiceHideSplashScreen();
+                if (sound_ready && play_open_sound)
+                    prosperolight::ui_sound_play(prosperolight::UiSoundCue::Open);
+            }
         }
     }
     else
@@ -1040,12 +1095,7 @@ MoonlightApp::Command RunLauncher(LauncherSelection *selection, const char *stre
         }
         if (running)
             app.Poll();
-        context->Update();
-        SDL_SetRenderDrawColor(renderer, 7, 16, 22, 255);
-        SDL_RenderClear(renderer);
-        context->Render();
-        SDL_RenderFlush(renderer);
-        SDL_UpdateWindowSurface(window);
+        PresentLauncher(context, renderer, window);
         sceKernelUsleep(16667);
     }
 

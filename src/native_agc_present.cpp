@@ -62,6 +62,7 @@
 #define VIDEO_OUT_REFRESH_RATE_59_94 UINT64_C(3)
 #define VIDEO_OUT_REFRESH_RATE_119_88 UINT64_C(13)
 #define VIDEO_OUT_REFRESH_RATE_89_91 UINT64_C(35)
+#define VIDEO_OUT_REQUEST_DEFAULT 1u
 #define VIDEO_OUT_REQUEST_120_HZ 15u
 #define LOADING_PITCH 1920u
 #define LOADING_SURFACE_HEIGHT 1088u
@@ -125,6 +126,21 @@ typedef struct video_resolution_status
 static_assert(sizeof(video_resolution_status_t) == 48,
               "VideoOut resolution status ABI must remain 48 bytes");
 
+typedef struct video_output_status
+{
+    uint32_t resolution_class;
+    uint32_t output_class;
+    uint64_t refresh_rate;
+    uint64_t flags;
+    uint32_t mode;
+    uint32_t reserved[5];
+} video_output_status_t;
+
+static_assert(sizeof(video_output_status_t) == 48,
+              "VideoOut output status ABI must remain 48 bytes");
+static_assert(offsetof(video_output_status_t, refresh_rate) == 8,
+              "VideoOut output refresh ABI offset must remain 8 bytes");
+
 #if PROSPEROLIGHT_LAN_TELEMETRY
 typedef struct notification_request
 {
@@ -157,7 +173,7 @@ extern "C"
                                      const void *param4, const void *param5);
     int sceVideoOutVrrUnpegFromFixedRate(int32_t handle);
     int sceVideoOutGetResolutionStatus(int32_t handle, video_resolution_status_t *status);
-    int sceVideoOutGetOutputStatus(int32_t handle, void *status);
+    int sceVideoOutGetOutputStatus(int32_t handle, video_output_status_t *status);
     void sceVideoOutSetBufferAttribute2(video_attribute_t *attribute, uint64_t pixel_format,
                                         uint32_t tiling_mode, uint32_t width, uint32_t height,
                                         uint64_t option, uint32_t dcc_control,
@@ -900,20 +916,25 @@ static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
     return *vrr_result;
 }
 
+static int configure_launcher_output(int32_t handle)
+{
+    return sceVideoOutConfigureOutput(handle, VIDEO_OUT_REQUEST_DEFAULT, NULL, NULL, NULL);
+}
+
 static void update_presenter_output_status(const char *stage)
 {
     video_resolution_status_t resolution = {};
-    uint64_t output_status[8] = {};
+    video_output_status_t output = {};
     const uint32_t previous_width = presenter.scanout_width;
     const uint32_t previous_height = presenter.scanout_height;
     const uint32_t previous_refresh = presenter.scanout_refresh_x100;
     const int resolution_result = sceVideoOutGetResolutionStatus(presenter.video, &resolution);
-    const int output_result = sceVideoOutGetOutputStatus(presenter.video, output_status);
+    const int output_result = sceVideoOutGetOutputStatus(presenter.video, &output);
     const uint32_t reported_width = presenter.output_width;
     const uint32_t reported_height = presenter.output_height;
     uint32_t reported_refresh = video_output_refresh_x100(resolution.refresh_rate);
     if (!reported_refresh && output_result == 0)
-        reported_refresh = video_output_refresh_x100(output_status[0]);
+        reported_refresh = video_output_refresh_x100(output.refresh_rate);
 
     if (reported_width && reported_height)
     {
@@ -935,7 +956,7 @@ static void update_presenter_output_status(const char *stage)
                  stage ? stage : "changed", (uint32_t)resolution_result, (uint32_t)output_result,
                  resolution.full_width, resolution.full_height, resolution.pane_width,
                  resolution.pane_height, (unsigned long long)resolution.refresh_rate,
-                 (unsigned long long)output_status[0], presenter.scanout_width,
+                 (unsigned long long)output.refresh_rate, presenter.scanout_width,
                  presenter.scanout_height, presenter.scanout_refresh_x100 / 100u,
                  presenter.scanout_refresh_x100 % 100u, presenter.output_width,
                  presenter.output_height, presenter.requested_fps);
@@ -1412,6 +1433,7 @@ int native_agc_present_shutdown(void)
     unsigned drain_waits = 0;
     int32_t pending_result = 0;
     int32_t unregister_result = 0;
+    int32_t restore_result = 0;
     int32_t close_result = 0;
     int32_t framebuffer_unmap_result = 0;
     int32_t framebuffer_release_result = 0;
@@ -1430,6 +1452,15 @@ int native_agc_present_shutdown(void)
     }
     if (presenter.video >= 0 && presenter.ready)
         unregister_result = sceVideoOutUnregisterBuffers(presenter.video, 0);
+    if (presenter.video >= 0 && presenter.requested_fps > 60u)
+    {
+        restore_result = configure_launcher_output(presenter.video);
+        if (restore_result == 0)
+        {
+            (void)sceVideoOutWaitVblank(presenter.video);
+            (void)sceVideoOutWaitVblank(presenter.video);
+        }
+    }
     if (presenter.video >= 0)
         close_result = sceVideoOutClose(presenter.video);
     if (presenter.framebuffer)
@@ -1445,10 +1476,10 @@ int native_agc_present_shutdown(void)
             sceKernelReleaseDirectMemory(presenter.shader_start, SHADER_MEMORY_BYTES);
 
     snprintf(receipt, sizeof(receipt),
-             "Native AGC cleanup: pending=%08x waits=%u unregister=%08x close=%08x "
+             "Native AGC cleanup: pending=%08x waits=%u unregister=%08x restore=%08x close=%08x "
              "framebuffer=%08x/%08x shader=%08x/%08x",
              (uint32_t)pending_result, drain_waits, (uint32_t)unregister_result,
-             (uint32_t)close_result, (uint32_t)framebuffer_unmap_result,
+             (uint32_t)restore_result, (uint32_t)close_result, (uint32_t)framebuffer_unmap_result,
              (uint32_t)framebuffer_release_result, (uint32_t)shader_unmap_result,
              (uint32_t)shader_release_result);
     report_agc_receipt(receipt);
@@ -1462,6 +1493,8 @@ int native_agc_present_shutdown(void)
         return pending_result;
     if (unregister_result != 0 && (uint32_t)unregister_result != UINT32_C(0x80290009))
         return unregister_result;
+    if (restore_result != 0)
+        return restore_result;
     if (framebuffer_unmap_result != 0)
         return framebuffer_unmap_result;
     if (framebuffer_release_result != 0)
