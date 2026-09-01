@@ -226,12 +226,17 @@ again, then publishes exactly the `.ffpfsc` image and `SHA256SUMS`. Folder and
 
 1. Download the new `PPSA99002.ffpfsc` from the latest GitHub release.
 2. Fully close ProsperoLight.
-3. Replace the existing `PPSA99002.ffpfsc` in the directory scanned by
-   ShadowMountPlus.
-4. Restart ShadowMountPlus or reboot the PS5 so it remounts the updated image.
+3. Replace the existing `PPSA99002.ffpfsc` with the completed new image in the
+   directory scanned by ShadowMountPlus.
+4. Restart ShadowMountPlus cleanly or restart the PS5, then wait for
+   ShadowMountPlus to rediscover the title before launching it.
 5. Launch ProsperoLight and confirm the new version below the title in the top
-   bar. Because the title ID remains `PPSA99002`, saved pairing and settings
-   remain associated with the same application.
+   bar.
+
+Do not relaunch immediately after replacing the same pathname: ShadowMountPlus
+may still have the previous image mounted. Keeping the title ID as `PPSA99002`
+preserves the title's `/download0` pairing and settings data; `/app0` comes from
+the replacement image, while Shell presentation metadata may remain cached.
 
 ## Deploy
 
