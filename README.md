@@ -222,6 +222,17 @@ A tag matching the exact `contentVersion` verifies that build-time checksum
 again, then publishes exactly the `.ffpfsc` image and `SHA256SUMS`. Folder and
 `.ffpkg` builds are never attached to a release.
 
+## Update an installed copy
+
+1. Download the new `PPSA99002.ffpfsc` from the latest GitHub release.
+2. Fully close ProsperoLight.
+3. Replace the existing `PPSA99002.ffpfsc` in the directory scanned by
+   ShadowMountPlus.
+4. Restart ShadowMountPlus or reboot the PS5 so it remounts the updated image.
+5. Launch ProsperoLight and confirm the new version below the title in the top
+   bar. Because the title ID remains `PPSA99002`, saved pairing and settings
+   remain associated with the same application.
+
 ## Deploy
 
 For an already-running PS5 FTP service, stage the development folder with:
