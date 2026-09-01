@@ -1,5 +1,18 @@
 # Changelog
 
+## 01.000.055
+
+- Added a persistent Stereo / 5.1 surround setting.
+- Added Moonlight-compatible 5.1 Opus negotiation and PS5 eight-channel AudioOut,
+  with the unused side channels silenced and automatic stereo fallback when the
+  surround port is unavailable.
+- Compacted the Settings rows so all seven controls and the shortcut note remain
+  visible above the footer.
+- Replaced the temporary demo app cards with a clear loading state while the
+  Sunshine application catalog refreshes.
+- Unified the mbedTLS structure configuration across the C and C++ stream code,
+  preventing identity initialization from overwriting the live PS5 pad state.
+
 ## 01.000.050
 
 - Added independently selectable 90 and 120 FPS streaming at 1080p, 1440p,

@@ -87,7 +87,7 @@ const char *const kGameFocus[] = {"nav-hosts",  "nav-games",  "nav-settings", "a
 const char *const kSettingFocus[] = {
     "nav-hosts",          "nav-games",         "nav-settings",    "setting-codec",
     "setting-resolution", "setting-framerate", "setting-bitrate", "setting-display-area",
-    "setting-hdr"};
+    "setting-hdr",        "setting-audio"};
 
 FocusList FocusFor(unsigned screen)
 {
@@ -185,6 +185,7 @@ bool MoonlightApp::Initialize(Rml::ElementDocument *document)
         initial_discovery_pending_ = true;
     UpdateScreen();
     UpdateSettings();
+    UpdateGames();
     UpdateFocus();
     return true;
 }
@@ -707,6 +708,12 @@ void MoonlightApp::Activate()
             if (config_.hdr_enabled)
                 config_.video_codec = MOONLIGHT_VIDEO_CODEC_HEVC;
         }
+        else if (focus_ == 9)
+        {
+            config_.audio_configuration = config_.audio_configuration == MOONLIGHT_AUDIO_STEREO
+                                              ? MOONLIGHT_AUDIO_51_SURROUND
+                                              : MOONLIGHT_AUDIO_STEREO;
+        }
         (void)moonlight_config_save(&config_);
         prosperolight::ui_sound_play(prosperolight::UiSoundCue::Setting);
         UpdateSettings();
@@ -1037,7 +1044,7 @@ void MoonlightApp::UpdateFocus()
         "app-card-1",         "app-card-2",        "app-card-3",      "app-card-4",
         "app-card-5",         "stop-app",          "back-hosts",      "setting-codec",
         "setting-resolution", "setting-framerate", "setting-bitrate", "setting-display-area",
-        "setting-hdr"};
+        "setting-hdr",        "setting-audio"};
     for (const char *id : all)
         SetClass(document_, id, "focused", false);
 
@@ -1177,15 +1184,20 @@ void MoonlightApp::UpdateGames()
     char id[48];
     char text[192];
     const bool available = selected_app_ < backend_.app_count;
+    const bool refreshing =
+        backend_.app_count == 0 && backend_.host[0] && !backend_.online && backend_.result == 0;
     SetClass(document_, "stop-app", "disabled",
              stop_pending_ || !backend_.online || backend_.current_app_id == 0);
     SetText(document_, "stop-app-label",
             stop_pending_             ? "Stopping..."
+            : refreshing              ? "Refreshing PC"
             : !backend_.online        ? (health_.Reconnecting() ? "PC reconnecting" : "PC offline")
             : backend_.current_app_id ? "Stop active app"
                                       : "Nothing running");
     unsigned width, height;
     StreamDimensions(config_.stream_resolution, width, height);
+    std::snprintf(text, sizeof(text), "%u x %u / %u FPS", width, height, config_.stream_fps);
+    SetText(document_, "selected-app-stream", text);
     std::snprintf(text, sizeof(text), "%s / %u Mbps",
                   CodecName(config_.video_codec, config_.hdr_enabled), bitrate_mbps_);
     SetText(document_, "profile-video-value", text);
@@ -1225,7 +1237,11 @@ void MoonlightApp::UpdateGames()
         SetText(document_, id, backend_.current_app_id == card.id ? "RUNNING" : "READY");
     }
 
-    if (page_count)
+    if (refreshing)
+    {
+        SetText(document_, "games-page", "REFRESHING APPLICATIONS...");
+    }
+    else if (page_count)
     {
         std::snprintf(text, sizeof(text), "PAGE %u OF %u / %u APPS", selected_app_ / 6 + 1,
                       page_count, backend_.app_count);
@@ -1238,6 +1254,15 @@ void MoonlightApp::UpdateGames()
 
     if (!available)
     {
+        if (refreshing)
+        {
+            SetText(document_, "selected-app-name", "Refreshing applications");
+            SetText(document_, "selected-app-position", "Waiting for Sunshine");
+            SetText(document_, "selected-app-state", "REFRESHING");
+            SetClass(document_, "selected-app-state", "offline", true);
+            SetText(document_, "launch-status", "Refreshing the Sunshine application list...");
+            return;
+        }
         SetText(document_, "selected-app-name", "No apps returned");
         SetText(document_, "selected-app-position", "Refresh the selected Sunshine PC");
         SetText(document_, "selected-app-state", "NOT READY");
@@ -1256,8 +1281,6 @@ void MoonlightApp::UpdateGames()
             !backend_.online ? (health_.Reconnecting() ? "RECONNECTING" : "PC OFFLINE")
             : backend_.current_app_id == app.id ? "CURRENTLY RUNNING"
                                                 : "READY TO STREAM");
-    std::snprintf(text, sizeof(text), "%u x %u / %u FPS", width, height, config_.stream_fps);
-    SetText(document_, "selected-app-stream", text);
     if (!backend_.online)
         std::snprintf(text, sizeof(text), "%s",
                       health_.Reconnecting() ? "Waiting for Sunshine to reconnect automatically."
@@ -1314,6 +1337,8 @@ void MoonlightApp::UpdateSettings()
                 ? "Unavailable: selected PC does not advertise HEVC Main10"
             : config_.hdr_enabled ? "HEVC Main10 / BT.2020 PQ with metrics HUD"
                                   : "Enabling selects HEVC Main10 at the current resolution");
+    SetText(document_, "setting-audio-value",
+            config_.audio_configuration == MOONLIGHT_AUDIO_51_SURROUND ? "5.1 surround" : "Stereo");
     std::snprintf(text, sizeof(text), "%s / %sP%u",
                   config_.hdr_enabled                                 ? "HDR10"
                   : config_.video_codec == MOONLIGHT_VIDEO_CODEC_HEVC ? "HEVC"
@@ -1504,4 +1529,9 @@ unsigned MoonlightApp::StreamFps() const
 unsigned MoonlightApp::HdrEnabled() const
 {
     return config_.hdr_enabled;
+}
+
+unsigned MoonlightApp::AudioConfiguration() const
+{
+    return config_.audio_configuration;
 }

@@ -28,7 +28,9 @@ settings.
    must remain alive and the detected host state must not regress.
 3. Pair with Sunshine and restart the app once to confirm pairing persistence.
 4. Launch Desktop at default H.264 1080p. Check video, stereo audio, and
-   DualSense input.
+   DualSense input. Then select 5.1 in Settings, relaunch the stream, and verify
+   discrete front-left, front-right, center, LFE, back-left, and back-right
+   output with no signal on the unused side pair.
 5. Toggle the metrics overlay with `Select + R1`, then return using
    `Select + L1`. Confirm no debug text is left in the launcher.
 6. At Windows sign-in, press `Select + Triangle` and confirm ProsperoLight's

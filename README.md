@@ -9,13 +9,14 @@
 <p align="center">
   <strong>A native Moonlight client for PlayStation 5 homebrew</strong><br>
   Stream Sunshine applications with hardware video decoding, low-latency input,
-  stereo audio, and a controller-first interface.
+  selectable stereo or 5.1 surround audio, and a controller-first interface.
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-PlayStation%205-003791?logo=playstation&amp;logoColor=white" alt="PlayStation 5">
   <img src="https://img.shields.io/badge/video-H.264%20%7C%20HEVC-70E1DC" alt="H.264 and HEVC">
   <img src="https://img.shields.io/badge/frame%20rate-60%20%7C%2090%20%7C%20120%20FPS-5BBEFF" alt="60, 90, and 120 FPS">
+  <img src="https://img.shields.io/badge/audio-Stereo%20%7C%205.1%20Opus-7DD3FC" alt="Stereo and 5.1 Opus audio">
   <img src="https://img.shields.io/badge/UI-RmlUi-5DDFA4" alt="RmlUi">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="GPL-3.0-or-later"></a>
 </p>
@@ -36,8 +37,8 @@ Demo available by clicking the image below.
   pairing, application artwork, and launch/resume/stop controls.
 - Persistent stream preferences, edge-to-edge or TV-safe presentation,
   independent frame-rate selection, and bitrate presets from 10 to 500 Mbps.
-- 48 kHz stereo Opus audio, native launcher sound effects, live performance
-  metrics, and graceful connection recovery.
+- Selectable 48 kHz stereo or 5.1 surround Opus audio, native launcher sound
+  effects, live performance metrics, and graceful connection recovery.
 
 ProsperoLight is a native PS5 client for the open Moonlight/Sunshine streaming
 protocol. Its RmlUi launcher discovers and pairs with Sunshine hosts, browses
@@ -85,7 +86,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA99002` |
 | Category | Game |
-| Current version | `01.000.050` |
+| Current version | `01.000.055` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -110,7 +111,8 @@ tooling are maintained in this repository.
   encoder, network, and selected codec rather than link speed alone.
 - Enable HEVC Main10 HDR10 output at any available resolution and frame-rate
   selection when the Sunshine host advertises support.
-- Decode Moonlight Opus audio and output 48 kHz stereo through PS5 AudioOut.
+- Decode Moonlight Opus audio and output selectable 48 kHz stereo or 5.1
+  surround through PS5 AudioOut.
 - Forward low-latency DualSense controls, with controller/mouse switching and
   a stream keyboard that works at Windows sign-in.
 - Forward a physical USB keyboard and mouse directly to Sunshine during a
@@ -344,8 +346,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.050
-git push origin main 01.000.050
+git tag 01.000.055
+git push origin main 01.000.055
 ```
 
 Keep `PPSA99002`, `conceptId`, and `contentId` stable for updates to this title.

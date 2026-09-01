@@ -8,6 +8,10 @@
 
 #include <stddef.h>
 
+#ifndef MBEDTLS_CONFIG_FILE
+#define MBEDTLS_CONFIG_FILE "mbedtls_ps5_config.h"
+#endif
+
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/pk.h>

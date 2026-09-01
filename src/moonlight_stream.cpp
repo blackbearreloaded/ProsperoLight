@@ -41,13 +41,16 @@
 #define CONNECTION_SETUP_TIMEOUT_US UINT64_C(20000000)
 #define FIRST_VIDEO_FRAME_TIMEOUT_US UINT64_C(10000000)
 #define AUDIO_GRAIN_FRAMES 256u
-#define AUDIO_CHANNELS 2u
+#define AUDIO_STEREO_CHANNELS 2u
+#define AUDIO_51_CHANNELS 6u
+#define AUDIO_MAX_CHANNELS 8u
 #define AUDIO_RING_FRAMES (AUDIO_GRAIN_FRAMES * 6u)
 #define AUDIO_DECODE_MAX_FRAMES 5760u
 #define AUDIO_OUT_ALREADY_INIT UINT32_C(0x8026000e)
 #define PS5_AUDIO_USER_SYSTEM 0xff
 #define PS5_AUDIO_PORT_MAIN 0
 #define PS5_AUDIO_FORMAT_S16_STEREO 1
+#define PS5_AUDIO_FORMAT_S16_8CH 2
 #define VIDEO_SLICES_PER_FRAME 4
 #define HUD_STATS_REFRESH_FRAMES 60u
 
@@ -67,6 +70,8 @@
 #define PS5_PAD_BUTTON_TOUCH_PAD 0x100000u
 #define PS5_PAD_BUTTON_INTERCEPTED UINT32_C(0x80000000)
 #define PS5_PAD_SAMPLE_CAPACITY 64
+#define PS5_PAD_OPEN_ATTEMPTS 20u
+#define PS5_PAD_OPEN_RETRY_US 50000u
 
 extern "C"
 {
@@ -391,7 +396,7 @@ typedef struct ps5_audio_state
     OpusMSDecoder *decoder;
     int32_t init_result, open_result, drain_result, close_result;
     int32_t handle, opus_error;
-    int channels, samples_per_frame;
+    int channels, output_channels, samples_per_frame;
     uint32_t ring_head, ring_tail, ring_count;
     uint32_t packets, plc_packets, decode_errors;
     uint32_t output_calls, output_errors, overruns;
@@ -403,9 +408,9 @@ typedef struct ps5_audio_state
     uint64_t interval_total_us, interval_min_us, interval_max_us;
     uint64_t decode_total_us, decode_max_us;
     uint64_t output_total_us, output_max_us;
-    int16_t ring[AUDIO_RING_FRAMES * AUDIO_CHANNELS];
-    int16_t output[AUDIO_GRAIN_FRAMES * AUDIO_CHANNELS];
-    int16_t decoded[AUDIO_DECODE_MAX_FRAMES * AUDIO_CHANNELS];
+    int16_t ring[AUDIO_RING_FRAMES * AUDIO_MAX_CHANNELS];
+    int16_t output[AUDIO_GRAIN_FRAMES * AUDIO_MAX_CHANNELS];
+    int16_t decoded[AUDIO_DECODE_MAX_FRAMES * AUDIO_MAX_CHANNELS];
 } ps5_audio_state_t;
 
 static ps5_audio_state_t make_audio_state()
@@ -1123,7 +1128,7 @@ static void audio_ring_push(ps5_audio_state_t *state, const int16_t *pcm, uint32
     {
         uint32_t skip = frames - AUDIO_RING_FRAMES;
 
-        pcm += skip * AUDIO_CHANNELS;
+        pcm += skip * state->channels;
         state->dropped_frames += skip + state->ring_count;
         state->ring_head = 0;
         state->ring_tail = 0;
@@ -1139,8 +1144,12 @@ static void audio_ring_push(ps5_audio_state_t *state, const int16_t *pcm, uint32
 
     for (i = 0; i < frames; ++i)
     {
-        memcpy(&state->ring[state->ring_tail * AUDIO_CHANNELS], &pcm[i * AUDIO_CHANNELS],
-               AUDIO_CHANNELS * sizeof(int16_t));
+        int16_t *output = &state->ring[state->ring_tail * state->output_channels];
+
+        memcpy(output, &pcm[i * state->channels], state->channels * sizeof(int16_t));
+        if (state->output_channels > state->channels)
+            memset(output + state->channels, 0,
+                   (state->output_channels - state->channels) * sizeof(int16_t));
         state->ring_tail = (state->ring_tail + 1u) % AUDIO_RING_FRAMES;
     }
     state->ring_count += frames;
@@ -1152,11 +1161,31 @@ static void audio_ring_pop(ps5_audio_state_t *state, int16_t *pcm, uint32_t fram
 
     for (i = 0; i < frames; ++i)
     {
-        memcpy(&pcm[i * AUDIO_CHANNELS], &state->ring[state->ring_head * AUDIO_CHANNELS],
-               AUDIO_CHANNELS * sizeof(int16_t));
+        memcpy(&pcm[i * state->output_channels],
+               &state->ring[state->ring_head * state->output_channels],
+               state->output_channels * sizeof(int16_t));
         state->ring_head = (state->ring_head + 1u) % AUDIO_RING_FRAMES;
     }
     state->ring_count -= frames;
+}
+
+static bool ps5_audio_surround_available()
+{
+    char receipt[192];
+    const int32_t init_result = sceAudioOutInit();
+    int32_t handle = -1;
+    int32_t close_result = -1;
+
+    if (init_result == 0 || (uint32_t)init_result == AUDIO_OUT_ALREADY_INIT)
+        handle = sceAudioOutOpen(PS5_AUDIO_USER_SYSTEM, PS5_AUDIO_PORT_MAIN, 0, AUDIO_GRAIN_FRAMES,
+                                 48000, PS5_AUDIO_FORMAT_S16_8CH);
+    if (handle > 0)
+        close_result = sceAudioOutClose(handle);
+    snprintf(receipt, sizeof(receipt),
+             "Moonlight 5.1 probe: init=%08x open=%08x close=%08x available=%u",
+             (uint32_t)init_result, (uint32_t)handle, (uint32_t)close_result, handle > 0 ? 1u : 0u);
+    (void)lan_http_report_text(receipt);
+    return handle > 0;
 }
 
 static int ps5_audio_init(int audio_configuration, const POPUS_MULTISTREAM_CONFIGURATION opus,
@@ -1164,7 +1193,6 @@ static int ps5_audio_init(int audio_configuration, const POPUS_MULTISTREAM_CONFI
 {
     char receipt[512];
 
-    (void)audio_configuration;
     (void)context;
     (void)flags;
     memset(&audio_state, 0, sizeof(audio_state));
@@ -1174,9 +1202,13 @@ static int ps5_audio_init(int audio_configuration, const POPUS_MULTISTREAM_CONFI
     audio_state.close_result = -1;
     audio_state.opus_error = OPUS_BAD_ARG;
     audio_state.channels = opus->channelCount;
+    audio_state.output_channels =
+        opus->channelCount == AUDIO_51_CHANNELS ? AUDIO_MAX_CHANNELS : AUDIO_STEREO_CHANNELS;
     audio_state.samples_per_frame = opus->samplesPerFrame;
 
-    if (opus->sampleRate != 48000 || opus->channelCount != AUDIO_CHANNELS ||
+    if (opus->sampleRate != 48000 ||
+        (opus->channelCount != AUDIO_STEREO_CHANNELS && opus->channelCount != AUDIO_51_CHANNELS) ||
+        CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(audio_configuration) != opus->channelCount ||
         opus->samplesPerFrame <= 0 || opus->samplesPerFrame > (int)AUDIO_DECODE_MAX_FRAMES)
     {
         snprintf(receipt, sizeof(receipt),
@@ -1196,18 +1228,20 @@ static int ps5_audio_init(int audio_configuration, const POPUS_MULTISTREAM_CONFI
     if (audio_state.init_result != 0 && (uint32_t)audio_state.init_result != AUDIO_OUT_ALREADY_INIT)
         goto failed;
 
-    audio_state.handle = sceAudioOutOpen(PS5_AUDIO_USER_SYSTEM, PS5_AUDIO_PORT_MAIN, 0,
-                                         AUDIO_GRAIN_FRAMES, 48000, PS5_AUDIO_FORMAT_S16_STEREO);
+    audio_state.handle = sceAudioOutOpen(
+        PS5_AUDIO_USER_SYSTEM, PS5_AUDIO_PORT_MAIN, 0, AUDIO_GRAIN_FRAMES, 48000,
+        audio_state.output_channels == AUDIO_MAX_CHANNELS ? PS5_AUDIO_FORMAT_S16_8CH
+                                                          : PS5_AUDIO_FORMAT_S16_STEREO);
     audio_state.open_result = audio_state.handle;
     if (audio_state.handle <= 0)
         goto failed;
 
     snprintf(receipt, sizeof(receipt),
-             "Moonlight audio ready: rate=%d channels=%d streams=%d coupled=%d frame_samples=%d "
-             "opus=%d init=%08x handle=%08x grain=%u",
-             opus->sampleRate, opus->channelCount, opus->streams, opus->coupledStreams,
-             opus->samplesPerFrame, audio_state.opus_error, (uint32_t)audio_state.init_result,
-             (uint32_t)audio_state.handle, AUDIO_GRAIN_FRAMES);
+             "Moonlight audio ready: rate=%d channels=%d output_channels=%d streams=%d coupled=%d "
+             "frame_samples=%d opus=%d init=%08x handle=%08x grain=%u",
+             opus->sampleRate, opus->channelCount, audio_state.output_channels, opus->streams,
+             opus->coupledStreams, opus->samplesPerFrame, audio_state.opus_error,
+             (uint32_t)audio_state.init_result, (uint32_t)audio_state.handle, AUDIO_GRAIN_FRAMES);
     (void)lan_http_report_text(receipt);
     return 0;
 
@@ -1305,7 +1339,7 @@ static void ps5_audio_sample(char *sample_data, int sample_length)
         return;
     }
 
-    pcm_samples = (uint32_t)decoded * AUDIO_CHANNELS;
+    pcm_samples = (uint32_t)decoded * (uint32_t)audio_state.channels;
     for (uint32_t i = 0; i < pcm_samples; ++i)
     {
         int32_t magnitude = audio_state.decoded[i];
@@ -1361,6 +1395,19 @@ static int16_t controller_axis(uint8_t value, int inverted)
     return (int16_t)axis;
 }
 
+static int ps5_controller_open(ps5_controller_state_t *state)
+{
+    for (unsigned attempt = 0; attempt < PS5_PAD_OPEN_ATTEMPTS; ++attempt)
+    {
+        state->handle = scePadOpen(state->user_id, 0, 0, NULL);
+        if (state->handle >= 0)
+            return 0;
+        if (attempt + 1 < PS5_PAD_OPEN_ATTEMPTS)
+            sceKernelUsleep(PS5_PAD_OPEN_RETRY_US);
+    }
+    return state->handle;
+}
+
 static int ps5_controller_init(ps5_controller_state_t *state)
 {
     int32_t user_id = -1;
@@ -1376,10 +1423,8 @@ static int ps5_controller_init(ps5_controller_state_t *state)
     if (state->user_result < 0)
         return state->user_result;
     state->pad_init_result = scePadInit();
-    if (state->pad_init_result < 0)
-        return state->pad_init_result;
-    state->handle = scePadOpen(user_id, 0, 0, NULL);
-    return state->handle < 0 ? state->handle : 0;
+    const int result = ps5_controller_open(state);
+    return state->pad_init_result < 0 && result != 0 ? state->pad_init_result : result;
 }
 
 static int ps5_keyboard_has_key(const ps5_keyboard_state_t *state, uint16_t key)
@@ -2374,6 +2419,7 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     int connection_active = 0;
     int identity_initialized = 0;
     int session_started = 0;
+    int controller_result = -1;
     int controller_ready = 0;
     int physical_input_ready = 0;
     int first_frame_timed_out = 0;
@@ -2395,6 +2441,9 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         requested_fps == MOONLIGHT_STREAM_FPS_90 || requested_fps == MOONLIGHT_STREAM_FPS_120
             ? requested_fps
             : MOONLIGHT_STREAM_FPS_60;
+    const uint32_t requested_audio =
+        options ? options->audio_configuration : MOONLIGHT_AUDIO_STEREO;
+    int audio_configuration = AUDIO_CONFIGURATION_STEREO;
     const native_video_mode_t *mode =
         find_video_mode(options ? options->video_codec : MOONLIGHT_VIDEO_CODEC_H264,
                         options ? options->stream_resolution : MOONLIGHT_STREAM_RESOLUTION_1080P,
@@ -2426,6 +2475,10 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     if (!host[0] || !mode)
         return -1;
     lan_http_report_set_host(host);
+    if (requested_audio == MOONLIGHT_AUDIO_51_SURROUND && ps5_audio_surround_available())
+        audio_configuration = AUDIO_CONFIGURATION_51_SURROUND;
+    else if (requested_audio == MOONLIGHT_AUDIO_51_SURROUND)
+        (void)lan_http_report_text("Moonlight 5.1 unavailable; falling back to stereo");
 
     result = start_connection_loading(&loading, NULL, 0, mode->hdr, mode->visible_width,
                                       mode->visible_height, stream_fps, NULL);
@@ -2596,14 +2649,15 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     stream_config.bitrate = (int)bitrate_kbps;
     stream_config.packetSize = 1392;
     stream_config.streamingRemotely = STREAM_CFG_LOCAL;
-    stream_config.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
+    stream_config.audioConfiguration = audio_configuration;
     stream_config.supportedVideoFormats = mode->video_format;
     stream_config.clientRefreshRateX100 = (int)(stream_fps * 100u);
     stream_config.colorSpace = mode->hdr ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
     stream_config.colorRange = COLOR_RANGE_LIMITED;
     stream_config.encryptionFlags = ENCFLG_NONE;
-    controller_ready = ps5_controller_init(&controller) == 0;
-    if (controller.user_id >= 0)
+    controller_result = ps5_controller_init(&controller);
+    controller_ready = controller_result == 0;
+    if (controller_ready && controller.user_id >= 0)
         physical_input_ready = ps5_physical_input_init(&physical_input, controller.user_id) == 0;
     snprintf(notification.message, sizeof(notification.message),
              "Moonlight controller init: ready=%d user_service=%08x user=%08x pad_init=%08x "
@@ -2612,6 +2666,12 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
              (uint32_t)controller.user_result, (uint32_t)controller.pad_init_result,
              (uint32_t)controller.handle, controller_ready ? 1 : 0);
     (void)lan_http_report_text(notification.message);
+    if (!controller_ready)
+    {
+        gs_error = "PS5 controller ownership was unavailable; retry the stream";
+        result = controller_result;
+        goto done;
+    }
     snprintf(notification.message, sizeof(notification.message),
              "Moonlight physical input init: ready=%d keyboard_module=%08x keyboard_init=%08x "
              "keyboard_open=%08x handles=%u mouse_module=%08x mouse_init=%08x mouse_open=%08x "
@@ -2808,7 +2868,8 @@ done:
     http_clear_interrupt();
     snprintf(
         notification.message, sizeof(notification.message),
-        "Moonlight audio result: init=%08x open=%08x opus=%d channels=%d frame_samples=%d "
+        "Moonlight audio result: init=%08x open=%08x opus=%d channels=%d output_channels=%d "
+        "frame_samples=%d "
         "packets=%u plc=%u packet_samples=%u-%u mismatches=%u callback_span_us=%llu "
         "callback_hz_x100=%llu interval_avg_us=%llu interval_min_us=%llu interval_max_us=%llu "
         "decode_errors=%u decoded_frames=%llu nonzero_samples=%llu peak=%u ring=%u overruns=%u "
@@ -2816,9 +2877,10 @@ done:
         "output_avg_us=%llu output_max_us=%llu rtp_audio=%u rtp_fec=%u recovered=%u failed=%u "
         "oos=%u invalid=%u fec_invalid=%u drain=%08x close=%08x",
         (uint32_t)audio_state.init_result, (uint32_t)audio_state.open_result,
-        audio_state.opus_error, audio_state.channels, audio_state.samples_per_frame,
-        audio_state.packets, audio_state.plc_packets, audio_state.packet_samples_min,
-        audio_state.packet_samples_max, audio_state.packet_sample_mismatches,
+        audio_state.opus_error, audio_state.channels, audio_state.output_channels,
+        audio_state.samples_per_frame, audio_state.packets, audio_state.plc_packets,
+        audio_state.packet_samples_min, audio_state.packet_samples_max,
+        audio_state.packet_sample_mismatches,
         (unsigned long long)(audio_state.last_packet_us > audio_state.first_packet_us
                                  ? audio_state.last_packet_us - audio_state.first_packet_us
                                  : 0),

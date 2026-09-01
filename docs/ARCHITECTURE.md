@@ -69,6 +69,13 @@ hardware-validated PS5 AudioOut driver. All cues are 48 kHz stereo signed
 16-bit PCM and are loaded from `assets/sfx`. The opening cue plays only on
 process startup; returning from a stream does not replay it. Before returning a
 stream command, the launcher clears the UI queue and tears down only SDL video.
+
+Stream audio is independent of the launcher cues. Stereo uses two-channel
+signed 16-bit AudioOut. The optional 5.1 mode negotiates Moonlight's standard
+six-channel Opus layout (`FL FR FC LFE BL BR`) and writes it to PS5's validated
+eight-channel AudioOut layout, with `SL` and `SR` zero-filled. If the
+eight-channel port cannot be opened before negotiation, the session requests
+stereo instead.
 The SDL audio device remains open and silent for the process lifetime because
 the PS5 SDL backend faults while closing a device that has played queued audio.
 Moonlight uses its independent native Opus/AudioOut port during the stream.

@@ -34,7 +34,7 @@ fi
 mapfile -d '' app_c_sources < <(find "$root/src" -type f -name '*.c' -print0)
 if (( ${#app_c_sources[@]} )); then
     "$tidy" "${app_c_sources[@]}" --quiet --warnings-as-errors='*' -- \
-        -std=c11 -I"$root/src/gamestream" \
+        -std=c11 -I"$root/src/gamestream" -I"$root/platform/ps5" \
         -I"$root/third_party/moonlight-common-c/src" \
         -I"$root/third_party/moonlight-common-c/enet/include" \
         -I"$root/third_party/moonlight-common-c/nanors" \

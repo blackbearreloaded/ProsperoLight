@@ -28,6 +28,8 @@ extern "C" {
 #define MOONLIGHT_STREAM_FPS_60 60U
 #define MOONLIGHT_STREAM_FPS_90 90U
 #define MOONLIGHT_STREAM_FPS_120 120U
+#define MOONLIGHT_AUDIO_STEREO 0U
+#define MOONLIGHT_AUDIO_51_SURROUND 1U
 
 typedef struct moonlight_config_host {
     char address[MOONLIGHT_CONFIG_ADDRESS_SIZE];
@@ -45,6 +47,7 @@ typedef struct moonlight_config {
     uint32_t stream_resolution;
     uint32_t stream_fps;
     uint32_t hdr_enabled;
+    uint32_t audio_configuration;
     moonlight_config_host_t hosts[MOONLIGHT_CONFIG_MAX_HOSTS];
 } moonlight_config_t;
 

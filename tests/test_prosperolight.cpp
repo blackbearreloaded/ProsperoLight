@@ -240,6 +240,63 @@ TEST(Configuration, DefaultsMatchLauncherDefaults)
     EXPECT_EQ(config.stream_resolution, MOONLIGHT_STREAM_RESOLUTION_1080P);
     EXPECT_EQ(config.stream_fps, MOONLIGHT_STREAM_FPS_60);
     EXPECT_EQ(config.hdr_enabled, 0U);
+    EXPECT_EQ(config.audio_configuration, MOONLIGHT_AUDIO_STEREO);
+}
+
+TEST(Configuration, MigratesVersionFourAndDefaultsToStereo)
+{
+    struct LegacyConfig
+    {
+        std::uint32_t host_count;
+        std::uint32_t selected_host;
+        std::uint32_t bitrate_mbps;
+        std::uint32_t display_area;
+        std::uint32_t video_codec;
+        std::uint32_t stream_resolution;
+        std::uint32_t stream_fps;
+        std::uint32_t hdr_enabled;
+        moonlight_config_host_t hosts[MOONLIGHT_CONFIG_MAX_HOSTS];
+    };
+    struct LegacyFile
+    {
+        std::uint32_t magic;
+        std::uint32_t version;
+        std::uint32_t checksum;
+        std::uint32_t reserved;
+        LegacyConfig config;
+    } file{};
+    auto checksum = [](const void *data, std::size_t size)
+    {
+        const auto *bytes = static_cast<const std::uint8_t *>(data);
+        std::uint32_t value = UINT32_C(2166136261);
+        for (std::size_t index = 0; index < size; ++index)
+            value = (value ^ bytes[index]) * UINT32_C(16777619);
+        return value;
+    };
+
+    file.magic = UINT32_C(0x504c4346);
+    file.version = 4;
+    file.config.host_count = 1;
+    file.config.bitrate_mbps = 80;
+    file.config.display_area = MOONLIGHT_DISPLAY_AREA_FULL;
+    file.config.video_codec = MOONLIGHT_VIDEO_CODEC_HEVC;
+    file.config.stream_resolution = MOONLIGHT_STREAM_RESOLUTION_2160P;
+    file.config.stream_fps = MOONLIGHT_STREAM_FPS_120;
+    std::snprintf(file.config.hosts[0].address, sizeof(file.config.hosts[0].address),
+                  "192.168.4.20");
+    file.checksum = checksum(&file.config, sizeof(file.config));
+    kernel_read_data = reinterpret_cast<const std::uint8_t *>(&file);
+    kernel_read_size = sizeof(file);
+
+    moonlight_config_t config{};
+    const bool loaded = moonlight_config_load(&config);
+    kernel_read_data = nullptr;
+    kernel_read_size = 0;
+
+    EXPECT_TRUE(loaded);
+    EXPECT_EQ(config.stream_resolution, MOONLIGHT_STREAM_RESOLUTION_2160P);
+    EXPECT_EQ(config.stream_fps, MOONLIGHT_STREAM_FPS_120);
+    EXPECT_EQ(config.audio_configuration, MOONLIGHT_AUDIO_STEREO);
 }
 
 TEST(Configuration, MigratesVersionThreeAndKeepsTheSavedHost)
@@ -300,6 +357,7 @@ TEST(Configuration, MigratesVersionThreeAndKeepsTheSavedHost)
     EXPECT_EQ(config.stream_resolution, MOONLIGHT_STREAM_RESOLUTION_1440P);
     EXPECT_EQ(config.bitrate_mbps, 100U);
     EXPECT_EQ(config.hdr_enabled, 1U);
+    EXPECT_EQ(config.audio_configuration, MOONLIGHT_AUDIO_STEREO);
 }
 
 TEST(Configuration, UpsertUpdatesAHostByStableIdentity)

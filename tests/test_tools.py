@@ -107,6 +107,21 @@ class ToolTests(unittest.TestCase):
         )
         self.assertIn("redraw_rate != (int)state->stream_fps", stream)
 
+    def test_selectable_surround_audio_reaches_sunshine_and_ps5_audioout(self):
+        config = (ROOT / "include/moonlight_config.hpp").read_text(encoding="utf-8")
+        launcher = (ROOT / "src/main.cpp").read_text(encoding="utf-8")
+        stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        ui = (ROOT / "ui/main.rml").read_text(encoding="utf-8")
+
+        self.assertIn("#define MOONLIGHT_AUDIO_51_SURROUND 1U", config)
+        self.assertIn('id="setting-audio"', ui)
+        self.assertIn("selection->audio_configuration = app.AudioConfiguration();", launcher)
+        self.assertIn("options.audio_configuration = selection.audio_configuration;", launcher)
+        self.assertIn("audio_configuration = AUDIO_CONFIGURATION_51_SURROUND;", stream)
+        self.assertIn("#define PS5_AUDIO_FORMAT_S16_8CH 2", stream)
+        self.assertIn("opus->channelCount == AUDIO_51_CHANNELS", stream)
+        self.assertIn("state->output_channels - state->channels", stream)
+
     def test_frame_rate_is_independent_of_resolution_and_bitrate(self):
         source = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
         settings = source[source.index("case Screen::Settings:") :]
@@ -216,7 +231,7 @@ class ToolTests(unittest.TestCase):
             "start_connection_loading(&loading, NULL, 0, mode->hdr, mode->visible_width,"
         )
         early_loading_stop = source.index("stop_connection_loading();", early_loading)
-        pad_init = source.index("controller_ready = ps5_controller_init(&controller)")
+        pad_init = source.index("controller_result = ps5_controller_init(&controller)")
         self.assertLess(early_loading, early_loading_stop)
         self.assertLess(early_loading_stop, pad_init)
 
@@ -228,6 +243,22 @@ class ToolTests(unittest.TestCase):
 
         self.assertIn("ps5_controller_newest_sample(state, count)", poll)
         self.assertNotIn("&state->sample_batch[index]", poll)
+
+    def test_stream_uses_one_mbedtls_layout_and_refuses_inputless_video(self):
+        certgen = (ROOT / "src/gamestream/certgen.h").read_text(encoding="utf-8")
+        source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        start = source.index("static int ps5_controller_open(")
+        end = source.index("static int ps5_keyboard_has_key", start)
+        controller_handoff = source[start:end]
+        stream = source[source.index("int moonlight_stream_run(") :]
+
+        self.assertIn("attempt < PS5_PAD_OPEN_ATTEMPTS", controller_handoff)
+        self.assertIn("sceKernelUsleep(PS5_PAD_OPEN_RETRY_US);", controller_handoff)
+        self.assertIn('#define MBEDTLS_CONFIG_FILE "mbedtls_ps5_config.h"', certgen)
+        failure = stream.index(
+            'gs_error = "PS5 controller ownership was unavailable; retry the stream";'
+        )
+        self.assertLess(failure, stream.index("prepare_native_session("))
 
     def test_physical_input_loads_modules_and_batch_drains_all_handles(self):
         source = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
@@ -437,6 +468,8 @@ class ToolTests(unittest.TestCase):
         self.assertIn('sha256sum -c "$(basename "${checksums[0]}")"', workflow)
         self.assertIn('assets=("release/$IMAGE" "release/$CHECKSUM")', workflow)
         self.assertIn("gh release delete-asset", workflow)
+        self.assertIn('awk -v version="$GITHUB_REF_NAME"', workflow)
+        self.assertEqual(workflow.count("--notes-file release-notes.md"), 2)
         self.assertNotIn(".ffpkg", workflow)
 
     def test_readme_tracks_identity_and_stream_shortcuts(self):
@@ -473,6 +506,34 @@ class ToolTests(unittest.TestCase):
             rule = styles[styles.index(selector) :]
             rule = rule[: rule.index("}")]
             self.assertIn("top: 164px;", rule)
+
+    def test_settings_rows_fit_above_the_footer(self):
+        markup = (ROOT / "ui/main.rml").read_text(encoding="utf-8")
+        styles = (ROOT / "ui/styles/app.rcss").read_text(encoding="utf-8")
+
+        self.assertEqual(markup.count('class="button-chrome setting-chrome'), 14)
+        self.assertEqual(markup.count('width="1380" height="88"'), 14)
+        self.assertIn(".setting-row { position: absolute; left: 34px; width: 1380px; height: 88px;", styles)
+        self.assertIn(".setting-row-6 { top: 728px; }", styles)
+        self.assertIn(".settings-note { position: absolute; left: 34px; top: 838px;", styles)
+
+    def test_games_hide_placeholder_catalog_while_initial_refresh_is_pending(self):
+        markup = (ROOT / "ui/main.rml").read_text(encoding="utf-8")
+        source = (ROOT / "src/moonlight_app.cpp").read_text(encoding="utf-8")
+        initialize = source[source.index("bool MoonlightApp::Initialize(") :]
+        initialize = initialize[: initialize.index("void MoonlightApp::ShowStreamError")]
+        update_games = source[source.index("void MoonlightApp::UpdateGames()") :]
+        update_games = update_games[: update_games.index("void MoonlightApp::UpdateSettings()")]
+
+        for slot in range(6):
+            self.assertIn(
+                f'id="app-card-{slot}" class="game-card game-card-{slot} hidden"',
+                markup,
+            )
+        self.assertIn("UpdateGames();", initialize)
+        self.assertIn("const bool refreshing =", update_games)
+        self.assertIn('"REFRESHING APPLICATIONS..."', update_games)
+        self.assertIn('"Refreshing the Sunshine application list..."', update_games)
 
     def test_game_actions_match_the_selected_app_panel_edges(self):
         styles = (ROOT / "ui/styles/app.rcss").read_text(encoding="utf-8")

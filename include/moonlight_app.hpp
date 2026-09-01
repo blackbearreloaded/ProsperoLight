@@ -38,6 +38,7 @@ public:
     unsigned StreamResolution() const;
     unsigned StreamFps() const;
     unsigned HdrEnabled() const;
+    unsigned AudioConfiguration() const;
     void ShowStreamError(const char* message);
 
 private:
