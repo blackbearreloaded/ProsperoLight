@@ -114,6 +114,17 @@ and avoids replacing a package while its previous title remains active.
 
 ## Manual build and stage
 
+GitHub Releases provide two equivalent ShadowMountPlus deployment forms:
+
+- `PPSA99002.ffpfsc`: copy the image into a ShadowMountPlus scan directory;
+- `PPSA99002.zip`: extract it, then upload the complete `PPSA99002/` directory
+  to `/data/homebrew/` so the final path is
+  `/data/homebrew/PPSA99002/eboot.bin`. Do not upload the ZIP itself.
+
+Choose only one form for a title ID. Fully close ProsperoLight before replacing
+it, then restart ShadowMountPlus or the PS5 and wait for title rediscovery before
+launching the updated copy.
+
 1. Build the exact format accepted by your loader:
 
    ```bash

@@ -215,19 +215,24 @@ The [Build workflow](.github/workflows/tooling.yml) runs on every push to
 3. validates metadata and the release tag;
 4. runs lint, GoogleTest, runtime-allocation, and Python integration checks;
 5. independently reproduces and verifies `runtime/libc.prx`;
-6. builds `PPSA99002.ffpfsc`; and
-7. generates `SHA256SUMS` and uploads both files as the Actions artifact.
+6. builds `PPSA99002.ffpfsc` and archives the complete app folder as
+   `PPSA99002.zip`; and
+7. generates `SHA256SUMS` for both release formats and uploads all three files
+   as the Actions artifact.
 
 A tag matching the exact `contentVersion` verifies that build-time checksum
-again, then publishes exactly the `.ffpfsc` image and `SHA256SUMS`. Folder and
+again, then publishes the `.ffpfsc` image, app-folder `.zip`, and `SHA256SUMS`.
 `.ffpkg` builds are never attached to a release.
 
 ## Update an installed copy
 
-1. Download the new `PPSA99002.ffpfsc` from the latest GitHub release.
+1. Download either `PPSA99002.ffpfsc` or `PPSA99002.zip` from the latest GitHub
+   release and verify it with `SHA256SUMS`.
 2. Fully close ProsperoLight.
-3. Replace the existing `PPSA99002.ffpfsc` with the completed new image in the
-   directory scanned by ShadowMountPlus.
+3. For the image form, replace the existing `PPSA99002.ffpfsc` in the directory
+   scanned by ShadowMountPlus. For the folder form, extract `PPSA99002.zip` and
+   upload its complete `PPSA99002` directory to `/data/homebrew/`, producing
+   `/data/homebrew/PPSA99002/eboot.bin`. Do not upload the ZIP itself.
 4. Restart ShadowMountPlus cleanly or restart the PS5, then wait for
    ShadowMountPlus to rediscover the title before launching it.
 5. Launch ProsperoLight and confirm the new version below the title in the top

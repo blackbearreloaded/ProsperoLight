@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   build:
-    name: Lint, test, and build FFPFSC
+    name: Lint, test, and build release artifacts
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
@@ -77,15 +77,19 @@ jobs:
       - name: Build compressed release image
         run: make ffpfsc
 
-      - name: Write release checksum
-        run: cd dist && sha256sum "$TITLE_ID.ffpfsc" > SHA256SUMS
+      - name: Archive app folder and write release checksums
+        run: |
+          cd dist
+          python3 -m zipfile -c "$TITLE_ID.zip" "$TITLE_ID"
+          sha256sum "$TITLE_ID.ffpfsc" "$TITLE_ID.zip" > SHA256SUMS
 
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: prosperolight-ffpfsc-${{ github.sha }}
+          name: prosperolight-release-${{ github.sha }}
           path: |
             dist/${{ env.TITLE_ID }}.ffpfsc
+            dist/${{ env.TITLE_ID }}.zip
             dist/SHA256SUMS
           if-no-files-found: error
           compression-level: 0
@@ -113,7 +117,7 @@ jobs:
         run: >-
           gh run download "$GITHUB_RUN_ID"
           --repo "$GITHUB_REPOSITORY"
-          --name "prosperolight-ffpfsc-$GITHUB_SHA"
+          --name "prosperolight-release-$GITHUB_SHA"
           --dir release
 
       - name: Prepare release assets
@@ -123,18 +127,20 @@ jobs:
           set -euo pipefail
           cd release
           mapfile -d '' files < <(find . -type f -print0)
-          if (( ${#files[@]} != 2 )); then
-            echo "Expected exactly one FFPFSC image and SHA256SUMS." >&2
+          if (( ${#files[@]} != 3 )); then
+            echo "Expected one FFPFSC image, one app-folder ZIP, and SHA256SUMS." >&2
             exit 1
           fi
           mapfile -d '' images < <(find . -type f -name 'PPSA*.ffpfsc' -print0)
+          mapfile -d '' archives < <(find . -type f -name 'PPSA*.zip' -print0)
           mapfile -d '' checksums < <(find . -type f -name 'SHA256SUMS' -print0)
-          if (( ${#images[@]} != 1 || ${#checksums[@]} != 1 )); then
-            echo "Release files must be one FFPFSC image and SHA256SUMS." >&2
+          if (( ${#images[@]} != 1 || ${#archives[@]} != 1 || ${#checksums[@]} != 1 )); then
+            echo "Release files must be one FFPFSC image, one app-folder ZIP, and SHA256SUMS." >&2
             exit 1
           fi
           (cd "$(dirname "${checksums[0]}")" && sha256sum -c "$(basename "${checksums[0]}")")
           echo "image=${images[0]#./}" >> "$GITHUB_OUTPUT"
+          echo "archive=${archives[0]#./}" >> "$GITHUB_OUTPUT"
           echo "checksum=${checksums[0]#./}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release notes
@@ -152,16 +158,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.package.outputs.image }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
           CHECKSUM: ${{ steps.package.outputs.checksum }}
         shell: bash
         run: |
           set -euo pipefail
-          assets=("release/$IMAGE" "release/$CHECKSUM")
+          assets=("release/$IMAGE" "release/$ARCHIVE" "release/$CHECKSUM")
           image_name="${IMAGE##*/}"
+          archive_name="${ARCHIVE##*/}"
           checksum_name="${CHECKSUM##*/}"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             while IFS= read -r old_asset; do
-              if [[ $old_asset != "$image_name" && $old_asset != "$checksum_name" ]]; then
+              if [[ $old_asset != "$image_name" && $old_asset != "$archive_name" && $old_asset != "$checksum_name" ]]; then
                 gh release delete-asset "$GITHUB_REF_NAME" "$old_asset" --yes --repo "$GITHUB_REPOSITORY"
               fi
             done < <(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
