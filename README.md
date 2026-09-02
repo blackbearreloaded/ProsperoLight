@@ -1,5 +1,3 @@
-> **Disclaimer:** This is an AI-assisted project developed using OpenAI Codex.
-
 <p align="center">
   <img src="sce_sys/icon0.png" width="128" alt="ProsperoLight icon">
 </p>
