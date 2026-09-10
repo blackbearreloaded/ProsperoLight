@@ -28,6 +28,12 @@ mapfile -d '' test_sources < <(find "$root/tests" -maxdepth 1 -type f -name '*.c
 if (( ${#test_sources[@]} )); then
     "$tidy" "${test_sources[@]}" --quiet --warnings-as-errors='*' -- \
         -std=c++20 -I"$root/include" -I"$root/src" \
+        -I"$root/platform/ps5" -I"$root/third_party/opus/include" \
+        -I"$root/third_party/moonlight-common-c/src" \
+        -I"$root/third_party/moonlight-common-c/nanors" \
+        -I"$root/third_party/moonlight-common-c/nanors/deps/obl" \
+        -I"$root/third_party/moonlight-common-c/nanors/deps" \
+        -I"$root/third_party/mbedtls/include" \
         -isystem "$gtest/googletest/include"
 fi
 

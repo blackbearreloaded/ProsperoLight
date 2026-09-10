@@ -23,6 +23,14 @@
 #ifndef PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS
 #define PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS 0
 #endif
+#ifndef PROSPEROLIGHT_PRESENT_OVERLAP
+#define PROSPEROLIGHT_PRESENT_OVERLAP 1
+#endif
+#ifndef PROSPEROLIGHT_FLIP_POLL_US
+#define PROSPEROLIGHT_FLIP_POLL_US 500
+#endif
+static_assert(PROSPEROLIGHT_FLIP_POLL_US >= 100 && PROSPEROLIGHT_FLIP_POLL_US <= 2000,
+              "Flip polling experiment must stay between 100 and 2000 microseconds");
 
 #define BASE_OUTPUT_WIDTH 1920u
 #define BASE_OUTPUT_HEIGHT 1080u
@@ -628,7 +636,7 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
     default_count = *(uint32_t *)((uint8_t *)defaults + 0x20);
     for (uint32_t index = 0; index < 16; ++index)
     {
-        cx[index] = (agc_register_t){target_offsets[index], 0, 0};
+        cx[index] = agc_register_t{target_offsets[index], 0, 0};
         for (uint32_t candidate = 0; blocks && blocks[0] && candidate < default_count; ++candidate)
         {
             if (blocks[0][candidate].offset == target_offsets[index])
@@ -658,7 +666,7 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
 #define ADD_REG(register_offset, register_value)                                                   \
     do                                                                                             \
     {                                                                                              \
-        cx[cx_count++] = (agc_register_t){(register_offset), 0, (register_value)};                 \
+        cx[cx_count++] = agc_register_t{(register_offset), 0, (register_value)};                   \
     } while (0)
     ADD_REG(0x10f, float_bits((output_width - inset_x * 2u) * .5f));
     ADD_REG(0x110, float_bits(output_width * .5f));
@@ -820,6 +828,8 @@ typedef struct native_agc_presenter
     size_t framebuffer_bytes;
     size_t framebuffer_pool_bytes;
     int64_t overlay_marker;
+    const void *pending_source;
+    int64_t pending_marker;
     uint8_t overlay_kind;
     uint8_t hdr;
     uint8_t ready;
@@ -845,6 +855,8 @@ static native_agc_presenter_t presenter = {
     .framebuffer_bytes = 0,
     .framebuffer_pool_bytes = 0,
     .overlay_marker = 0,
+    .pending_source = nullptr,
+    .pending_marker = 0,
     .overlay_kind = 0,
     .hdr = 0,
     .ready = 0,
@@ -859,7 +871,11 @@ static std::atomic<uint32_t> keyboard_generation = 0;
 
 static int wait_for_marker(int64_t marker, unsigned *waits_out)
 {
-    constexpr unsigned max_waits = 200u;
+    // Keep the HFR timeout at ~100 ms when comparing polling intervals.
+    const unsigned max_waits =
+        presenter.requested_fps > 60u
+            ? (100000u + PROSPEROLIGHT_FLIP_POLL_US - 1u) / PROSPEROLIGHT_FLIP_POLL_US
+            : 200u;
     uint64_t status[16] = {};
     unsigned waits = 0;
 
@@ -871,7 +887,7 @@ static int wait_for_marker(int64_t marker, unsigned *waits_out)
                 (int64_t)status[3] >= marker)
                 break;
             if (presenter.requested_fps > 60u)
-                sceKernelUsleep(500);
+                sceKernelUsleep(PROSPEROLIGHT_FLIP_POLL_US);
             else
                 sceVideoOutWaitVblank(presenter.video);
         }
@@ -883,7 +899,27 @@ static int wait_for_marker(int64_t marker, unsigned *waits_out)
 
 int native_agc_wait_source_idle(const void *source)
 {
-    return source ? 0 : -1;
+    if (!source)
+        return -1;
+    return source == presenter.pending_source ? native_agc_finish_frame() : 0;
+}
+
+int native_agc_finish_frame(void)
+{
+    const int result = wait_for_marker(presenter.pending_marker, NULL);
+    if (result == 0)
+    {
+        presenter.pending_marker = 0;
+        presenter.pending_source = nullptr;
+    }
+    return result;
+}
+
+void native_agc_output_status(uint32_t *width, uint32_t *height, uint32_t *refresh_x100)
+{
+    *width = presenter.output_width;
+    *height = presenter.output_height;
+    *refresh_x100 = presenter.scanout_refresh_x100;
 }
 
 static uint32_t video_output_refresh_x100(uint64_t refresh_rate)
@@ -1152,7 +1188,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
 static int present_frame(const void *source, size_t source_bytes, uint32_t pitch,
                          uint32_t surface_height, uint32_t visible_width, uint32_t visible_height,
                          uint32_t requested_fps, const native_agc_metrics_t *metrics, int hdr,
-                         uint32_t output_source_width, uint32_t output_source_height)
+                         uint32_t output_source_width, uint32_t output_source_height,
+                         bool defer_flip)
 {
     const NativeAgcOutputGeometry output =
         native_agc_output_geometry(output_source_width, output_source_height, requested_fps);
@@ -1178,6 +1215,12 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     unsigned render_waits;
     int32_t result;
     char receipt[512];
+
+    // At most ONE native submission is outstanding. Retire it before rewriting
+    // shared command/constant/overlay memory, even if a caller omitted finish.
+    result = native_agc_finish_frame();
+    if (result != 0)
+        return result;
 
     if (presenter.ready && presenter.hdr != (uint8_t)(hdr != 0))
         return -6;
@@ -1253,7 +1296,18 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
                           overlay_y, overlay_scale, overlay_alpha);
     if (result == 0)
     {
-        result = wait_for_marker(render_marker, &render_waits);
+        presenter.pending_source = source;
+        presenter.pending_marker = render_marker;
+        render_waits = 0;
+        if (!defer_flip)
+        {
+            result = wait_for_marker(render_marker, &render_waits);
+            if (result == 0)
+            {
+                presenter.pending_source = nullptr;
+                presenter.pending_marker = 0;
+            }
+        }
         (void)sceVideoOutGetFlipStatus(presenter.video, status);
     }
     else
@@ -1285,7 +1339,8 @@ int native_agc_present_nv12(const void *source, size_t source_bytes, uint32_t pi
                             const native_agc_metrics_t *metrics)
 {
     return present_frame(source, source_bytes, pitch, surface_height, visible_width, visible_height,
-                         requested_fps, metrics, 0, visible_width, visible_height);
+                         requested_fps, metrics, 0, visible_width, visible_height,
+                         PROSPEROLIGHT_PRESENT_OVERLAP != 0);
 }
 
 int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t pitch,
@@ -1294,7 +1349,8 @@ int native_agc_present_main10(const void *source, size_t source_bytes, uint32_t 
                               const native_agc_metrics_t *metrics)
 {
     return present_frame(source, source_bytes, pitch, surface_height, visible_width, visible_height,
-                         requested_fps, metrics, 1, visible_width, visible_height);
+                         requested_fps, metrics, 1, visible_width, visible_height,
+                         PROSPEROLIGHT_PRESENT_OVERLAP != 0);
 }
 
 static void loading_set_luma(void *surface, uint32_t x, uint32_t y, uint16_t value, int hdr)
@@ -1425,11 +1481,14 @@ int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t pha
 
     return present_frame(surface, surface_bytes, LOADING_PITCH, LOADING_SURFACE_HEIGHT,
                          LOADING_PITCH, LOADING_VISIBLE_HEIGHT, requested_fps, NULL, hdr,
-                         output_source_width, output_source_height);
+                         output_source_width, output_source_height, false);
 }
 
 int native_agc_present_shutdown(void)
 {
+    const int finish_result = native_agc_finish_frame();
+    if (finish_result != 0)
+        return finish_result; // Never unmap a still-owned native submission.
     unsigned drain_waits = 0;
     int32_t pending_result = 0;
     int32_t unregister_result = 0;

@@ -18,6 +18,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ToolTests(unittest.TestCase):
+    def test_release_enables_only_tested_presentation_overlap(self):
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn("PRESENT_OVERLAP ?= 1", makefile)
+        self.assertIn("FLIP_POLL_US ?= 500", makefile)
+        for option in ("FEC_SIMD", "OPUS_SIMD", "AUDIO_MAX_BACKLOG_MS",
+                       "LAN_TELEMETRY", "STREAM_SELF_TEST_FPS",
+                       "STREAM_SELF_TEST_RESOLUTION", "VIDEO_OUTPUT_SELF_TEST_FPS",
+                       "STOP_ACTIVE_APP_SELF_TEST"):
+            self.assertIn(f"{option} ?= 0", makefile)
+        for name in ("moonlight_stream.cpp", "native_agc_present.cpp"):
+            source = (ROOT / "src" / name).read_text(encoding="utf-8")
+            self.assertIn("#define PROSPEROLIGHT_PRESENT_OVERLAP 1", source)
+        builder = (ROOT / "tools/build-performance-candidates.sh").read_text(
+            encoding="utf-8"
+        )
+        restore = builder.split("# The build always recreates the folder.", 1)[1]
+        self.assertIn("PRESENT_OVERLAP=1", restore)
+        self.assertIn('$out/04-presentation-overlap/$title/eboot.bin', restore)
+
+    def test_stream_archives_share_one_parallel_build_recipe(self):
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn("$(STREAM_ARCHIVES) &: $(STREAM_INPUTS)", makefile)
+
     def test_stream_dependencies_use_ps5_nonblocking_socket_adapter(self):
         compatibility = (ROOT / "platform/ps5/ps5_compat.h").read_text(
             encoding="utf-8"
@@ -103,8 +126,15 @@ class ToolTests(unittest.TestCase):
         self.assertIn("options.stream_fps = selection.stream_fps;", launcher)
         self.assertIn("stream_config.fps = (int)stream_fps;", stream)
         self.assertIn(
-            "stream_config.clientRefreshRateX100 = (int)(stream_fps * 100u);", stream
+            "moonlight::client_refresh_x100(stream_fps, loading.output_refresh_x100)", stream
         )
+        self.assertIn("stream_config.clientRefreshRateX100 = (int)renderer.client_refresh_x100;", stream)
+        negotiation = stream.index("stream_config.clientRefreshRateX100 =")
+        self.assertLess(stream.index("start_connection_loading(&loading, frame_memory"), negotiation)
+        self.assertLess(negotiation, stream.index("result = prepare_native_session(&client_identity"))
+        self.assertLess(negotiation, stream.index("connection_result = LiStartConnection("))
+        loading = stream[stream.index("static int start_connection_loading("):]
+        self.assertLess(loading.index("native_agc_output_status("), loading.index("pthread_create("))
         self.assertIn("redraw_rate != (int)state->stream_fps", stream)
 
     def test_selectable_surround_audio_reaches_sunshine_and_ps5_audioout(self):
@@ -161,6 +191,11 @@ class ToolTests(unittest.TestCase):
         )
         self.assertIn("#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0", app)
         self.assertIn("high_refresh_self_test_consumed", app)
+        stream = (ROOT / "src/moonlight_stream.cpp").read_text(encoding="utf-8")
+        bounded_test = stream.split("#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0", 1)[1]
+        bounded_test = bounded_test.split("#endif", 1)[0]
+        self.assertIn("first_frame_wait_start_us >= UINT64_C(90000000)", bounded_test)
+        self.assertIn("break;", bounded_test)
         self.assertIn("RunVideoOutputSelfTest", (ROOT / "src/main.cpp").read_text(encoding="utf-8"))
         self.assertIn(
             "PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION == MOONLIGHT_STREAM_RESOLUTION_2160P",
@@ -366,7 +401,8 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("VIDEO_OUT_BUS_TYPE_4K_HIGH_REFRESH", presenter)
         self.assertNotIn("sceVideoOutOpen4kHighRefresh", presenter)
         self.assertIn("if (presenter.requested_fps > 60u)", presenter)
-        self.assertIn("sceKernelUsleep(500);", presenter)
+        self.assertIn("#define PROSPEROLIGHT_FLIP_POLL_US 500", presenter)
+        self.assertIn("sceKernelUsleep(PROSPEROLIGHT_FLIP_POLL_US);", presenter)
         self.assertIn("if (requested_fps == 90u)", presenter)
         self.assertIn("sceVideoOutIsOutputSupported", presenter)
         self.assertIn("sceVideoOutConfigureOutput", presenter)
@@ -406,7 +442,12 @@ class ToolTests(unittest.TestCase):
         self.assertIn("state->requested_fps", stream)
         self.assertIn("state->mode->visible_height, state->stream_fps, hud", stream)
         self.assertIn("native_agc_wait_source_idle(frame_slot)", stream)
-        self.assertIn("if (result == 0)\n    {\n        result = wait_for_marker", presenter)
+        self.assertIn("if (!defer_flip)", presenter)
+        self.assertIn("result = wait_for_marker(render_marker, &render_waits)", presenter)
+        self.assertIn("source == presenter.pending_source ? native_agc_finish_frame() : 0", presenter)
+        frame_start = presenter.index("static int present_frame(")
+        self.assertLess(presenter.index("result = native_agc_finish_frame();", frame_start),
+                        presenter.index("result = render_frame(", frame_start))
 
     def test_presenter_viewport_matches_registered_framebuffer(self):
         presenter = (ROOT / "src/native_agc_present.cpp").read_text(encoding="utf-8")
@@ -425,10 +466,11 @@ class ToolTests(unittest.TestCase):
         self.assertIn("submission_enqueue_us", source)
         self.assertIn("queue_delay_total_us", source)
         self.assertIn("stale_presentation_drops", source)
-        self.assertIn(
-            "UINT64_C(2000000) / (state->stream_fps ? state->stream_fps : 60u)",
-            source,
-        )
+        self.assertIn("moonlight::drop_stale_presentation", source)
+        self.assertIn("LiGetPendingVideoFrames()", source)
+        self.assertIn("moonlight::record_reassembly(state->reassembly_timing, decode_unit->receiveTimeUs,", source)
+        self.assertIn("decode_unit->enqueueTimeUs, callback_network_us)", source)
+        # Threshold/progress behavior is exercised by the host C++ policy test.
 
     def test_stream_sampler_uses_the_filtered_probe_variant(self):
         header = (ROOT / "include/native_agc_output.hpp").read_text(encoding="utf-8")

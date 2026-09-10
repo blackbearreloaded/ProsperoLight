@@ -21,9 +21,8 @@ static inline int ps5_pthread_setname_noop(pthread_t thread, const char *name) {
 }
 #define pthread_setname_np ps5_pthread_setname_noop
 
-/* nanors has a portable path; CPU feature globals are unavailable here. */
-#define __builtin_cpu_init() ((void)0)
-#define __builtin_cpu_supports(feature) 0
+/* Portable by default; optional CPUID + XCR0 checked nanors dispatch. */
+#include "ps5_fec_cpu.h"
 
 /* PS5 network handles must be closed/configured through libSceNet. */
 #ifndef PS5_SOCKET_ADAPTER_IMPLEMENTATION

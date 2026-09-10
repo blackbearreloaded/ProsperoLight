@@ -12,12 +12,23 @@ STREAM_SELF_TEST_FPS ?= 0
 STREAM_SELF_TEST_RESOLUTION ?= 0
 VIDEO_OUTPUT_SELF_TEST_FPS ?= 0
 STOP_ACTIVE_APP_SELF_TEST ?= 0
+# Tested one-flip overlap is on; dependency and audio experiments remain off.
+FEC_SIMD ?= 0
+OPUS_SIMD ?= 0
+AUDIO_MAX_BACKLOG_MS ?= 0
+PRESENT_OVERLAP ?= 1
+FLIP_POLL_US ?= 500
 APP_DEFINITIONS ?= SDL_MAIN_HANDLED SDL_STATIC_LIB USING_GENERATED_CONFIG_H RMLUI_STATIC_LIB
 APP_DEFINITIONS += PROSPEROLIGHT_LAN_TELEMETRY=$(LAN_TELEMETRY)
 APP_DEFINITIONS += PROSPEROLIGHT_STREAM_SELF_TEST_FPS=$(STREAM_SELF_TEST_FPS)
 APP_DEFINITIONS += PROSPEROLIGHT_STREAM_SELF_TEST_RESOLUTION=$(STREAM_SELF_TEST_RESOLUTION)
 APP_DEFINITIONS += PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS=$(VIDEO_OUTPUT_SELF_TEST_FPS)
 APP_DEFINITIONS += PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST=$(STOP_ACTIVE_APP_SELF_TEST)
+APP_DEFINITIONS += PROSPEROLIGHT_FEC_SIMD=$(FEC_SIMD)
+APP_DEFINITIONS += PROSPEROLIGHT_OPUS_SIMD=$(OPUS_SIMD)
+APP_DEFINITIONS += PROSPEROLIGHT_AUDIO_MAX_BACKLOG_MS=$(AUDIO_MAX_BACKLOG_MS)
+APP_DEFINITIONS += PROSPEROLIGHT_PRESENT_OVERLAP=$(PRESENT_OVERLAP)
+APP_DEFINITIONS += PROSPEROLIGHT_FLIP_POLL_US=$(FLIP_POLL_US)
 APP_INCLUDE_PATHS ?= vendor/ps5/sdl/include vendor/ps5/rmlui/include include src src/gamestream platform/ps5 third_party/moonlight-common-c/src third_party/moonlight-common-c/enet/include third_party/moonlight-common-c/nanors third_party/moonlight-common-c/nanors/deps third_party/moonlight-common-c/nanors/deps/obl third_party/mbedtls/include third_party/opus/include
 APP_STATIC_ARCHIVES ?= vendor/ps5/sdl/lib/libSDL2.a vendor/ps5/rmlui/lib/librmlui.a vendor/ps5/freetype/lib/libfreetype.a build/stream-deps/libmoonlight-common-c.a build/stream-deps/libopus.a build/stream-deps/libmbedtls.a build/stream-deps/libmbedx509.a build/stream-deps/libmbedcrypto.a vendor/ps5/sdk/lib/libunwind.a vendor/ps5/sdk/lib/libcxx.a vendor/ps5/sdk/lib/libcxxabi.a
 APP_RUNTIME_MODULES ?=
@@ -43,6 +54,7 @@ export APP_DEFINITIONS APP_INCLUDE_PATHS APP_STATIC_ARCHIVES APP_RUNTIME_MODULES
 export PACBREW_PACKAGES PACBREW_INCLUDE_PATHS PACBREW_STATIC_ARCHIVES
 export PS5_HOST FTP_PORT DEPLOY_FORMAT PS5_FTP_USER PS5_FTP_PASSWORD DEPLOY_DRY_RUN
 export TITLE_ID APP_NAME APP_CATEGORY CONTENT_SUFFIX
+export FEC_SIMD OPUS_SIMD
 
 RUNTIME := runtime/libc.prx
 RUNTIME_INPUTS := tools/rebuild-libc.sh \
@@ -72,7 +84,7 @@ doctor:
 	@printf '%s\n' '==> [doctor] Checking the Linux/WSL host without changing it'
 	@bash tools/doctor.sh
 
-test: test-unit test-integration
+test: test-unit test-integration test-performance-guards
 
 test-deps:
 	@printf '%s\n' '==> [test-deps] Fetching the pinned host-only GoogleTest source'
@@ -85,6 +97,7 @@ test-unit: $(HOST_UNIT_TEST) $(HOST_RUNTIME_TEST)
 	@$(HOST_RUNTIME_TEST)
 
 $(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_config.hpp \
+		include/moonlight_performance.hpp \
 		include/native_agc_output.hpp \
 		include/moonlight_health.hpp \
 		include/moonlight_physical_input.hpp \
@@ -117,6 +130,26 @@ test-integration:
 	@printf '%s\n' '==> [test-integration] Running host tooling integration tests'
 	@python3 -m unittest discover -s tests -p 'test_*.py' -v
 
+.PHONY: test-stream-performance
+test-stream-performance:
+	@bash tools/test-stream-performance.sh
+
+.PHONY: performance-candidates
+performance-candidates:
+	@bash tools/build-performance-candidates.sh
+
+.PHONY: test-performance-guards
+test-performance-guards:
+	@mkdir -p build/tests
+	@$(HOST_CXX) $(HOST_TEST_CXXFLAGS) -Wno-unused-function -Iinclude -Isrc \
+		tests/test_presentation_lifetime.cpp $(HOST_TEST_LDFLAGS) -o build/tests/presentation_lifetime
+	@build/tests/presentation_lifetime
+	@$(HOST_CXX) $(HOST_TEST_CXXFLAGS) -Wno-unused-function -Wno-missing-field-initializers \
+		-Iinclude -Isrc -Iplatform/ps5 -Ithird_party/opus/include -Ithird_party/mbedtls/include \
+		-Ithird_party/moonlight-common-c/src \
+		tests/test_performance_summary.cpp $(HOST_TEST_LDFLAGS) -o build/tests/performance_summary
+	@build/tests/performance_summary | python3 -c 'import json,sys; r=json.load(sys.stdin); assert r["schema"]==1 and r["present_overlap"]==1 and r["presented"]==95 and r["refresh_x100"]==11988 and r["client_refresh_x100"]==11988; assert r["timings_us"]["decode"]["count"]==100 and r["timings_us"]["decode"]["mean"]==3000; assert r["timings_us"]["receive_to_enqueue"]["mean"]==3000 and r["reassembly_invalid_samples"]==1; assert len(r["timings_us"])==10; print("Performance JSON / partial-write failure checks PASS")'
+
 deps: test-deps
 	@printf '%s\n' '==> [deps] Fetching declared native dependencies'
 	@bash tools/setup-native-dependencies.sh
@@ -143,24 +176,29 @@ $(RUNTIME): $(RUNTIME_INPUTS)
 	@bash tools/rebuild-libc.sh
 
 app: $(RUNTIME) $(STREAM_ARCHIVES)
+	@bash tools/build-stream-deps.sh --ensure
 	@printf '%s\n' '==> [app] Compiling, linking, signing, and assembling the app folder'
 	@bash tools/build.sh Folder
 
 stream-deps: $(STREAM_ARCHIVES)
+	@bash tools/build-stream-deps.sh --ensure
 
-$(STREAM_ARCHIVES): $(STREAM_INPUTS)
+$(STREAM_ARCHIVES) &: $(STREAM_INPUTS)
 	@printf '%s\n' '==> [stream] Building pinned Moonlight, mbedTLS, and Opus archives'
 	@bash tools/build-stream-deps.sh
 
 ffpkg: $(RUNTIME) $(STREAM_ARCHIVES)
+	@bash tools/build-stream-deps.sh --ensure
 	@printf '%s\n' '==> [ffpkg] Building the app folder and UFS2 image'
 	@bash tools/build.sh Ffpkg
 
 ffpfsc: $(RUNTIME) $(STREAM_ARCHIVES)
+	@bash tools/build-stream-deps.sh --ensure
 	@printf '%s\n' '==> [ffpfsc] Building the app folder and compressed image'
 	@bash tools/build.sh Ffpfsc
 
 packages: $(RUNTIME) $(STREAM_ARCHIVES)
+	@bash tools/build-stream-deps.sh --ensure
 	@printf '%s\n' '==> [packages] Building the app folder and both package formats'
 	@bash tools/build.sh All
 

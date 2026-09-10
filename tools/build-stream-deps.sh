@@ -7,6 +7,21 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+fec_simd=${FEC_SIMD:-0}
+opus_simd=${OPUS_SIMD:-0}
+[[ "$fec_simd" =~ ^[01]$ && "$opus_simd" =~ ^[01]$ ]] || {
+    echo 'FEC_SIMD and OPUS_SIMD must be 0 or 1' >&2
+    exit 2
+}
+if [[ ${1:-} == --ensure ]]; then
+    if [[ -f "$root/build/stream-deps/options" &&
+          $(<"$root/build/stream-deps/options") == "$fec_simd $opus_simd" ]]; then
+        exit 0
+    fi
+elif [[ $# -ne 0 ]]; then
+    echo 'usage: tools/build-stream-deps.sh [--ensure]' >&2
+    exit 2
+fi
 bash "$root/tools/setup-native-dependencies.sh" >/dev/null
 sdk=${PS5_PAYLOAD_SDK:-$root/.deps/native/ps5-payload-sdk}
 cc="$sdk/bin/prospero-clang"
@@ -40,6 +55,8 @@ cp "$mbedtls_build/library/libmbedcrypto.a" "$output/libmbedcrypto.a"
 cp "$mbedtls_build/library/libmbedx509.a" "$output/libmbedx509.a"
 cp "$mbedtls_build/library/libmbedtls.a" "$output/libmbedtls.a"
 
+opus_disable_intrinsics=ON
+[[ "$opus_simd" == 0 ]] || opus_disable_intrinsics=OFF
 cmake -S "$opus" -B "$opus_build" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$cc" \
@@ -50,7 +67,10 @@ cmake -S "$opus" -B "$opus_build" \
     -DOPUS_BUILD_SHARED_LIBRARY=OFF \
     -DOPUS_BUILD_TESTING=OFF \
     -DOPUS_BUILD_PROGRAMS=OFF \
-    -DOPUS_DISABLE_INTRINSICS=ON \
+    -DOPUS_DISABLE_INTRINSICS="$opus_disable_intrinsics" \
+    -DOPUS_X86_MAY_HAVE_AVX2=OFF \
+    -DOPUS_X86_PRESUME_AVX2=OFF \
+    -DOPUS_X86_PRESUME_SSE4_1=OFF \
     -DOPUS_STACK_PROTECTOR=OFF \
     -DOPUS_FORTIFY_SOURCE=OFF >/dev/null
 cmake --build "$opus_build" --target opus --parallel >/dev/null
@@ -70,6 +90,7 @@ flags=(
     -std=c11 -O2 -Wall -Wextra -Wno-unused-parameter -Werror
     -ffunction-sections -fdata-sections
     -DHAS_SOCKLEN_T -DNO_MSGAPI -DNDEBUG -DUSE_PSA_CRYPTO
+    "-DPROSPEROLIGHT_FEC_SIMD=$fec_simd"
     "$config"
     -include "$root/platform/ps5/ps5_compat.h"
 )
@@ -104,6 +125,7 @@ for source in "${sources[@]}"; do
 done
 
 "$ar" rcs "$output/libmoonlight-common-c.a" "${objects[@]}"
+printf '%s %s\n' "$fec_simd" "$opus_simd" > "$output/options"
 printf 'Built %s (%d objects)\n' "$output/libmoonlight-common-c.a" "${#objects[@]}"
 printf 'Built %s\n' "$output/libmbedtls.a"
 printf 'Built %s\n' "$output/libmbedx509.a"

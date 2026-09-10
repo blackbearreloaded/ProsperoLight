@@ -63,10 +63,13 @@ jobs:
         run: make lint
 
       - name: Run host GoogleTest suite
-        run: make test-unit
+        run: make test-unit test-performance-guards
 
       - name: Run host integration tests
         run: make test-integration
+
+      - name: Verify scalar and SIMD streaming dependencies on the host
+        run: make test-stream-performance
 
       - name: Reproduce clean-room runtime shim
         run: make libc

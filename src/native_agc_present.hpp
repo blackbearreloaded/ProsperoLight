@@ -41,6 +41,9 @@ int native_agc_present_loading(void *surface, size_t surface_bytes, uint32_t pha
                                uint32_t output_source_width, uint32_t output_source_height,
                                uint32_t requested_fps);
 int native_agc_wait_source_idle(const void *source);
+int native_agc_finish_frame(void);
+// Query only on the presentation owner thread, or after the stream worker joins.
+void native_agc_output_status(uint32_t *width, uint32_t *height, uint32_t *refresh_x100);
 void native_agc_set_hud_enabled(int enabled);
 int native_agc_hud_enabled(void);
 void native_agc_set_keyboard_state(int enabled, uint32_t selected, int shifted);

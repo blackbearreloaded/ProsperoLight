@@ -27,6 +27,9 @@ Demo available by clicking the image below.
 
 - Native PS5 hardware streaming through VideoDec2 and AGC at 1080p, 1440p,
   and 2160p, with independently selectable 60, 90, and 120 FPS stream targets.
+- Smoother 4K120 presentation with bounded decode/presentation overlap: a wired
+  HEVC test reduced stale-frame skips from 24.3% to zero. See the
+  [before/after measurements and limits](docs/PERFORMANCE_ROUND_2.md#release-checkpoint--01000060).
 - H.264 High, HEVC Main, and HEVC Main10 HDR10 support at every available
   resolution.
 - Low-latency DualSense, physical USB keyboard and mouse, controller-driven
@@ -84,7 +87,7 @@ tooling are maintained in this repository.
 | Shell title | `ProsperoLight` |
 | Title ID | `PPSA99002` |
 | Category | Game |
-| Current version | `01.000.055` |
+| Current version | `01.000.060` |
 | Version source | [`sce_sys/param.json`](sce_sys/param.json) |
 | Writable data | `/download0` only |
 
@@ -193,7 +196,8 @@ dist/PPSA99002.ffpfsc     compressed installation image
 Useful development gates are:
 
 ```bash
-make test       # C++ unit/runtime tests and Python tooling regressions
+make test       # C++ unit/runtime, presentation ownership, report, and tooling checks
+make test-stream-performance # Host-only scalar/SIMD FEC and Opus compatibility
 make lint       # formatting, static analysis, metadata, asset, and shell checks
 make check      # lint + every host test + complete folder build
 make ffpfsc     # production folder + compressed image
@@ -211,7 +215,8 @@ The [Build workflow](.github/workflows/tooling.yml) runs on every push to
 1. checks out all pinned submodules;
 2. installs the public Linux/PS5 build prerequisites;
 3. validates metadata and the release tag;
-4. runs lint, GoogleTest, runtime-allocation, and Python integration checks;
+4. runs lint, GoogleTest, runtime-allocation, presentation/report guards, Python
+   integration checks, and host-only scalar/SIMD FEC and Opus comparisons;
 5. independently reproduces and verifies `runtime/libc.prx`;
 6. builds `PPSA99002.ffpfsc` and archives the complete app folder as
    `PPSA99002.zip`; and
@@ -365,8 +370,8 @@ Do not add a `v` prefix.
 
 ```bash
 # After updating param.json and passing all local gates:
-git tag 01.000.055
-git push origin main 01.000.055
+git tag 01.000.060
+git push origin main 01.000.060
 ```
 
 Keep `PPSA99002`, `conceptId`, and `contentId` stable for updates to this title.
@@ -382,6 +387,7 @@ storage. See [Configuration](docs/CONFIGURATION.md).
 | [Architecture](docs/ARCHITECTURE.md) | Launcher, protocol, video, audio, and input flow |
 | [Configuration](docs/CONFIGURATION.md) | Identity, versioning, settings, and build variables |
 | [Testing](docs/TESTING.md) | Host test boundaries and commands |
+| [Performance Round 2](docs/PERFORMANCE_ROUND_2.md) | Offline A/B candidates, measurements, and hardware promotion gates |
 | [Validation](docs/VALIDATION.md) | Hardware acceptance checklist and recorded evidence |
 | [Deployment](docs/DEPLOYMENT.md) | Safe folder/image staging and smoke tests |
 | [Package formats](docs/FFPKG.md) | Folder, `.ffpkg`, and `.ffpfsc` outputs |

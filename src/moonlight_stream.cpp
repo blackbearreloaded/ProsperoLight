@@ -24,6 +24,8 @@
 #include "moonlight_physical_input.hpp"
 #include "moonlight_stream_input.hpp"
 #include "moonlight_stream_keyboard.hpp"
+#include "moonlight_performance.hpp"
+#include "../platform/ps5/ps5_fec_cpu.h"
 #include "lan_http_report.hpp"
 #include "native_agc_present.hpp"
 #include "gamestream/certgen.h"
@@ -52,7 +54,27 @@
 #define PS5_AUDIO_FORMAT_S16_STEREO 1
 #define PS5_AUDIO_FORMAT_S16_8CH 2
 #define VIDEO_SLICES_PER_FRAME 4
-#define HUD_STATS_REFRESH_FRAMES 60u
+#ifndef PROSPEROLIGHT_LAN_TELEMETRY
+#define PROSPEROLIGHT_LAN_TELEMETRY 0
+#endif
+#ifndef PROSPEROLIGHT_AUDIO_MAX_BACKLOG_MS
+#define PROSPEROLIGHT_AUDIO_MAX_BACKLOG_MS 0
+#endif
+#ifndef PROSPEROLIGHT_FEC_SIMD
+#define PROSPEROLIGHT_FEC_SIMD 0
+#endif
+#ifndef PROSPEROLIGHT_OPUS_SIMD
+#define PROSPEROLIGHT_OPUS_SIMD 0
+#endif
+#ifndef PROSPEROLIGHT_PRESENT_OVERLAP
+#define PROSPEROLIGHT_PRESENT_OVERLAP 1
+#endif
+#ifndef PROSPEROLIGHT_FLIP_POLL_US
+#define PROSPEROLIGHT_FLIP_POLL_US 500
+#endif
+#ifndef PROSPEROLIGHT_STREAM_SELF_TEST_FPS
+#define PROSPEROLIGHT_STREAM_SELF_TEST_FPS 0
+#endif
 
 #define PS5_PAD_BUTTON_L3 0x000002u
 #define PS5_PAD_BUTTON_R3 0x000004u
@@ -115,6 +137,10 @@ extern "C"
     int32_t sceAudioOutOutput(int32_t handle, const void *buffer);
     int32_t sceAudioOutClose(int32_t handle);
     uint64_t PltGetMicroseconds(void);
+    int sceKernelOpen(const char *path, int flags, uint16_t mode);
+    int sceKernelClose(int descriptor);
+    int64_t sceKernelWrite(int descriptor, const void *buffer, size_t length);
+    int sceKernelRename(const char *from, const char *to);
 }
 typedef struct notification_request
 {
@@ -408,6 +434,9 @@ typedef struct ps5_audio_state
     uint64_t interval_total_us, interval_min_us, interval_max_us;
     uint64_t decode_total_us, decode_max_us;
     uint64_t output_total_us, output_max_us;
+    moonlight::TimingHistogram decode_timing, output_timing;
+    uint32_t pending_ms_high_water, ring_high_water, catchup_packets;
+    uint64_t catchup_frames;
     int16_t ring[AUDIO_RING_FRAMES * AUDIO_MAX_CHANNELS];
     int16_t output[AUDIO_GRAIN_FRAMES * AUDIO_MAX_CHANNELS];
     int16_t decoded[AUDIO_DECODE_MAX_FRAMES * AUDIO_MAX_CHANNELS];
@@ -455,6 +484,7 @@ typedef struct native_renderer_state
 {
     const native_video_mode_t *mode;
     uint32_t stream_fps;
+    uint32_t client_refresh_x100;
     void *decoder;
     void *input_memory;
     void *frame_memory;
@@ -496,6 +526,7 @@ typedef struct native_renderer_state
     uint32_t submission_head;
     uint32_t submission_count;
     uint32_t latency_calls;
+    uint32_t ready_calls;
     uint64_t first_video_us;
     uint64_t last_video_us;
     uint64_t first_present_us;
@@ -504,12 +535,114 @@ typedef struct native_renderer_state
     uint64_t queue_delay_max_us;
     uint32_t queue_delay_calls;
     uint32_t stale_presentation_drops;
+    uint32_t pending_video_high_water;
+    uint32_t reassembly_invalid_samples;
+    bool presentation_pending;
+    uint64_t pending_arrival_us, pending_enqueue_us;
+    moonlight::TimingHistogram copy_timing, decode_timing, queue_timing, reassembly_timing;
+    moonlight::TimingHistogram ready_timing, frame_age_timing, flip_interval_timing;
+    moonlight::RateWindow incoming_rate, rendering_rate;
     int32_t last_result;
     uint32_t hdr_mismatch_reported;
     std::atomic<int> running;
 } native_renderer_state_t;
 
 static native_renderer_state_t *active_renderer;
+static bool presentation_faulted;
+
+// One bounded local summary AFTER workers join. No addresses, host identities,
+// key events or payloads; no per-frame file/network I/O. Failure is nonfatal.
+static void save_performance_summary(const native_renderer_state_t &state,
+                                     const moonlight::TimingHistogram &input_intervals,
+                                     const moonlight_stream_options_t *options, int result)
+{
+    if (!state.mode || !options || !state.access_units)
+        return;
+    char report[4096];
+    uint32_t output_width = 0, output_height = 0, refresh_x100 = 0;
+    native_agc_output_status(&output_width, &output_height, &refresh_x100);
+    int length = snprintf(
+        report, sizeof(report),
+        "{\n\"schema\":1,\"result\":%d,\"width\":%u,\"height\":%u,\"fps\":%u,"
+        "\"bitrate_kbps\":%u,\"codec\":%u,\"hdr\":%u,\"audio_channels\":%d,"
+        "\"output_width\":%u,\"output_height\":%u,\"refresh_x100\":%u,\n"
+        "\"client_refresh_x100\":%u,\"reassembly_invalid_samples\":%u,"
+        "\"fec_simd\":%d,\"fec_path\":\"%s\",\"opus_simd\":%d,\"audio_backlog_limit_ms\":%d,"
+        "\"present_overlap\":%d,\"flip_poll_us\":%d,"
+        "\"access_units\":%u,\"presented\":%u,\"stale_drops\":%u,"
+        "\"network_frame_gaps\":%u,\"pending_video_high_water\":%u,\n"
+        "\"audio_pending_ms_high_water\":%u,\"audio_ring_frames_high_water\":%u,"
+        "\"audio_catchup_packets\":%u,\"audio_catchup_frames\":%llu,"
+        "\"audio_decode_errors\":%u,\"audio_output_errors\":%u,"
+        "\"audio_ring_overruns\":%u,\"timings_us\":{\n",
+        result, state.mode->visible_width, state.mode->visible_height, state.stream_fps,
+        options->bitrate_kbps, state.mode->codec_preference, state.mode->hdr, audio_state.channels,
+        output_width, output_height, refresh_x100, state.client_refresh_x100,
+        state.reassembly_invalid_samples, PROSPEROLIGHT_FEC_SIMD,
+        ps5_fec_cpu_supports("avx2")    ? "avx2"
+        : ps5_fec_cpu_supports("ssse3") ? "ssse3"
+                                        : "scalar",
+        PROSPEROLIGHT_OPUS_SIMD, PROSPEROLIGHT_AUDIO_MAX_BACKLOG_MS, PROSPEROLIGHT_PRESENT_OVERLAP,
+        PROSPEROLIGHT_FLIP_POLL_US, state.access_units, state.presented.load(),
+        state.stale_presentation_drops, state.network_dropped_frames,
+        state.pending_video_high_water, audio_state.pending_ms_high_water,
+        audio_state.ring_high_water, audio_state.catchup_packets,
+        (unsigned long long)audio_state.catchup_frames, audio_state.decode_errors,
+        audio_state.output_errors, audio_state.overruns);
+    if (length < 0 || static_cast<size_t>(length) >= sizeof(report))
+        return;
+    const struct
+    {
+        const char *name;
+        const moonlight::TimingHistogram *timing;
+    } timings[] = {{"copy", &state.copy_timing},
+                   {"decode", &state.decode_timing},
+                   {"receive_to_enqueue", &state.reassembly_timing},
+                   {"enqueue_to_callback", &state.queue_timing},
+                   {"callback_to_ready", &state.ready_timing},
+                   {"enqueue_to_flip_observed", &state.frame_age_timing},
+                   {"flip_observed_interval", &state.flip_interval_timing},
+                   {"input_poll_interval", &input_intervals},
+                   {"audio_decode", &audio_state.decode_timing},
+                   {"audio_output", &audio_state.output_timing}};
+    for (size_t i = 0; i < sizeof(timings) / sizeof(timings[0]); ++i)
+    {
+        const auto &t = *timings[i].timing;
+        const size_t available = sizeof(report) - static_cast<size_t>(length);
+        const int added =
+            snprintf(report + length, available,
+                     "%s\"%s\":{\"count\":%llu,\"mean\":%llu,\"p95_upper\":%llu,"
+                     "\"p99_upper\":%llu,\"max\":%llu}\n",
+                     i ? "," : "", timings[i].name, (unsigned long long)t.count,
+                     (unsigned long long)(t.count ? t.total_us / t.count : 0),
+                     (unsigned long long)t.percentile(95), (unsigned long long)t.percentile(99),
+                     (unsigned long long)t.max_us);
+        if (added < 0 || static_cast<size_t>(added) >= available)
+            return;
+        length += added;
+    }
+    if (static_cast<size_t>(length) + 4 >= sizeof(report))
+        return;
+    memcpy(report + length, "}}\n", 3);
+    length += 3;
+    constexpr auto temporary = MOONLIGHT_IDENTITY_DIRECTORY "/performance-last.json.tmp";
+    constexpr auto destination = MOONLIGHT_IDENTITY_DIRECTORY "/performance-last.json";
+    const int descriptor = sceKernelOpen(temporary, 0x601, 0600);
+    if (descriptor < 0)
+        return;
+    size_t written = 0;
+    while (written < static_cast<size_t>(length))
+    {
+        const int64_t count =
+            sceKernelWrite(descriptor, report + written, static_cast<size_t>(length) - written);
+        if (count <= 0 || static_cast<uint64_t>(count) > static_cast<size_t>(length) - written)
+            break;
+        written += static_cast<size_t>(count);
+    }
+    const int closed = sceKernelClose(descriptor);
+    if (written == static_cast<size_t>(length) && closed == 0)
+        (void)sceKernelRename(temporary, destination);
+}
 
 static int ps5_controller_disconnect_only(ps5_controller_state_t *state)
 {
@@ -540,6 +673,7 @@ typedef struct connection_loading_state
     uint32_t output_source_width;
     uint32_t output_source_height;
     uint32_t requested_fps;
+    uint32_t output_refresh_x100;
     std::atomic<int> animation_enabled;
     std::atomic<int> animation_presenting;
     std::atomic<int> active;
@@ -621,6 +755,7 @@ static int start_connection_loading(connection_loading_state_t *state, void *sur
     state->controller = controller;
     state->started_us = monotonic_us();
     state->present_result = 0;
+    state->output_refresh_x100 = 0;
     std::atomic_store_explicit(&state->animation_enabled, 0, std::memory_order_relaxed);
     std::atomic_store_explicit(&state->animation_presenting, 0, std::memory_order_relaxed);
     if (surface && surface_bytes)
@@ -632,6 +767,13 @@ static int start_connection_loading(connection_loading_state_t *state, void *sur
                                    std::memory_order_relaxed);
         if (state->present_result != 0)
             (void)native_agc_present_shutdown();
+        else
+        {
+            // Snapshot on the presentation owner before the animation worker
+            // starts. Negotiation must not race that worker's output updates.
+            uint32_t width = 0, height = 0;
+            native_agc_output_status(&width, &height, &state->output_refresh_x100);
+        }
     }
 
     std::atomic_store_explicit(&state->active, 1, std::memory_order_relaxed);
@@ -684,6 +826,39 @@ static uint64_t monotonic_us(void)
     struct timespec now;
     (void)clock_gettime(CLOCK_MONOTONIC, &now);
     return (uint64_t)now.tv_sec * UINT64_C(1000000) + (uint64_t)now.tv_nsec / UINT64_C(1000);
+}
+
+static int finish_stream_presentation(native_renderer_state_t *state)
+{
+    if (!state->presentation_pending)
+        return 0;
+    const int result = native_agc_finish_frame();
+    if (result != 0)
+    {
+        state->last_result = result;
+        return result;
+    }
+    const uint64_t flipped_us = monotonic_us();
+    if (state->presented != 0)
+        state->flip_interval_timing.add(flipped_us - state->last_present_us);
+    state->last_present_us = flipped_us;
+    const uint64_t flipped_network_us = PltGetMicroseconds();
+    state->frame_age_timing.add(flipped_network_us > state->pending_enqueue_us
+                                    ? flipped_network_us - state->pending_enqueue_us
+                                    : 0);
+    if (state->presented == 0)
+        state->first_present_us = state->last_present_us;
+    const uint64_t elapsed = flipped_us - state->pending_arrival_us;
+    state->callback_to_flip_total_us += elapsed;
+    if (state->latency_calls == 0 || elapsed < state->callback_to_flip_min_us)
+        state->callback_to_flip_min_us = elapsed;
+    if (elapsed > state->callback_to_flip_max_us)
+        state->callback_to_flip_max_us = elapsed;
+    ++state->latency_calls;
+    ++state->presented;
+    state->rendering_rate.update(flipped_us, state->presented);
+    state->presentation_pending = false;
+    return 0;
 }
 
 static int frame_is_in_pool(const void *frame, const void *pool, size_t stride)
@@ -822,6 +997,22 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
 
     network_enqueue_us =
         decode_unit->enqueueTimeUs ? decode_unit->enqueueTimeUs : PltGetMicroseconds();
+    // Use the upstream clock on both sides of enqueue->callback. This excludes
+    // our copy, decode, and flip wait (previously mislabeled as queue delay).
+    const uint64_t callback_network_us = PltGetMicroseconds();
+    if (!moonlight::record_reassembly(state->reassembly_timing, decode_unit->receiveTimeUs,
+                                      decode_unit->enqueueTimeUs, callback_network_us))
+        ++state->reassembly_invalid_samples;
+    elapsed =
+        callback_network_us > network_enqueue_us ? callback_network_us - network_enqueue_us : 0;
+    state->queue_timing.add(elapsed);
+    state->queue_delay_total_us += elapsed;
+    if (elapsed > state->queue_delay_max_us)
+        state->queue_delay_max_us = elapsed;
+    ++state->queue_delay_calls;
+    const int pending_video = LiGetPendingVideoFrames();
+    if (pending_video > 0 && static_cast<uint32_t>(pending_video) > state->pending_video_high_water)
+        state->pending_video_high_water = static_cast<uint32_t>(pending_video);
     if (!state->first_video_us)
         state->first_video_us = network_enqueue_us;
     else if (decode_unit->frameNumber > state->last_network_frame + 1)
@@ -865,6 +1056,7 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
     }
     elapsed = monotonic_us() - started;
     state->copy_total_us += elapsed;
+    state->copy_timing.add(elapsed);
     if (elapsed > state->copy_max_us)
         state->copy_max_us = elapsed;
     if (copied != (size_t)decode_unit->fullLength)
@@ -887,10 +1079,14 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
     decode_completed_us = monotonic_us();
     elapsed = decode_completed_us - started;
     state->decode_total_us += elapsed;
+    state->decode_timing.add(elapsed);
     if (elapsed > state->decode_max_us)
         state->decode_max_us = elapsed;
     ++state->decode_calls;
     ++state->access_units;
+    const bool rate_updated = state->incoming_rate.update(callback_arrival_us, state->access_units);
+    if (state->access_units == 1u || rate_updated)
+        state->rtt_valid = LiGetEstimatedRttInfo(&state->rtt_ms, &state->rtt_variance_ms);
     state->fragments += fragment_count;
     state->stream_bytes += copied;
 
@@ -985,20 +1181,23 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
         --state->submission_count;
 
         elapsed = decode_completed_us - output_arrival_us;
+        state->ready_timing.add(elapsed);
         state->callback_to_decode_total_us += elapsed;
-        if (state->latency_calls == 0 || elapsed < state->callback_to_decode_min_us)
+        if (state->ready_calls == 0 || elapsed < state->callback_to_decode_min_us)
             state->callback_to_decode_min_us = elapsed;
         if (elapsed > state->callback_to_decode_max_us)
             state->callback_to_decode_max_us = elapsed;
+        ++state->ready_calls;
+        // Decode has used a protected pool slot. Retire the prior flip BEFORE
+        // rewriting the single AGC command/constant bank.
+        if (finish_stream_presentation(state) != 0)
+            return DR_NEED_IDR;
+        const uint64_t ready_network_us = PltGetMicroseconds();
+        elapsed = ready_network_us > output_enqueue_us ? ready_network_us - output_enqueue_us : 0;
 
-        elapsed = PltGetMicroseconds() - output_enqueue_us;
-        state->queue_delay_total_us += elapsed;
-        if (elapsed > state->queue_delay_max_us)
-            state->queue_delay_max_us = elapsed;
-        ++state->queue_delay_calls;
-
-        if (state->presented != 0 &&
-            elapsed > UINT64_C(2000000) / (state->stream_fps ? state->stream_fps : 60u))
+        if (state->presented != 0 && moonlight::drop_stale_presentation(
+                                         elapsed, state->stream_fps, LiGetPendingVideoFrames(),
+                                         monotonic_us() - state->last_present_us))
         {
             ++state->stale_presentation_drops;
             state->last_result = 0;
@@ -1007,29 +1206,11 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
 
         if (native_agc_hud_enabled())
         {
-            uint64_t video_span = state->last_video_us > state->first_video_us
-                                      ? state->last_video_us - state->first_video_us
-                                      : 0;
-            uint64_t render_span = state->last_present_us > state->first_present_us
-                                       ? state->last_present_us - state->first_present_us
-                                       : 0;
             uint64_t total_frames = (uint64_t)state->access_units + state->network_dropped_frames;
-
-            if (state->access_units == 1u || state->access_units % HUD_STATS_REFRESH_FRAMES == 0u)
-                state->rtt_valid = LiGetEstimatedRttInfo(&state->rtt_ms, &state->rtt_variance_ms);
             hud_metrics.video_codec = state->mode->codec_preference;
-            hud_metrics.total_fps_x100 =
-                video_span && total_frames > 1u
-                    ? (uint32_t)((total_frames - 1u) * UINT64_C(100000000) / video_span)
-                    : 0;
-            hud_metrics.incoming_fps_x100 = video_span && state->access_units > 1u
-                                                ? (uint32_t)((uint64_t)(state->access_units - 1u) *
-                                                             UINT64_C(100000000) / video_span)
-                                                : 0;
-            hud_metrics.rendering_fps_x100 = render_span && state->presented > 1u
-                                                 ? (uint32_t)((uint64_t)(state->presented - 1u) *
-                                                              UINT64_C(100000000) / render_span)
-                                                 : 0;
+            hud_metrics.total_fps_x100 = state->incoming_rate.fps_x100;
+            hud_metrics.incoming_fps_x100 = state->incoming_rate.fps_x100;
+            hud_metrics.rendering_fps_x100 = state->rendering_rate.fps_x100;
             hud_metrics.network_drop_percent_x100 =
                 total_frames ? (uint32_t)((uint64_t)state->network_dropped_frames *
                                           UINT64_C(10000) / total_frames)
@@ -1070,28 +1251,26 @@ static int moonlight_renderer_submit(PDECODE_UNIT decode_unit)
             state->last_result = result;
             return DR_NEED_IDR;
         }
-        state->last_present_us = monotonic_us();
-        if (state->presented == 0)
-            state->first_present_us = state->last_present_us;
-        elapsed = state->last_present_us - output_arrival_us;
-        state->callback_to_flip_total_us += elapsed;
-        if (state->latency_calls == 0 || elapsed < state->callback_to_flip_min_us)
-            state->callback_to_flip_min_us = elapsed;
-        if (elapsed > state->callback_to_flip_max_us)
-            state->callback_to_flip_max_us = elapsed;
-        ++state->latency_calls;
-        ++state->presented;
-        if (state->presented == 1 || state->presented % 300u == 0u)
+        state->pending_arrival_us = output_arrival_us;
+        state->pending_enqueue_us = output_enqueue_us;
+        state->presentation_pending = true;
+        // Complete the first picture for the handoff/watchdog in both modes.
+        if ((!PROSPEROLIGHT_PRESENT_OVERLAP || state->presented == 0) &&
+            finish_stream_presentation(state) != 0)
+            return DR_NEED_IDR;
+        if (PROSPEROLIGHT_LAN_TELEMETRY &&
+            (state->access_units == 1 || state->access_units % 300u == 0u))
         {
             snprintf(receipt, sizeof(receipt),
                      "Moonlight callback progress: submit_frame=%d output_frame=%d "
-                     "output_pts_us=%llu au=%u presented=%u pending=%u callback_to_flip_us=%llu "
+                     "output_pts_us=%llu au=%u presented=%u pending=%u present_call_us=%llu "
                      "queue_us=%llu stale=%u fragments=%u bytes=%zx decoder=%p pool=%p agc=%p "
                      "in_pool=%u",
                      decode_unit->frameNumber, output_frame, (unsigned long long)output_pts_us,
                      state->access_units,
                      std::atomic_load_explicit(&state->presented, std::memory_order_relaxed),
-                     state->submission_count, (unsigned long long)elapsed,
+                     state->submission_count + (state->presentation_pending ? 1u : 0u),
+                     (unsigned long long)elapsed,
                      (unsigned long long)(PltGetMicroseconds() - output_enqueue_us),
                      state->stale_presentation_drops, state->fragments, state->stream_bytes,
                      output.buffer, state->frame_memory, output.buffer,
@@ -1331,6 +1510,7 @@ static void ps5_audio_sample(char *sample_data, int sample_length)
         sample_data ? sample_length : 0, audio_state.decoded, decode_capacity, 0);
     elapsed = monotonic_us() - started;
     audio_state.decode_total_us += elapsed;
+    audio_state.decode_timing.add(elapsed);
     if (elapsed > audio_state.decode_max_us)
         audio_state.decode_max_us = elapsed;
     if (decoded <= 0)
@@ -1352,7 +1532,21 @@ static void ps5_audio_sample(char *sample_data, int sample_length)
             audio_state.peak_sample = (uint32_t)magnitude;
     }
     audio_state.decoded_frames += (uint32_t)decoded;
+    const int pending_ms = LiGetPendingAudioDuration();
+    if (pending_ms > 0 && static_cast<uint32_t>(pending_ms) > audio_state.pending_ms_high_water)
+        audio_state.pending_ms_high_water = static_cast<uint32_t>(pending_ms);
+    if (moonlight::discard_audio_backlog(pending_ms, PROSPEROLIGHT_AUDIO_MAX_BACKLOG_MS))
+    {
+        // Match Moonlight Qt's decode-then-discard policy, also retiring any PCM
+        // we already buffered. Preserve Opus state, channel layout and PLC.
+        ++audio_state.catchup_packets;
+        audio_state.catchup_frames += static_cast<uint32_t>(decoded) + audio_state.ring_count;
+        audio_state.ring_head = audio_state.ring_tail = audio_state.ring_count = 0;
+        return;
+    }
     audio_ring_push(&audio_state, audio_state.decoded, (uint32_t)decoded);
+    if (audio_state.ring_count > audio_state.ring_high_water)
+        audio_state.ring_high_water = audio_state.ring_count;
     while (audio_state.ring_count >= AUDIO_GRAIN_FRAMES)
     {
         int result;
@@ -1362,6 +1556,7 @@ static void ps5_audio_sample(char *sample_data, int sample_length)
         result = sceAudioOutOutput(audio_state.handle, audio_state.output);
         elapsed = monotonic_us() - started;
         audio_state.output_total_us += elapsed;
+        audio_state.output_timing.add(elapsed);
         if (elapsed > audio_state.output_max_us)
             audio_state.output_max_us = elapsed;
         ++audio_state.output_calls;
@@ -2376,6 +2571,17 @@ static int prepare_native_session(client_identity_t *identity, gs_server_t *serv
 int moonlight_stream_run(const moonlight_stream_options_t *options,
                          moonlight_stream_metrics_t *metrics)
 {
+    if (presentation_faulted)
+    {
+        if (metrics)
+        {
+            *metrics = {};
+            metrics->result = -5;
+            snprintf(metrics->error, sizeof(metrics->error),
+                     "GPU presentation timed out. Restart ProsperoLight before streaming again.");
+        }
+        return -5;
+    }
     videodec2_decoder_config_t config;
     videodec2_decoder_memory_t memory = {};
     videodec2_compute_config_t compute_config = {};
@@ -2415,6 +2621,8 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     int sysmodule_loaded = 0;
     uint64_t live_elapsed_us = 0;
     uint64_t first_frame_wait_start_us = 0;
+    uint64_t last_input_poll_us = 0;
+    moonlight::TimingHistogram input_intervals;
     int connection_result = -1;
     int connection_active = 0;
     int identity_initialized = 0;
@@ -2651,7 +2859,6 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     stream_config.streamingRemotely = STREAM_CFG_LOCAL;
     stream_config.audioConfiguration = audio_configuration;
     stream_config.supportedVideoFormats = mode->video_format;
-    stream_config.clientRefreshRateX100 = (int)(stream_fps * 100u);
     stream_config.colorSpace = mode->hdr ? COLORSPACE_REC_2020 : COLORSPACE_REC_709;
     stream_config.colorRange = COLOR_RANGE_LIMITED;
     stream_config.encryptionFlags = ENCFLG_NONE;
@@ -2692,6 +2899,9 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
     (void)lan_http_report_text(notification.message);
     if (result != 0)
         goto done;
+    renderer.client_refresh_x100 =
+        moonlight::client_refresh_x100(stream_fps, loading.output_refresh_x100);
+    stream_config.clientRefreshRateX100 = (int)renderer.client_refresh_x100;
     identity_initialized = 1;
     result = prepare_native_session(&client_identity, &gs_server, &stream_config, mode,
                                     controller_ready ? 1 : 0, host, app_name, app_id);
@@ -2740,6 +2950,16 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
 
     while (!connection_terminated && !controller.requested_stop)
     {
+#if PROSPEROLIGHT_STREAM_SELF_TEST_FPS != 0
+        // Development-only autostart must finish through normal stream teardown
+        // so the receipt is complete before the external title-close controller.
+        if (monotonic_us() - first_frame_wait_start_us >= UINT64_C(90000000))
+            break;
+#endif
+        const uint64_t input_poll_us = monotonic_us();
+        if (last_input_poll_us)
+            input_intervals.add(input_poll_us - last_input_poll_us);
+        last_input_poll_us = input_poll_us;
         if (options && options->synthetic_motion)
         {
             const uint64_t now = monotonic_us();
@@ -2770,13 +2990,9 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         sceKernelUsleep(4000);
     }
 
-    live_elapsed_us = renderer.last_present_us > renderer.first_present_us
-                          ? renderer.last_present_us - renderer.first_present_us
-                          : 0;
     terminated = std::atomic_load_explicit(&connection_terminated, std::memory_order_relaxed);
     reported_error = std::atomic_load_explicit(&connection_error, std::memory_order_relaxed);
     user_stop = std::atomic_load_explicit(&controller.requested_stop, std::memory_order_relaxed);
-    presented = std::atomic_load_explicit(&renderer.presented, std::memory_order_relaxed);
     result = first_frame_timed_out               ? GS_IO_ERROR
              : terminated && reported_error != 0 ? reported_error
                                                  : 0;
@@ -2787,6 +3003,13 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
         ps5_physical_input_stop(&physical_input);
     LiStopConnection();
     connection_active = 0;
+    if (finish_stream_presentation(&renderer) != 0 && result == 0)
+        result = renderer.last_result;
+    // Renderer/audio aggregates are single-writer, so snapshot only after join.
+    presented = renderer.presented.load();
+    live_elapsed_us = renderer.last_present_us > renderer.first_present_us
+                          ? renderer.last_present_us - renderer.first_present_us
+                          : 0;
     snprintf(
         notification.message, sizeof(notification.message),
         "Moonlight live result: rc=%08x connection=%08x terminated=%d user_stop=%d error=%08x "
@@ -2828,9 +3051,9 @@ int moonlight_stream_run(const moonlight_stream_options_t *options,
              "Moonlight live latency: calls=%u callback_to_decode_avg_us=%llu min_us=%llu "
              "max_us=%llu callback_to_flip_avg_us=%llu min_us=%llu max_us=%llu pending=%u",
              renderer.latency_calls,
-             (unsigned long long)(renderer.latency_calls ? renderer.callback_to_decode_total_us /
-                                                               renderer.latency_calls
-                                                         : 0),
+             (unsigned long long)(renderer.ready_calls
+                                      ? renderer.callback_to_decode_total_us / renderer.ready_calls
+                                      : 0),
              (unsigned long long)renderer.callback_to_decode_min_us,
              (unsigned long long)renderer.callback_to_decode_max_us,
              (unsigned long long)(renderer.latency_calls
@@ -2865,6 +3088,8 @@ done:
         LiStopConnection();
     }
     stop_connection_loading();
+    if (finish_stream_presentation(&renderer) != 0 && result == 0)
+        result = renderer.last_result;
     http_clear_interrupt();
     snprintf(
         notification.message, sizeof(notification.message),
@@ -2973,23 +3198,37 @@ done:
         moonlight_video_callbacks.stop();
         moonlight_video_callbacks.cleanup();
     }
+    save_performance_summary(renderer, input_intervals, options, result);
+    const int source_idle_result = native_agc_finish_frame();
     present_cleanup_result = native_agc_present_shutdown();
-    if (decoder)
-        delete_result = sceVideodec2DeleteDecoder(decoder);
-    release_direct(frame_memory, frame_start, frame_pool_size);
-    release_direct(input_memory, input_start, input_pool_size);
-    release_direct(memory.cpu_gpu, cpu_gpu_start, cpu_gpu_size);
-    release_direct(memory.gpu, gpu_start, gpu_size);
-    if (memory.cpu)
+    if (source_idle_result == 0)
     {
-        (void)sceKernelReleaseFlexibleMemory(memory.cpu, cpu_mapping_size);
-        (void)sceKernelMunmap(memory.cpu, cpu_mapping_size);
+        if (decoder)
+            delete_result = sceVideodec2DeleteDecoder(decoder);
+        release_direct(frame_memory, frame_start, frame_pool_size);
+        release_direct(input_memory, input_start, input_pool_size);
+        release_direct(memory.cpu_gpu, cpu_gpu_start, cpu_gpu_size);
+        release_direct(memory.gpu, gpu_start, gpu_size);
+        if (memory.cpu)
+        {
+            (void)sceKernelReleaseFlexibleMemory(memory.cpu, cpu_mapping_size);
+            (void)sceKernelMunmap(memory.cpu, cpu_mapping_size);
+        }
+        if (compute_queue)
+            release_compute_result = sceVideodec2ReleaseComputeQueue(compute_queue);
+        release_direct(compute_memory.cpu_gpu, compute_start, compute_size);
+        if (sysmodule_loaded)
+            unload_result = sceSysmoduleUnloadModule(207);
     }
-    if (compute_queue)
-        release_compute_result = sceVideodec2ReleaseComputeQueue(compute_queue);
-    release_direct(compute_memory.cpu_gpu, compute_start, compute_size);
-    if (sysmodule_loaded)
-        unload_result = sceSysmoduleUnloadModule(207);
+    else
+    {
+        // ponytail: retain one faulted session's native allocations until process
+        // exit; require restart rather than inventing in-process GPU recovery.
+        presentation_faulted = true;
+        result = source_idle_result;
+        snprintf(stream_error, sizeof(stream_error),
+                 "GPU presentation timed out. Restart ProsperoLight before streaming again.");
+    }
     snprintf(
         notification.message, sizeof(notification.message),
         "Native zero-copy cleanup: rc=%08x present=%08x delete=%08x compute=%08x unload=%08x done",
@@ -3007,7 +3246,8 @@ done:
         metrics->result = result;
         metrics->presented_frames = renderer.presented;
         metrics->access_units = renderer.access_units;
-        metrics->pending_frames = renderer.submission_count;
+        metrics->pending_frames =
+            renderer.submission_count + (renderer.presentation_pending ? 1u : 0u);
         metrics->audio_packets = audio_state.packets;
         metrics->audio_overruns = audio_state.overruns;
         metrics->controller_polls = controller.polls;

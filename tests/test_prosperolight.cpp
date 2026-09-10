@@ -11,6 +11,7 @@
 #include "moonlight_config.hpp"
 #include "moonlight_health.hpp"
 #include "moonlight_physical_input.hpp"
+#include "moonlight_performance.hpp"
 
 #include <gtest/gtest.h>
 
@@ -18,6 +19,79 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+
+TEST(Performance, BoundedTimingPercentilesIncludeOverflow)
+{
+    moonlight::TimingHistogram timing;
+    EXPECT_EQ(timing.percentile(95), 0u);
+    for (unsigned i = 1; i <= 100; ++i)
+        timing.add(i * 1000u);
+    EXPECT_EQ(timing.count, 100u);
+    EXPECT_EQ(timing.total_us, 5050000u);
+    EXPECT_EQ(timing.percentile(95), 95499u);
+    EXPECT_EQ(timing.percentile(99), 99499u);
+    timing.add(3000000u);
+    EXPECT_EQ(timing.percentile(100), 3000000u);
+}
+
+TEST(Performance, RateWindowReflectsRecentSlowdownAndCounterReset)
+{
+    moonlight::RateWindow rate;
+    EXPECT_FALSE(rate.update(0, 0));
+    EXPECT_FALSE(rate.update(500000, 60));
+    EXPECT_TRUE(rate.update(1000000, 120));
+    EXPECT_EQ(rate.fps_x100, 12000u);
+    EXPECT_TRUE(rate.update(2000000, 180));
+    EXPECT_EQ(rate.fps_x100, 6000u);
+    EXPECT_TRUE(rate.update(4000000, 180));
+    EXPECT_EQ(rate.fps_x100, 0u);
+    EXPECT_FALSE(rate.update(4000001, 0));
+}
+
+TEST(Performance, ReassemblyUsesOnlyOrderedLocalTimestamps)
+{
+    moonlight::TimingHistogram timing;
+    EXPECT_TRUE(moonlight::record_reassembly(timing, 1000, 3500, 9000));
+    EXPECT_TRUE(moonlight::record_reassembly(timing, 3500, 3500, 3500));
+    EXPECT_FALSE(moonlight::record_reassembly(timing, 0, 3500, 9000));
+    EXPECT_FALSE(moonlight::record_reassembly(timing, 1000, 0, 9000));
+    EXPECT_FALSE(moonlight::record_reassembly(timing, 3501, 3500, 9000));
+    EXPECT_FALSE(moonlight::record_reassembly(timing, 1000, 9001, 9000));
+    EXPECT_EQ(timing.count, 2u);
+    EXPECT_EQ(timing.total_us, 2500u);
+    EXPECT_EQ(timing.max_us, 2500u);
+}
+
+TEST(Performance, RefreshHintPreservesSelectedRateAndFractionalCadence)
+{
+    // Rows are requested FPS; columns cover unknown, integral and fractional outputs.
+    constexpr uint32_t outputs[] = {0, 5994, 6000, 8991, 9000, 11988, 12000, UINT32_MAX};
+    constexpr uint32_t rates[] = {60, 90, 120};
+    constexpr uint32_t expected[][8] = {
+        {6000, 5994, 6000, 6000, 6000, 5994, 6000, 6000},
+        {9000, 9000, 9000, 8991, 9000, 9000, 9000, 9000},
+        {12000, 12000, 12000, 12000, 12000, 11988, 12000, 12000},
+    };
+    for (unsigned row = 0; row < 3; ++row)
+        for (unsigned column = 0; column < 8; ++column)
+            EXPECT_EQ(moonlight::client_refresh_x100(rates[row], outputs[column]),
+                      expected[row][column])
+                << rates[row] << " FPS on " << outputs[column];
+    EXPECT_EQ(moonlight::client_refresh_x100(0, 0), 6000u);
+    EXPECT_EQ(moonlight::client_refresh_x100(UINT32_MAX, UINT32_MAX), 6000u);
+}
+
+TEST(Performance, CatchUpPreservesVideoProgressAndAudioThreshold)
+{
+    EXPECT_TRUE(moonlight::drop_stale_presentation(30000, 120, 2, 8333));
+    EXPECT_FALSE(moonlight::drop_stale_presentation(30000, 120, 0, 8333));
+    EXPECT_FALSE(moonlight::drop_stale_presentation(30000, 120, 2, 100000));
+    EXPECT_FALSE(moonlight::drop_stale_presentation(16000, 120, 2, 8333));
+    EXPECT_FALSE(moonlight::discard_audio_backlog(31, 0));
+    EXPECT_FALSE(moonlight::discard_audio_backlog(30, 30));
+    EXPECT_FALSE(moonlight::discard_audio_backlog(-1, 30));
+    EXPECT_TRUE(moonlight::discard_audio_backlog(31, 30));
+}
 
 namespace
 {
