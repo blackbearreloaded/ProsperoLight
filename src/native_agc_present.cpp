@@ -1116,7 +1116,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
     snprintf(receipt, sizeof(receipt),
              "Native AGC stage 2: create=%08x link=%08x vs=%p ps=%p hud_ps=%p shader=%p",
              (uint32_t)result, (uint32_t)link_result, presenter.vertex_shader,
-             presenter.pixel_shader, presenter.hud_pixel_shader, presenter.shader_memory);
+             presenter.pixel_shader, presenter.hud_pixel_shader,
+             static_cast<void *>(presenter.shader_memory));
     report_agc_receipt(receipt);
     if (result != 0 || link_result != 0)
         return result ? result : link_result;
