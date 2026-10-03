@@ -26,7 +26,6 @@ using elevation::wire::Kind;
 using elevation::wire::Message;
 
 constexpr char target_title_id[] = "PPSA99002";
-constexpr std::uint64_t system_auth_id = UINT64_C(0x4801000000000013);
 
 struct AppInfo
 {
@@ -131,14 +130,10 @@ bool write_state(const Target &target, const State &state) noexcept
 Status grant_filesystem(const Target &target, const State &original) noexcept
 {
     State desired = original;
-    desired.root = kernel_get_root_vnode();
-    if (!kernel_pointer(desired.root))
-        return Status::unavailable;
-    desired.jail = desired.root;
+    // /data is already mounted inside the title jail. Grant filesystem UID/GID
+    // access without changing root/jail or SCE module-loading credentials.
+    // Lazy loads (VdecCore/Savc/Shevc, HID) need the original library namespace.
     desired.identity.fill(0);
-    desired.authority = system_auth_id;
-    desired.caps.fill(0xff);
-    desired.attrs[3] |= 0x80;
 
     State verified{};
     if (write_state(target, desired) && read_state(target, verified) && verified == desired)
