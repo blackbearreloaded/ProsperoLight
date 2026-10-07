@@ -471,6 +471,11 @@ void Model::RequestArtwork(int app_id)
     artwork_wanted_.push_back(app_id);
 }
 
+void Model::ForgetArtwork(int app_id)
+{
+    std::erase(artwork_asked_, app_id);
+}
+
 bool Model::TakeArtwork(ArtworkImage *image)
 {
     if (artwork_ready_.empty())
