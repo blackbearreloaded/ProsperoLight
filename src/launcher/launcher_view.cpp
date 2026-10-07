@@ -2339,6 +2339,10 @@ void View::draw_about(ui::Canvas &canvas, ui::Painter &paint) const
     if (!version_.empty())
         paint.label(i18n::tr("Version ") + version_, left.x + left.w, bottom, 20.0f, t.primary,
                     gfx::Align::right);
+    // A build that is not a release says which one it is, on the line above.
+    if (!build_label_.empty())
+        paint.label(build_label_, left.x + left.w, bottom - 30.0f, 20.0f, t.primary,
+                    gfx::Align::right);
 
     start_panel_.draw(canvas, kStartPanel);
     const Rect right = start_panel_.content_rect(kStartPanel).inset(14.0f);

@@ -85,6 +85,22 @@ jobs:
       - name: Verify generated runtime is unchanged
         run: cd runtime && sha256sum -c libc.prx.sha256
 
+      # A pull request's build is named by its number and its own commit, on the
+      # artifact and on the launcher's About page; the version stays the release's.
+      - name: Name this build
+        id: label
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ $GITHUB_EVENT_NAME == pull_request ]]; then
+            short=${PR_HEAD:0:7}
+            echo "artifact=ProsperoLight-PR$PR_NUMBER-$short" >> "$GITHUB_OUTPUT"
+            echo "BUILD_LABEL=PR $PR_NUMBER, $short" >> "$GITHUB_ENV"
+          else
+            echo "artifact=prosperolight-release-$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build the release folder and raw exFAT image
         run: |
           # Performance betas ship with the measured flag set.
@@ -116,7 +132,7 @@ jobs:
       - name: Upload build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: prosperolight-release-${{ github.sha }}
+          name: ${{ steps.label.outputs.artifact }}
           path: |
             dist/${{ env.TITLE_ID }}.exfat
             dist/${{ env.TITLE_ID }}.zip

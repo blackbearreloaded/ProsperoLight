@@ -321,6 +321,11 @@ The [Build workflow](.github/workflows/tooling.yml) runs on every push to
 7. generates `SHA256SUMS` for both release formats and uploads all three files
    as the Actions artifact.
 
+A pull request's build is uploaded as `ProsperoLight-PR<number>-<commit>` (the
+pull request's own commit) and names itself on the launcher's About page with a
+line such as `PR 28, 1ae2fd0` above the version; its version is unchanged, so update checks
+behave as for the release. Locally, `BUILD_LABEL="my test" make` does the same.
+
 A tag matching the exact `contentVersion` verifies that build-time checksum
 again, then publishes the raw `.exfat` image, app-folder `.zip`, and `SHA256SUMS`.
 The compressed `.ffpfsc` image is no longer built or published by the automation, to

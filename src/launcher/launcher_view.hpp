@@ -65,6 +65,11 @@ class View
     {
         version_ = std::move(version);
     }
+    // What a build that is not a release calls itself ("PR 28, 1ae2fd0"); empty for a release.
+    void set_build_label(std::string label)
+    {
+        build_label_ = std::move(label);
+    }
     // The app has just opened (true) or a stream has just ended (false).
     void set_first_start(bool first)
     {
@@ -202,6 +207,7 @@ class View
     std::vector<hui::gfx::Rect> host_action_rects_;
     hui::ui::Theme theme_;
     std::string version_;
+    std::string build_label_;
     unsigned seen_revision_ = 0;
     int screen_ = 0;
     float age_ = 0.0f;

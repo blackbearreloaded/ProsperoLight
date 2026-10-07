@@ -15,6 +15,13 @@ case "$format" in folder|ffpkg|ffpfsc|exfat|all) ;; *)
     echo "usage: tools/build.sh [Folder|Ffpkg|Ffpfsc|Exfat|All]" >&2
     exit 2
 esac
+# Checked before anything is built; written into the app folder further down.
+if [[ -n ${BUILD_LABEL:-} ]]; then
+    [[ $BUILD_LABEL =~ ^[A-Za-z0-9\ ,._#-]{1,40}$ ]] || {
+        echo "BUILD_LABEL must be 1 to 40 letters, digits, spaces or , . _ # -" >&2
+        exit 2
+    }
+fi
 
 for command in python3 sha256sum; do
     command -v "$command" >/dev/null || {
@@ -359,6 +366,12 @@ cp "$root/build/lapy-owned-helper/lapy-manifest.json" "$app/lapy-manifest.json"
 cp "$root/build/self-update/self-updater.elf" "$app/self-updater.elf"
 
 cp "$param" "$app/sce_sys/param.json"
+# A build that is not a release can say which one it is (a pull request's number and
+# commit): the launcher shows the text beside the version on its About page.
+rm -f -- "$app/build-label.txt"
+if [[ -n ${BUILD_LABEL:-} ]]; then
+    printf '%s\n' "$BUILD_LABEL" > "$app/build-label.txt"
+fi
 for asset in icon0.png pic0.dds pic1.dds snd0.at9; do
     [[ -f $root/sce_sys/$asset ]] && cp "$root/sce_sys/$asset" "$app/sce_sys/$asset"
 done
