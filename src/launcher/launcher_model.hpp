@@ -223,6 +223,8 @@ class Model
     }
     // Asks for one app's box art from the selected PC (once per app).
     void RequestArtwork(int app_id);
+    // The view let go of this poster: it may be asked for again.
+    void ForgetArtwork(int app_id);
     // The next picture that arrived, if any.
     bool TakeArtwork(ArtworkImage *image);
 

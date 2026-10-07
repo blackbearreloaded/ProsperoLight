@@ -384,6 +384,8 @@ int main(int argc, char **argv)
         actions.finish = [] { pretend.begun = false; };
         view.set_update_actions(actions);
         bool started = false;
+        int posters_live = 0;
+        int posters_made = 0;
         const auto step_frame = [&](const hui::InputFrame &input)
         {
             now_ms += 17;
@@ -393,12 +395,17 @@ int main(int argc, char **argv)
             {
                 const std::uint32_t texture =
                     renderer.batch().create_texture(image.width, image.height, image.rgba.data());
+                ++posters_live;
+                ++posters_made;
                 view.set_artwork(
                     image.app_id, texture, static_cast<float>(image.width) / image.height,
                     launcher::View::palette_of(image.rgba.data(), image.width, image.height));
             }
             for (std::uint32_t texture : view.take_released_textures())
+            {
                 glDeleteTextures(1, &texture);
+                --posters_live;
+            }
             hui::ui::Feedback feedback;
             view.update(input, 1.0f / 60.0f, feedback);
             for (const hui::audio::CueEvent &event : feedback.cues)
@@ -504,6 +511,18 @@ int main(int argc, char **argv)
             expect(model.selected_app() == 199 && model.backend().apps[199].id == 200,
                    "the last app beyond the former 64-entry limit can be selected");
             render("last-app");
+            // Back to the top, slowly enough for each row's posters to arrive:
+            // the launcher keeps a bounded number of them as textures.
+            navigate.nav = Direction::up;
+            for (int row = 0; row < 28; ++row)
+            {
+                step_frame(navigate);
+                for (int i = 0; i < 20; ++i)
+                    step_frame(idle);
+            }
+            expect(posters_made > 70 && posters_live <= 70,
+                   "a large library keeps at most seventy posters as textures");
+            std::printf("posters: %d made, %d kept\n", posters_made, posters_live);
         }
         model.Shutdown();
         return started;

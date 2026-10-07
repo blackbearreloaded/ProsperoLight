@@ -43,6 +43,9 @@ constexpr Rect kShortcutPanel{1176.0f, kContentTop + 456.0f, kRight - 1176.0f, 2
 constexpr Rect kCreditsPanel{kMargin, kContentTop, 852.0f, 708.0f};
 constexpr Rect kStartPanel{kMargin + 876.0f, kContentTop, 852.0f, 708.0f};
 constexpr int kScreens = 4;
+// Posters kept as textures (about 1.2 MB each): ten rows around the selection.
+// A large library frees the ones farthest away and fetches them again on return.
+constexpr std::size_t kPostersKept = 70;
 constexpr Rect kPairPanel{960.0f - 440.0f, 250.0f, 880.0f, 560.0f};
 constexpr Rect kUpdatePanel{960.0f - 440.0f, 230.0f, 880.0f, 600.0f};
 constexpr Rect kNotesPanel{960.0f - 560.0f, 120.0f, 1120.0f, 840.0f};
@@ -1212,6 +1215,46 @@ void View::request_artwork()
     {
         if (!artwork(backend.apps[index].id))
             model_.RequestArtwork(backend.apps[index].id);
+    }
+    while (artwork_.size() > kPostersKept)
+    {
+        // The poster whose row is farthest from the selected one goes first; one
+        // whose app left the list is farther than any.
+        std::size_t farthest = 0;
+        unsigned distance = 0;
+        for (std::size_t at = 0; at < artwork_.size(); ++at)
+        {
+            unsigned rows = UINT_MAX;
+            for (unsigned index = 0; index < backend.app_count; ++index)
+            {
+                if (backend.apps[index].id == artwork_[at].app_id)
+                {
+                    const unsigned its_row = index / kColumns;
+                    rows = its_row > row ? its_row - row : row - its_row;
+                    break;
+                }
+            }
+            if (rows >= distance)
+            {
+                distance = rows;
+                farthest = at;
+            }
+        }
+        const int app_id = artwork_[farthest].app_id;
+        released_.push_back(artwork_[farthest].texture);
+        artwork_.erase(artwork_.begin() + static_cast<std::ptrdiff_t>(farthest));
+        model_.ForgetArtwork(app_id);
+        const ui::CardItem plain;
+        for (int index = 0; index < static_cast<int>(apps_.items().size()); ++index)
+        {
+            ui::CardItem &item = apps_.item(index);
+            if (item.tag == app_id)
+            {
+                item.texture = plain.texture;
+                item.image_aspect = plain.image_aspect;
+                item.accent = plain.accent;
+            }
+        }
     }
 }
 
