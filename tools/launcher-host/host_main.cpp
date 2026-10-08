@@ -324,6 +324,8 @@ int main(int argc, char **argv)
         }
         launcher::View view(model, fonts);
         view.set_version("01.000.080");
+        if (std::strcmp(prefix, "about-pull-request") == 0)
+            view.set_build_label("PR 28, 1ae2fd0");
         view.set_players(2);
         view.set_storage({true, "/data/prosperolight/config", "/data/prosperolight/pairing",
                           "/data/prosperolight/logs"});
@@ -992,6 +994,8 @@ int main(int argc, char **argv)
 
     // ---- About: one step back from the first tab ----
     session("about", {{30, previous}, {60, 0, Direction::none, "page"}, {10, back}, {30, 0}}, "");
+    // A pull request's build names itself beside the version.
+    session("about-pull-request", {{30, previous}, {60, 0, Direction::none, "page"}}, "");
 
     // ---- a library larger than the former 64-entry snapshot ----
     fake::world()[0].apps.clear();

@@ -534,6 +534,22 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
             View view(model, fonts);
             view.set_version(
                 read_content_version(std::string(storage::paths().app) + "/sce_sys/param.json"));
+            {
+                // Written by the build for a pull request; a release has no such file.
+                std::string label;
+                if (save::read_file(std::string(storage::paths().app) + "/build-label.txt", &label,
+                                    64))
+                {
+                    std::string shown;
+                    for (char c : label)
+                    {
+                        if (c >= ' ' && c <= '~' && shown.size() < 40)
+                            shown += c;
+                    }
+                    view.set_build_label(shown);
+                    sys::log("[PL] launcher: build label %s", shown.c_str());
+                }
+            }
             view.set_storage(StorageFolders());
             view.set_first_start(first_start);
             view.show_stream_error(stream_error);
