@@ -520,6 +520,13 @@ int main(int argc, char **argv)
                 for (int i = 0; i < 20; ++i)
                     step_frame(idle);
             }
+            // A poster that arrived on the last frame pushed one out in that frame's
+            // update; the frame after frees it.
+            for (std::uint32_t texture : view.take_released_textures())
+            {
+                glDeleteTextures(1, &texture);
+                --posters_live;
+            }
             expect(posters_made > 70 && posters_live <= 70,
                    "a large library keeps at most seventy posters as textures");
             std::printf("posters: %d made, %d kept\n", posters_made, posters_live);
