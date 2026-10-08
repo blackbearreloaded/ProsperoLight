@@ -5,9 +5,9 @@
 name: Build
 
 on:
+  # A build on main is started by hand (Run workflow): pushes to main build nothing.
   push:
     branches:
-      - main
       # Let contributors validate fork branches before upstream workflow approval.
       - "feature/**"
       - dev
