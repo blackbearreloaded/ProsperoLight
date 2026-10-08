@@ -390,7 +390,7 @@ help:
 	  'make lint            Run format, tidy, metadata, and shell checks' \
 	  'make check           Run lint and build the skeleton app' \
 	  'make ffpkg           Build the folder and UFS2 .ffpkg image' \
-	  'make exfat           Build the folder and the raw exFAT image (what releases carry)' \
+	  'make exfat           Build the folder and the raw exFAT image (local only; releases carry the ZIP)' \
 	  'make ffpfsc          Build the folder and compressed .ffpfsc image' \
 	  'make packages        Build folder, .ffpkg, and .ffpfsc outputs' \
 	  'make deploy PS5_HOST=<address>  Build and FTP-deploy the app folder' \

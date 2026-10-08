@@ -453,8 +453,8 @@ if [[ $format == ffpfsc || $format == all ]]; then
         --version PS5 --verify "$app" "$dist/$title_id.ffpfsc"
 fi
 if [[ $format == exfat || $format == ffpfsc || $format == all ]]; then
-    # Raw exFAT avoids the PFSC mounting corruption observed on firmware 13.60. It is the
-    # image releases carry; its packer runs in the MkPFS Python environment.
+    # Raw exFAT avoids the PFSC mounting corruption observed on firmware 13.60. It is a
+    # local option (releases carry the ZIP); its packer runs in the MkPFS Python environment.
     bash "$root/tools/setup-packaging-dependencies.sh" ffpfsc >/dev/null
     "$root/.deps/MkPFS/.venv-linux/bin/python" "$root/tools/pack-exfat.py" \
         "$app" "$dist/$title_id.exfat"

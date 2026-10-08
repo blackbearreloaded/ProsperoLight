@@ -806,31 +806,42 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["attribute2"], 0)
         self.assertEqual(configured["attribute3"], 0x80040)
 
-    def test_release_workflow_publishes_exfat_folder_zip_and_checksums(self):
+    def test_automation_builds_the_zip_only(self):
+        # Builds and releases carry the app-folder ZIP and SHA256SUMS; an image is
+        # a local option (make exfat), never built or published by the automation.
+        workflow = (ROOT / ".github/workflows/tooling.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("exfat", workflow.lower())
+        self.assertNotIn("ffpfsc", workflow.lower())
+        self.assertNotIn("ffpkg", workflow.lower())
+        self.assertIn('sha256sum "$TITLE_ID.zip" > SHA256SUMS', workflow)
+        self.assertIn("if (( ${#files[@]} != 2 )); then", workflow)
+        self.assertIn('assets=("release/$ARCHIVE" "release/$CHECKSUM")', workflow)
+        upload = workflow.split("- name: Upload build\n", 1)[1].split("\n\n", 1)[0]
+        paths = [line.strip() for line in upload.splitlines() if "dist/" in line]
+        self.assertEqual(
+            paths, ["dist/${{ env.TITLE_ID }}.zip", "dist/SHA256SUMS"]
+        )
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn("\nexfat: ", makefile)
+        self.assertIn("bash tools/build.sh Exfat", makefile)
+
+    def test_release_workflow_publishes_folder_zip_and_checksums(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(
             encoding="utf-8"
         )
         self.assertIn('"Jinja2==3.1.6" "jsonschema==4.25.1"', workflow)
         self.assertIn('python3 -m zipfile -c "$TITLE_ID.zip" "$TITLE_ID"', workflow)
-        self.assertIn(
-            'sha256sum "$TITLE_ID.exfat" "$TITLE_ID.zip" > SHA256SUMS',
-            workflow,
-        )
+        self.assertIn('sha256sum "$TITLE_ID.zip" > SHA256SUMS', workflow)
         self.assertIn("dist/${{ env.TITLE_ID }}.zip", workflow)
         self.assertIn("dist/SHA256SUMS", workflow)
-        self.assertIn(
-            "Expected one raw exFAT image, one app-folder ZIP, and SHA256SUMS.",
-            workflow,
-        )
-        self.assertIn("find . -type f -name 'PPSA*.exfat' -print0", workflow)
+        self.assertIn("Expected one app-folder ZIP and SHA256SUMS.", workflow)
         self.assertNotIn("ffpfsc", workflow.lower())
         self.assertIn("find . -type f -name 'PPSA*.zip' -print0", workflow)
         self.assertIn("find . -type f -name 'SHA256SUMS' -print0", workflow)
         self.assertIn('sha256sum -c "$(basename "${checksums[0]}")"', workflow)
-        self.assertIn(
-            'assets=("release/$RAW_IMAGE" "release/$ARCHIVE" "release/$CHECKSUM")',
-            workflow,
-        )
+        self.assertIn('assets=("release/$ARCHIVE" "release/$CHECKSUM")', workflow)
         self.assertIn("gh release delete-asset", workflow)
         self.assertIn('awk -v version="$GITHUB_REF_NAME"', workflow)
         self.assertEqual(workflow.count("--notes-file release-notes.md"), 2)

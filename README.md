@@ -193,13 +193,14 @@ replace itself, and the dialog says so.
 
 ### By hand
 
-1. Download either `PPSA99002.exfat` or `PPSA99002.zip` from the latest GitHub
-   release and verify it with `SHA256SUMS`.
+1. Download `PPSA99002.zip` from the latest GitHub release and verify it with
+   `SHA256SUMS`.
 2. Fully close ProsperoLight.
-3. For the image form, replace the existing `PPSA99002.exfat` in the directory
-   scanned by ShadowMountPlus. For the folder form, extract `PPSA99002.zip` and
-   upload its complete `PPSA99002` directory to `/data/homebrew/`, producing
-   `/data/homebrew/PPSA99002/eboot.bin`. Do not upload the ZIP itself.
+3. Extract `PPSA99002.zip` and upload its complete `PPSA99002` directory to
+   `/data/homebrew/`, producing `/data/homebrew/PPSA99002/eboot.bin`. Do not
+   upload the ZIP itself. Releases no longer carry an image: if you run one you
+   built yourself (`make exfat`), replace the existing `PPSA99002.exfat` in the
+   directory scanned by ShadowMountPlus instead.
 4. Restart ShadowMountPlus cleanly or restart the PS5, then wait for
    ShadowMountPlus to rediscover the title before launching it.
 5. Launch ProsperoLight and confirm the new version below the title in the top
@@ -519,10 +520,10 @@ tooling are maintained in this repository.
 ## Build
 
 ```bash
-# Release image (raw exFAT); also assembles the complete title folder.
+# Optional local image (raw exFAT); also assembles the complete title folder.
 make exfat
 
-# Faster folder-only development build.
+# Faster folder-only build: what the automation builds and releases as a ZIP.
 make
 ```
 
@@ -530,7 +531,7 @@ Outputs are written to:
 
 ```text
 dist/PPSA99002/           complete title folder
-dist/PPSA99002.exfat      raw installation image
+dist/PPSA99002.exfat      raw installation image (`make exfat` only; not released)
 dist/PPSA99002.ffpfsc     compressed image (`make ffpfsc` only; not released)
 ```
 
@@ -546,7 +547,7 @@ make test       # C++ unit/runtime, presentation ownership, report, and tooling 
 make test-stream-performance # Host-only scalar/SIMD FEC and Opus compatibility
 make lint       # formatting, static analysis, metadata, asset, and shell checks
 make check      # lint + every host test + complete folder build
-make exfat      # production folder + raw exFAT image
+make exfat      # production folder + raw exFAT image (local only)
 ```
 
 An optional `make ffpkg` target remains available for local development. The
@@ -555,8 +556,10 @@ See [Package formats](docs/FFPKG.md).
 
 ## GitHub Actions and releases
 
-The [Build workflow](.github/workflows/tooling.yml) runs on every push to
-`main`, pull request, version tag, and manual dispatch. It:
+The [Build workflow](.github/workflows/tooling.yml) runs for pull requests,
+version tags, pushes to the `dev` and `feature/**` branches, and when started by
+hand (Actions tab, the Build workflow, "Run workflow"). A push to `main` builds
+nothing. It:
 
 1. checks out all pinned submodules;
 2. installs the public Linux/PS5 build prerequisites;
@@ -564,10 +567,10 @@ The [Build workflow](.github/workflows/tooling.yml) runs on every push to
 4. runs lint, GoogleTest, runtime-allocation, presentation/report guards, Python
    integration checks, and host-only scalar/SIMD FEC and Opus comparisons;
 5. independently reproduces and verifies `runtime/libc.prx`;
-6. builds the raw `PPSA99002.exfat` image and archives the complete app folder as
-   `PPSA99002.zip`, every entry stored as 0777; and
-7. generates `SHA256SUMS` for both release formats and uploads all three files
-   as the Actions artifact.
+6. builds the complete app folder and archives it as `PPSA99002.zip`, every
+   entry stored as 0777; and
+7. generates `SHA256SUMS` for the ZIP and uploads both files as the Actions
+   artifact.
 
 A pull request's build is uploaded as `ProsperoLight-PR<number>-<commit>` (the
 pull request's own commit) and names itself on the launcher's About page with a
@@ -575,8 +578,9 @@ line such as `PR 28, 1ae2fd0` above the version; its version is unchanged, so up
 behave as for the release. Locally, `BUILD_LABEL="my test" make` does the same.
 
 A tag matching the exact `contentVersion` verifies that build-time checksum
-again, then publishes the raw `.exfat` image, app-folder `.zip`, and `SHA256SUMS`.
-The compressed `.ffpfsc` image is no longer built or published by the automation, to
+again, then publishes the app-folder `.zip` and `SHA256SUMS`.
+No image is built or published by the automation (the raw `.exfat` and the compressed
+`.ffpfsc` remain local options, `make exfat` and `make ffpfsc`), to
 prevent compatibility issues with the in-app update worker and ProsperoStore, which
 install from the ZIP. `.ffpkg` builds are never attached to a release.
 
