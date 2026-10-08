@@ -45,6 +45,8 @@ The picture shows the launcher running on a PlayStation 5 with a paired Sunshine
   multi-PC pairing, application artwork, and launch/resume/stop controls.
 - Persistent stream preferences, edge-to-edge or TV-safe presentation,
   independent frame-rate selection, and a bitrate slider (to 300 Mbps, to 1000 Mbps with PyroWave).
+- An interface in 31 languages that follows the console's language, updates
+  installed from inside the app, and host settings kept for each PC.
 - Selectable 48 kHz stereo or 5.1 surround Opus audio, a sound for every
   launcher widget, live performance metrics, and graceful connection recovery.
 
@@ -60,119 +62,6 @@ presented by AGC without copying decoded pixels through a CPU framebuffer.
 > This repository does not include an exploit, proprietary Sony SDK, system
 > module, encryption key, firmware file, or game asset.
 
-## Bitrate limits
-
-> [!WARNING]
-> **A higher bitrate is not always better.** The PS5 video decoder takes longer
-> for larger frames. Past the limits below it cannot keep up: latency grows,
-> then the stream freezes about once a second. At 4K and 120 FPS, set
-> **80 Mbps or lower** for the measured native HEVC path. These limits do not apply to PyroWave.
-
-![4K HEVC bitrate limits by frame rate: smooth up to 80 Mbps at 120 FPS, 115 Mbps at 90 and 60 FPS](docs/images/bitrate-limits.svg)
-
-| 4K HEVC stream | Smooth up to | Freezes above | Recommended setting |
-| --- | --- | --- | --- |
-| 120 FPS | 80 Mbps | 100 Mbps | **80 Mbps** or lower |
-| 90 FPS | 115 Mbps | 145 Mbps | **100 Mbps** or lower |
-| 60 FPS | 115 Mbps | about 190 Mbps (extrapolated) | **100 Mbps**; 150 Mbps is not measured |
-| 1440p and 1080p, any frame rate | at least the 4K values | not measured yet | as for 4K |
-
-- **The numbers are the bitrate the host actually delivers.** The setting is a
-  ceiling the encoder only reaches in busy scenes. One session at the 80 Mbps
-  setting carried 24 Mbps; one at 300 Mbps carried about 160 Mbps.
-- **Why there is a limit.** A 4K HEVC frame takes about 3.7 ms plus 45 µs per
-  kilobyte to decode (5.5 ms plus 29 µs per kilobyte above roughly 105 KB). At
-  120 FPS it must finish within 8.3 ms, which allows about 100 KB per frame:
-  100 Mbps. A lower frame rate leaves more time per frame, so the limit rises.
-- **What happens above it.** Frames wait in a queue, adding up to 0.15 s of
-  delay. When 15 frames are waiting they are all discarded and a keyframe is
-  requested. At the 300 Mbps setting this happened 13 times in 17 seconds, and
-  the decoder still only managed 90 FPS.
-- **How to tell.** With the overlay on (![Touchpad][touchpad] + ![R1][r1]), "Frames dropped
-  by decoder backlog" rises and "Decode (last second)" shows a load near 100%.
-  "Frames dropped by your network connection" is a different problem.
-- Bitrates of 300 Mbps and above are beyond these measured native HEVC limits.
-- Other profiles: PyroWave is marked smooth to 500 Mbps, with a warning above it and a
-  stronger one from 700 Mbps. H.264 at 4K is marked smooth to 80 Mbps at 60 FPS and is
-  warned about at 90 and 120 FPS at any bitrate.
-
-Measured on a PS5 with HEVC SDR and eight slices per frame, decoding one frame
-at a time (the default). HDR, H.264 and the lower resolutions are not measured
-yet. `python3 tools/plot-bitrate-limits.py` redraws the chart from the model;
-[round 4](docs/PERFORMANCE_ROUND_4.md) has the measurements.
-
-## PyroWave, pacing and controller extensions
-
-PyroWave is an explicitly selected GPU decoder and RADV presentation backend.
-It requires a compatible Vibepollo/Vibeshine host advertising the selected
-4:2:0/4:4:4 and SDR/HDR profile; compression must be disabled. Unsupported
-profiles are reported instead of silently changing codecs. HEVC and H.264
-remain available for ordinary Sunshine hosts. See [PyroWave](docs/PYROWAVE.md).
-
-Use wired Ethernet and a high bitrate for PyroWave. On one PS5 13.60 setup,
-4K120 SDR/HDR playback and codec changes without restarting were validated;
-500-600 Mbps was stable, while 700-800 Mbps sometimes had network loss.
-These observations are not a quality or latency guarantee for other hosts.
-
-Settings offer **Unpaced**, **Paced**, and **Paced+VRR**, alongside independent
-V-Sync. Unpaced is the default and presents frames as 01.000.080 did. With the paced
-modes both video backends use the shared source-clock pacing policy; physical
-presentation measurements depend on the backend. See
-[configuration](docs/CONFIGURATION.md#frame-pacing-and-vsync) and
-[interval traces and graphs](docs/frame-pacing-measurements.md).
-
-DualSense forwarding includes touch, accelerometer/gyro, RGB lightbar, rumble
-and host-provided adaptive trigger effects, with up to four connected users.
-Host emulation and game support determine which effects are available.
-Native high-definition waveform playback and controller speaker audio are
-not implemented; see [controller support](docs/DUALSENSE.md).
-
-Diagnostic logs can be turned off in Settings: the stream's reports stop at
-once, the rest of the log from the next start. Output traces keep the latest
-capture per backend and pacing mode. Menu sounds have a switch of their own.
-
-Settings, under Host session, has **Quit host app after stream**: it stops the
-game or app on the PC when leaving the stream. It is off by default, which
-keeps it running. ProsperoLight always returns to its launcher.
-
-## Project foundation
-
-> [!IMPORTANT]
-> **Built on the [PS5 Native App Boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate).**
-> ProsperoLight preserves the template's C++20 structure, `.hpp` interfaces,
-> reproducible clean-room runtime, native FSELF tooling, tests, safe folder
-> deployment, and release automation.
-
-> [!IMPORTANT]
-> **Controller input work is documented in [PS5 Native Gamepad Input Research](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research).**
-> The companion repository records recovered native APIs, low-latency examples,
-> and DualSense behavior that informed ProsperoLight's controller integration.
-
-> [!IMPORTANT]
-> **Video work is documented in [PS5 Hardware Video Decoding Research](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research).**
-> The companion repository records VideoDec2, HEVC, HDR10, zero-copy AGC,
-> resolution, and performance findings that informed the streaming presenter.
-
-> [!IMPORTANT]
-> **Audio work is documented in [PS5 Audio Decoding Research](https://github.com/blackbearreloaded/ps5-audio-decoding-research).**
-> The companion repository records codec, AJM, hardware/firmware offload, and
-> output-path research that informed ProsperoLight's audio integration.
-
-The client uses the established
-[moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c)
-protocol implementation rather than reimplementing the wire protocol. The
-launcher, stream coordination, PS5 input/audio/video integration, UI, and build
-tooling are maintained in this repository.
-
-| Identity | Value |
-| --- | --- |
-| Shell title | `ProsperoLight` |
-| Title ID | `PPSA99002` |
-| Category | Game |
-| Beta / stable | `01.000.090` / `01.000.060` |
-| Version source | [`sce_sys/param.json`](sce_sys/param.json) |
-| Writable data | `/data/prosperolight` (`/download0` if elevation is unavailable) |
-
 ## Features
 
 - Discover Sunshine hosts on the LAN or add an IPv4 address manually.
@@ -185,10 +74,11 @@ tooling are maintained in this repository.
 - Update itself: when a newer version is listed on
   [homebrew.page](https://homebrew.page), a dialog offers it once per launch and
   **Update now** installs it. See [Update an installed copy](#update-an-installed-copy).
-- See every saved PC and its state in one list, and browse up to 64 advertised
-  Sunshine applications as posters with launch/resume and stop controls.
+- See every saved PC and its state in one list, and browse the PC's whole
+  Sunshine library as posters with launch/resume and stop controls.
 - Decode H.264 High and HEVC Main streams through VideoDec2 at 1080p, 1440p,
-  and 2160p, with independently selectable 60, 90, and 120 FPS stream targets;
+  and 2160p, with independently selectable 30, 60, 90, and 120 FPS stream targets
+  or any custom rate between;
   live 1440p/90 and 2160p/120 Sunshine sessions are hardware-validated.
 - Present decoded GPU surfaces directly through AGC, with edge-to-edge and
   television-safe display modes. At 60 FPS, 1440p is GPU-scaled into a
@@ -215,6 +105,11 @@ tooling are maintained in this repository.
   packet loss, network/host latency, and decode time.
 - Recover from connection failures and return from a stream to the launcher
   without leaving a stale session running.
+- Read the launcher in 31 languages: it follows the console's language, or the
+  one chosen in Settings. See [Interface language](#interface-language).
+- Keep host settings for each PC: muting its speakers, game optimisation,
+  quitting the app after the stream, and optional Vibepollo requests. See
+  [Per-PC host settings](#per-pc-host-settings).
 - Use original 4K artwork, icon, loading presentation, and selection music.
 - Use a launcher drawn by the GPU at up to 4K: frosted panels, the selected
   app's colours behind them, button glyphs in place of button names, and a
@@ -268,70 +163,6 @@ Nothing is installed globally by the project build.
 See [Getting started](docs/GETTING_STARTED.md) and
 [Native tooling](docs/NATIVE_TOOLING.md) for clean-machine setup details.
 
-## Build
-
-```bash
-# Release image (raw exFAT); also assembles the complete title folder.
-make exfat
-
-# Faster folder-only development build.
-make
-```
-
-Outputs are written to:
-
-```text
-dist/PPSA99002/           complete title folder
-dist/PPSA99002.exfat      raw installation image
-dist/PPSA99002.ffpfsc     compressed image (`make ffpfsc` only; not released)
-```
-
-`PPSA99002.exfat` holds the same files as the compressed image; the build reads
-every file back and checks its hash. On firmware 13.60 the compressed image was
-seen to mount with duplicated 64 KiB blocks of the executable, while the raw
-image started correctly: prefer the raw image there.
-
-Useful development gates are:
-
-```bash
-make test       # C++ unit/runtime, presentation ownership, report, and tooling checks
-make test-stream-performance # Host-only scalar/SIMD FEC and Opus compatibility
-make lint       # formatting, static analysis, metadata, asset, and shell checks
-make check      # lint + every host test + complete folder build
-make exfat      # production folder + raw exFAT image
-```
-
-An optional `make ffpkg` target remains available for local development. The
-`.ffpkg` output is intentionally excluded from GitHub Actions and Releases.
-See [Package formats](docs/FFPKG.md).
-
-## GitHub Actions and releases
-
-The [Build workflow](.github/workflows/tooling.yml) runs on every push to
-`main`, pull request, version tag, and manual dispatch. It:
-
-1. checks out all pinned submodules;
-2. installs the public Linux/PS5 build prerequisites;
-3. validates metadata and the release tag;
-4. runs lint, GoogleTest, runtime-allocation, presentation/report guards, Python
-   integration checks, and host-only scalar/SIMD FEC and Opus comparisons;
-5. independently reproduces and verifies `runtime/libc.prx`;
-6. builds the raw `PPSA99002.exfat` image and archives the complete app folder as
-   `PPSA99002.zip`, every entry stored as 0777; and
-7. generates `SHA256SUMS` for both release formats and uploads all three files
-   as the Actions artifact.
-
-A pull request's build is uploaded as `ProsperoLight-PR<number>-<commit>` (the
-pull request's own commit) and names itself on the launcher's About page with a
-line such as `PR 28, 1ae2fd0` above the version; its version is unchanged, so update checks
-behave as for the release. Locally, `BUILD_LABEL="my test" make` does the same.
-
-A tag matching the exact `contentVersion` verifies that build-time checksum
-again, then publishes the raw `.exfat` image, app-folder `.zip`, and `SHA256SUMS`.
-The compressed `.ffpfsc` image is no longer built or published by the automation, to
-prevent compatibility issues with the in-app update worker and ProsperoStore, which
-install from the ZIP. `.ffpkg` builds are never attached to a release.
-
 ## Update an installed copy
 
 ### From the app
@@ -378,29 +209,6 @@ Do not relaunch immediately after replacing the same pathname: ShadowMountPlus
 may still have the previous image mounted. Pairing and settings are kept in
 `/data/prosperolight` (see [Files on the console](#files-on-the-console)) and
 are not touched by an update; Shell presentation metadata may remain cached.
-
-## Deploy
-
-For an already-running PS5 FTP service, stage the development folder with:
-
-```bash
-make deploy PS5_HOST=192.168.1.100
-```
-
-Fully close ProsperoLight before deploying. The deployer writes only the
-current title below `/data/homebrew`, uploads through temporary names, and
-publishes `eboot.bin` and `sce_sys/param.json` last. Upload the complete folder;
-`eboot.bin` alone is not a valid deployment.
-
-To test the packaged form instead:
-
-```bash
-make deploy PS5_HOST=192.168.1.100 DEPLOY_FORMAT=ffpfsc
-```
-
-ProsperoLight never changes PS5 system settings or configures a loader. See
-[Deployment](docs/DEPLOYMENT.md) for the safe development loop and removal
-behavior.
 
 ## Pairing and first stream
 
@@ -525,6 +333,123 @@ standard passwords. It is not currently a multilingual or Unicode input
 method. Keyboard text is sent directly as Moonlight key events and is not
 stored by ProsperoLight or written to its configuration.
 
+## Settings in detail
+
+What the less obvious rows of the Settings screen do, and what they ask of the PC.
+
+### Interface language
+
+Settings → Language opens a scrolling dropdown with the Moonlight Qt language
+set (30 translations plus English). Automatic follows the console language at
+startup; unsupported/error results use English. Manual selection applies
+immediately and is preserved across restarts without changing pairing or stream
+settings. Readable translations are stored in `assets/locales/*.json`. See
+[localization maintenance](tools/i18n/README.md) for fonts, source attribution,
+and regeneration after editing a catalog. Some complex-script and mixed-direction
+layouts still need native-speaker visual review. Diagnostic logs and stream
+performance measurements keep their technical English labels.
+
+### Frame rate and host options
+
+Select 30, 60, 90, 120, or Custom in Settings. Custom reveals a slider directly below the selector (30–120, step 1). Its selection and value persist; selecting a preset hides the slider.
+
+**Mute host audio** requests audio on the PS5 without playback on the PC (`localAudioPlayMode=0`). Turning it off requests playback on both. Actual host silence depends on the host audio device/routing; a virtual audio sink is typically required. An already active host session can keep its existing audio policy.
+
+**Optimize game/display settings** sends the standard Moonlight `sops` request. GeForce Experience can optimize game settings. Sunshine can use it for display automation, rather than game quality. Vibepollo removed the requirement for this flag in its display automation; it may have no effect there. Both options preserve the previous defaults (mute and optimization enabled) and apply to the next launch/resume request.
+
+Sources: [Moonlight request implementation](https://github.com/moonlight-stream/moonlight-qt/blob/master/app/backend/nvhttp.cpp), [Sunshine configuration](https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2configuration.html), [Vibepollo display automation change](https://github.com/Nonary/Vibepollo/releases/tag/1.6.0-apollo).
+
+Further Vibepollo options should be optional and capability-aware: virtual display selection can complement host preferences, and `clientVrrRequested` is a host display hint, not proof of PS5 VRR. Keep scaling at its default unless explicitly requested. Encoder, RTSS, and frame-generation configuration remains on the host. These additional overrides are not enabled by this change.
+
+### Per-PC host settings
+
+Use **PCs → PC settings**, or the **Host session** section in Settings. The named selected PC owns these settings; switching PCs does not copy them. Settings are stored by server identity, with an address/port fallback before pairing. Removing a PC clears its preferences; Reset PC settings restores defaults.
+
+Host audio, optimization, and quitting the host app are now per-PC. Existing global choices provide migration defaults for PCs without saved preferences. FPS/codec/bitrate and PS5 presentation settings remain client-wide.
+
+**Host extensions** defaults to Off: ordinary Sunshine receives the standard request. Select Vibepollo only for a compatible host. Its advanced options default to the host policy: Host VRR and Host display omit overrides, and 100% resolution scale omits scaling. Turning extensions off preserves saved advanced choices but sends none of them. These options apply to both launch and resume.
+
+Host VRR is experimental and requests Vibepollo virtual-display capture timing, rather than enabling TV VRR. Automatic virtual-display policy in current Vibepollo can use a fixed 1000 Hz virtual output for more precise capture timestamps; it does not change the requested stream FPS. Explicit virtual display selection requires the host to advertise a ready driver. A scale below 100% may lower effective resolution; application overrides on the host can take priority.
+
+The launch controller mask (`gcmap` and `remoteControllersBitmap`) contains only connected PS5 controllers, up to four. Vibepollo requests also carry their PlayStation mask (`psmap`, intersected with `gcmap`). In current Vibepollo this supports PlayStation compatibility policy for Proton launches; it is not a DS4/DS5 selector. Controller arrival events continue to identify PlayStation controllers for hot-plug. DS4 versus DS5 is selected in the host's ViGEm/VHF configuration, so the client does not expose a nonfunctional selector.
+
+Sources: [host request parsing](https://github.com/Nonary/Vibepollo/blob/master/src/nvhttp.cpp), [Proton launch policy](https://github.com/Nonary/Vibepollo/blob/master/src/process.cpp), [host controller profile selection](https://github.com/Nonary/Vibepollo/blob/master/src/platform/windows/input.cpp).
+
+### PyroWave, pacing and controller extensions
+
+PyroWave is an explicitly selected GPU decoder and RADV presentation backend.
+It requires a compatible Vibepollo/Vibeshine host advertising the selected
+4:2:0/4:4:4 and SDR/HDR profile; compression must be disabled. Unsupported
+profiles are reported instead of silently changing codecs. HEVC and H.264
+remain available for ordinary Sunshine hosts. See [PyroWave](docs/PYROWAVE.md).
+
+Use wired Ethernet and a high bitrate for PyroWave. On one PS5 13.60 setup,
+4K120 SDR/HDR playback and codec changes without restarting were validated;
+500-600 Mbps was stable, while 700-800 Mbps sometimes had network loss.
+These observations are not a quality or latency guarantee for other hosts.
+
+Settings offer **Unpaced**, **Paced**, and **Paced+VRR**, alongside independent
+V-Sync. Unpaced is the default and presents frames as 01.000.080 did. With the paced
+modes both video backends use the shared source-clock pacing policy; physical
+presentation measurements depend on the backend. See
+[configuration](docs/CONFIGURATION.md#frame-pacing-and-vsync) and
+[interval traces and graphs](docs/frame-pacing-measurements.md).
+
+DualSense forwarding includes touch, accelerometer/gyro, RGB lightbar, rumble
+and host-provided adaptive trigger effects, with up to four connected users.
+Host emulation and game support determine which effects are available.
+Native high-definition waveform playback and controller speaker audio are
+not implemented; see [controller support](docs/DUALSENSE.md).
+
+Diagnostic logs can be turned off in Settings: the stream's reports stop at
+once, the rest of the log from the next start. Output traces keep the latest
+capture per backend and pacing mode. Menu sounds have a switch of their own.
+
+Settings, under Host session, has **Quit host app after stream**: it stops the
+game or app on the PC when leaving the stream. It is off by default, which
+keeps it running. ProsperoLight always returns to its launcher.
+
+### Bitrate limits
+
+> [!WARNING]
+> **A higher bitrate is not always better.** The PS5 video decoder takes longer
+> for larger frames. Past the limits below it cannot keep up: latency grows,
+> then the stream freezes about once a second. At 4K and 120 FPS, set
+> **80 Mbps or lower** for the measured native HEVC path. These limits do not apply to PyroWave.
+
+![4K HEVC bitrate limits by frame rate: smooth up to 80 Mbps at 120 FPS, 115 Mbps at 90 and 60 FPS](docs/images/bitrate-limits.svg)
+
+| 4K HEVC stream | Smooth up to | Freezes above | Recommended setting |
+| --- | --- | --- | --- |
+| 120 FPS | 80 Mbps | 100 Mbps | **80 Mbps** or lower |
+| 90 FPS | 115 Mbps | 145 Mbps | **100 Mbps** or lower |
+| 60 FPS | 115 Mbps | about 190 Mbps (extrapolated) | **100 Mbps**; 150 Mbps is not measured |
+| 1440p and 1080p, any frame rate | at least the 4K values | not measured yet | as for 4K |
+
+- **The numbers are the bitrate the host actually delivers.** The setting is a
+  ceiling the encoder only reaches in busy scenes. One session at the 80 Mbps
+  setting carried 24 Mbps; one at 300 Mbps carried about 160 Mbps.
+- **Why there is a limit.** A 4K HEVC frame takes about 3.7 ms plus 45 µs per
+  kilobyte to decode (5.5 ms plus 29 µs per kilobyte above roughly 105 KB). At
+  120 FPS it must finish within 8.3 ms, which allows about 100 KB per frame:
+  100 Mbps. A lower frame rate leaves more time per frame, so the limit rises.
+- **What happens above it.** Frames wait in a queue, adding up to 0.15 s of
+  delay. When 15 frames are waiting they are all discarded and a keyframe is
+  requested. At the 300 Mbps setting this happened 13 times in 17 seconds, and
+  the decoder still only managed 90 FPS.
+- **How to tell.** With the overlay on (![Touchpad][touchpad] + ![R1][r1]), "Frames dropped
+  by decoder backlog" rises and "Decode (last second)" shows a load near 100%.
+  "Frames dropped by your network connection" is a different problem.
+- Bitrates of 300 Mbps and above are beyond these measured native HEVC limits.
+- Other profiles: PyroWave is marked smooth to 500 Mbps, with a warning above it and a
+  stronger one from 700 Mbps. H.264 at 4K is marked smooth to 80 Mbps at 60 FPS and is
+  warned about at 90 and 120 FPS at any bitrate.
+
+Measured on a PS5 with HEVC SDR and eight slices per frame, decoding one frame
+at a time (the default). HDR, H.264 and the lower resolutions are not measured
+yet. `python3 tools/plot-bitrate-limits.py` redraws the chart from the model;
+[round 4](docs/PERFORMANCE_ROUND_4.md) has the measurements.
+
 ## Files on the console
 
 When it starts, ProsperoLight gives a resident upstream Lapy service a bounded
@@ -552,6 +477,131 @@ it is what lets this console connect to a paired PC.
 If neither elevation path succeeds, the app keeps working from its sandbox:
 `/app0` and `/download0`. The first line of the log records `existing`,
 `resident`, or `helper` (`status=0` means access was given).
+
+## Project foundation
+
+> [!IMPORTANT]
+> **Built on the [PS5 Native App Boilerplate](https://github.com/blackbearreloaded/ps5-native-app-boilerplate).**
+> ProsperoLight preserves the template's C++20 structure, `.hpp` interfaces,
+> reproducible clean-room runtime, native FSELF tooling, tests, safe folder
+> deployment, and release automation.
+
+> [!IMPORTANT]
+> **Controller input work is documented in [PS5 Native Gamepad Input Research](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research).**
+> The companion repository records recovered native APIs, low-latency examples,
+> and DualSense behavior that informed ProsperoLight's controller integration.
+
+> [!IMPORTANT]
+> **Video work is documented in [PS5 Hardware Video Decoding Research](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research).**
+> The companion repository records VideoDec2, HEVC, HDR10, zero-copy AGC,
+> resolution, and performance findings that informed the streaming presenter.
+
+> [!IMPORTANT]
+> **Audio work is documented in [PS5 Audio Decoding Research](https://github.com/blackbearreloaded/ps5-audio-decoding-research).**
+> The companion repository records codec, AJM, hardware/firmware offload, and
+> output-path research that informed ProsperoLight's audio integration.
+
+The client uses the established
+[moonlight-common-c](https://github.com/moonlight-stream/moonlight-common-c)
+protocol implementation rather than reimplementing the wire protocol. The
+launcher, stream coordination, PS5 input/audio/video integration, UI, and build
+tooling are maintained in this repository.
+
+| Identity | Value |
+| --- | --- |
+| Shell title | `ProsperoLight` |
+| Title ID | `PPSA99002` |
+| Category | Game |
+| Beta / stable | `01.000.090` / `01.000.060` |
+| Version source | [`sce_sys/param.json`](sce_sys/param.json) |
+| Writable data | `/data/prosperolight` (`/download0` if elevation is unavailable) |
+
+## Build
+
+```bash
+# Release image (raw exFAT); also assembles the complete title folder.
+make exfat
+
+# Faster folder-only development build.
+make
+```
+
+Outputs are written to:
+
+```text
+dist/PPSA99002/           complete title folder
+dist/PPSA99002.exfat      raw installation image
+dist/PPSA99002.ffpfsc     compressed image (`make ffpfsc` only; not released)
+```
+
+`PPSA99002.exfat` holds the same files as the compressed image; the build reads
+every file back and checks its hash. On firmware 13.60 the compressed image was
+seen to mount with duplicated 64 KiB blocks of the executable, while the raw
+image started correctly: prefer the raw image there.
+
+Useful development gates are:
+
+```bash
+make test       # C++ unit/runtime, presentation ownership, report, and tooling checks
+make test-stream-performance # Host-only scalar/SIMD FEC and Opus compatibility
+make lint       # formatting, static analysis, metadata, asset, and shell checks
+make check      # lint + every host test + complete folder build
+make exfat      # production folder + raw exFAT image
+```
+
+An optional `make ffpkg` target remains available for local development. The
+`.ffpkg` output is intentionally excluded from GitHub Actions and Releases.
+See [Package formats](docs/FFPKG.md).
+
+## GitHub Actions and releases
+
+The [Build workflow](.github/workflows/tooling.yml) runs on every push to
+`main`, pull request, version tag, and manual dispatch. It:
+
+1. checks out all pinned submodules;
+2. installs the public Linux/PS5 build prerequisites;
+3. validates metadata and the release tag;
+4. runs lint, GoogleTest, runtime-allocation, presentation/report guards, Python
+   integration checks, and host-only scalar/SIMD FEC and Opus comparisons;
+5. independently reproduces and verifies `runtime/libc.prx`;
+6. builds the raw `PPSA99002.exfat` image and archives the complete app folder as
+   `PPSA99002.zip`, every entry stored as 0777; and
+7. generates `SHA256SUMS` for both release formats and uploads all three files
+   as the Actions artifact.
+
+A pull request's build is uploaded as `ProsperoLight-PR<number>-<commit>` (the
+pull request's own commit) and names itself on the launcher's About page with a
+line such as `PR 28, 1ae2fd0` above the version; its version is unchanged, so update checks
+behave as for the release. Locally, `BUILD_LABEL="my test" make` does the same.
+
+A tag matching the exact `contentVersion` verifies that build-time checksum
+again, then publishes the raw `.exfat` image, app-folder `.zip`, and `SHA256SUMS`.
+The compressed `.ffpfsc` image is no longer built or published by the automation, to
+prevent compatibility issues with the in-app update worker and ProsperoStore, which
+install from the ZIP. `.ffpkg` builds are never attached to a release.
+
+## Deploy
+
+For an already-running PS5 FTP service, stage the development folder with:
+
+```bash
+make deploy PS5_HOST=192.168.1.100
+```
+
+Fully close ProsperoLight before deploying. The deployer writes only the
+current title below `/data/homebrew`, uploads through temporary names, and
+publishes `eboot.bin` and `sce_sys/param.json` last. Upload the complete folder;
+`eboot.bin` alone is not a valid deployment.
+
+To test the packaged form instead:
+
+```bash
+make deploy PS5_HOST=192.168.1.100 DEPLOY_FORMAT=ffpfsc
+```
+
+ProsperoLight never changes PS5 system settings or configures a loader. See
+[Deployment](docs/DEPLOYMENT.md) for the safe development loop and removal
+behavior.
 
 ## Source layout
 
@@ -665,41 +715,3 @@ Copyright © 2026 BlackBearReloaded. Licensed under GPL-3.0-or-later; see [LICEN
 
 This project was developed with AI assistance from OpenAI and/or Anthropic tools.
 <!-- bbr-footer:end -->
-
-### Interface language
-
-Settings → Language opens a scrolling dropdown with the Moonlight Qt language
-set (30 translations plus English). Automatic follows the console language at
-startup; unsupported/error results use English. Manual selection applies
-immediately and is preserved across restarts without changing pairing or stream
-settings. Readable translations are stored in `assets/locales/*.json`. See
-[localization maintenance](tools/i18n/README.md) for fonts, source attribution,
-and regeneration after editing a catalog. Some complex-script and mixed-direction
-layouts still need native-speaker visual review. Diagnostic logs and stream
-performance measurements keep their technical English labels.
-
-### Client FPS and host options
-
-Select 30, 60, 90, 120, or Custom in Settings. Custom reveals a slider directly below the selector (30–120, step 1). Its selection and value persist; selecting a preset hides the slider.
-
-**Mute host audio** requests audio on the PS5 without playback on the PC (`localAudioPlayMode=0`). Turning it off requests playback on both. Actual host silence depends on the host audio device/routing; a virtual audio sink is typically required. An already active host session can keep its existing audio policy.
-
-**Optimize game/display settings** sends the standard Moonlight `sops` request. GeForce Experience can optimize game settings. Sunshine can use it for display automation, rather than game quality. Vibepollo removed the requirement for this flag in its display automation; it may have no effect there. Both options preserve the previous defaults (mute and optimization enabled) and apply to the next launch/resume request.
-
-Sources: [Moonlight request implementation](https://github.com/moonlight-stream/moonlight-qt/blob/master/app/backend/nvhttp.cpp), [Sunshine configuration](https://docs.lizardbyte.dev/projects/sunshine/master/md_docs_2configuration.html), [Vibepollo display automation change](https://github.com/Nonary/Vibepollo/releases/tag/1.6.0-apollo).
-
-Further Vibepollo options should be optional and capability-aware: virtual display selection can complement host preferences, and `clientVrrRequested` is a host display hint, not proof of PS5 VRR. Keep scaling at its default unless explicitly requested. Encoder, RTSS, and frame-generation configuration remains on the host. These additional overrides are not enabled by this change.
-
-### Per-PC host settings
-
-Use **PCs → PC settings**, or the **Host session** section in Settings. The named selected PC owns these settings; switching PCs does not copy them. Settings are stored by server identity, with an address/port fallback before pairing. Removing a PC clears its preferences; Reset PC settings restores defaults.
-
-Host audio, optimization, and quitting the host app are now per-PC. Existing global choices provide migration defaults for PCs without saved preferences. FPS/codec/bitrate and PS5 presentation settings remain client-wide.
-
-**Host extensions** defaults to Off: ordinary Sunshine receives the standard request. Select Vibepollo only for a compatible host. Its advanced options default to the host policy: Host VRR and Host display omit overrides, and 100% resolution scale omits scaling. Turning extensions off preserves saved advanced choices but sends none of them. These options apply to both launch and resume.
-
-Host VRR is experimental and requests Vibepollo virtual-display capture timing, rather than enabling TV VRR. Automatic virtual-display policy in current Vibepollo can use a fixed 1000 Hz virtual output for more precise capture timestamps; it does not change the requested stream FPS. Explicit virtual display selection requires the host to advertise a ready driver. A scale below 100% may lower effective resolution; application overrides on the host can take priority.
-
-The launch controller mask (`gcmap` and `remoteControllersBitmap`) contains only connected PS5 controllers, up to four. Vibepollo requests also carry their PlayStation mask (`psmap`, intersected with `gcmap`). In current Vibepollo this supports PlayStation compatibility policy for Proton launches; it is not a DS4/DS5 selector. Controller arrival events continue to identify PlayStation controllers for hot-plug. DS4 versus DS5 is selected in the host's ViGEm/VHF configuration, so the client does not expose a nonfunctional selector.
-
-Sources: [host request parsing](https://github.com/Nonary/Vibepollo/blob/master/src/nvhttp.cpp), [Proton launch policy](https://github.com/Nonary/Vibepollo/blob/master/src/process.cpp), [host controller profile selection](https://github.com/Nonary/Vibepollo/blob/master/src/platform/windows/input.cpp).
