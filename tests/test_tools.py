@@ -823,6 +823,24 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(
             paths, ["dist/${{ env.TITLE_ID }}.zip", "dist/SHA256SUMS"]
         )
+        # The ZIP is attested (signed provenance) once final, before the upload.
+        attest = (
+            "uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
+            " # v4.2.2"
+        )
+        self.assertEqual(workflow.count(attest), 1)
+        checked = workflow.index("- name: Check that every ZIP entry is stored as 0777\n")
+        upload = workflow.index("- name: Upload build provenance\n")
+        self.assertLess(checked, workflow.index(attest))
+        self.assertLess(workflow.index(attest), upload)
+        self.assertIn("subject-path: dist/${{ env.TITLE_ID }}.zip\n", workflow)
+        self.assertIn(
+            "if: github.event_name != 'pull_request' && !github.event.repository.private\n",
+            workflow,
+        )
+        needed = ("contents: read", "id-token: write", "attestations: write")
+        for permission in needed:
+            self.assertIn(f"      {permission}\n", workflow)
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn("\nexfat: ", makefile)
         self.assertIn("bash tools/build.sh Exfat", makefile)
