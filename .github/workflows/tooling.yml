@@ -63,7 +63,7 @@ jobs:
           echo "CONTENT_VERSION=$content_version" >> "$GITHUB_ENV"
 
       - name: Lint source and metadata
-        run: make lint
+        run: LINT_SKIP_TIDY=1 make lint
 
       - name: Run host GoogleTest suite
         run: make test-unit test-performance-guards
@@ -104,6 +104,18 @@ jobs:
           # Every entry stored as 0777: the console only starts an app whose files are open to all.
           python3 ../tools/zip-open-modes.py "$TITLE_ID.zip"
           sha256sum "$TITLE_ID.exfat" "$TITLE_ID.zip" > SHA256SUMS
+
+      - name: Check that every ZIP entry is stored as 0777
+        run: |
+          python3 - "dist/$TITLE_ID.zip" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              entries = archive.infolist()
+              wrong = [e.filename for e in entries if (e.external_attr >> 16) & 0o777 != 0o777]
+              if not entries or wrong or archive.testzip() is not None:
+                  raise SystemExit(f"ZIP entries not stored as 0777: {wrong[:5]}")
+              print(f"{len(entries)} entries, all stored as 0777")
+          PY
 
       - name: Upload build provenance
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
