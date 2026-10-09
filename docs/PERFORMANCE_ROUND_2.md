@@ -335,7 +335,6 @@ hardware-tested, and no improvement is claimed from these offline checks.
 - [Moonlight Xbox reference revision](https://github.com/TheElixZammuto/moonlight-xbox/tree/50c02fd0e7232bbae187d46d08f0df5a022a1f45): fractional-refresh hints, stage timing, and display-aware scheduling inform these experiments; Direct3D/DXGI code is not ported.
 - [Sunshine RTSP refresh-hint validation](https://github.com/LizardByte/Sunshine/blob/master/src/rtsp.cpp)
 - [Opus build configuration](https://github.com/xiph/opus/blob/main/CMakeLists.txt)
-- [PS5 hardware video decoding research](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research)
 
 The Qt references guide queue/drop policy, not PS5-specific GPU lifetime, Android
 power-management choices, or undocumented platform capabilities.
