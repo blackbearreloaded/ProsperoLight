@@ -641,6 +641,7 @@ typedef struct native_renderer_state
     uint32_t catchup_refreshes;
     uint32_t decoded;
     std::atomic<uint32_t> not_displayed;
+    PacingDecisionTrace *pacing_decisions{};
     uint32_t decoder_delayed;
     uint32_t input_sequence;
     uint64_t copy_total_us;
@@ -1659,16 +1660,17 @@ static void publish_ready_frame(native_renderer_state_t *state, const stream_rea
     state->frames.last_output = ready.slot;
     const bool replaced = state->mailbox.publish(ready, &displaced);
     if (replaced)
+    {
         state->frames.release(displaced.slot);
+        if (state->pacing_decisions)
+            state->pacing_decisions->record(displaced.frame, displaced.pts_us, monotonic_us(), 0,
+                                            "drop-capacity");
+    }
     pthread_cond_signal(&state->wake);
     pthread_mutex_unlock(&state->lock);
     if (replaced)
     {
         ++state->not_displayed;
-        char drop[160];
-        snprintf(drop, sizeof(drop), "Native drop: frame=%d reason=ready-capacity age_us=%llu",
-                 displaced.frame, (unsigned long long)(monotonic_us() - displaced.ready_us));
-        (void)lan_http_report_text(drop);
         if (displaced.trace)
             displaced.trace->outcome = 2;
     }
@@ -2402,6 +2404,24 @@ static void *video_present_thread(void *context)
     bool repeat_blocked = false;
     ScanoutTrace scanout_trace("native", stream_presentation_mode);
     PacingDecisionTrace decisions("native", stream_presentation_mode);
+    // Decode may publish while presentation exits. Publish/clear the borrowed
+    // trace under the mailbox lock so a producer cannot use a destroyed ring.
+    struct DecisionLifetime
+    {
+        native_renderer_state_t *state;
+        DecisionLifetime(native_renderer_state_t *s, PacingDecisionTrace *trace) : state(s)
+        {
+            pthread_mutex_lock(&state->lock);
+            state->pacing_decisions = trace;
+            pthread_mutex_unlock(&state->lock);
+        }
+        ~DecisionLifetime()
+        {
+            pthread_mutex_lock(&state->lock);
+            state->pacing_decisions = nullptr;
+            pthread_mutex_unlock(&state->lock);
+        }
+    } decision_lifetime(state, &decisions);
     moonlight::VrrRepeatPolicy vrr_repeats;
     vrr_repeats.reset(state->stream_fps);
     struct VrrSummary
