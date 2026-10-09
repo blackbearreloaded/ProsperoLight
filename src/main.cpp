@@ -43,7 +43,7 @@ extern "C" void *__dso_handle = nullptr;
 // How long the display is left alone after a stream above 60 Hz or in HDR,
 // before the launcher opens it again: the television is switching back.
 #ifndef PROSPEROLIGHT_HFR_SETTLE_MS
-#define PROSPEROLIGHT_HFR_SETTLE_MS 5000
+#define PROSPEROLIGHT_HFR_SETTLE_MS 100
 #endif
 
 static_assert(PROSPEROLIGHT_VIDEO_OUTPUT_SELF_TEST_FPS == 0 ||

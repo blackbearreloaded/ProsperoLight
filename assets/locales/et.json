@@ -177,8 +177,8 @@
   "Resolution": "Eraldusvõime",
   "Resume stream": "Alusta",
   "Run Sunshine on the PC": "Sunshine / Arvutid: Alusta",
-  "Running now": "Alusta",
-  "Running on the PC": "Arvutid: Alusta",
+  "Running now": "Töötab",
+  "Running on the PC": "Töötab",
   "Search again": "Otsi uuesti",
   "Searching this network for Sunshine": "Otsi uuesti: Sunshine / Võrk",
   "Select": "Alusta",
@@ -307,5 +307,7 @@
   "Virtual display requires a ready host driver.": "Virtuaalne kuva · Vibepollo",
   "Saved for this PC. DS4/DS5 emulation is selected on the host.": "Arvuti seaded · DS4/DS5: Hosti seanss",
   "Full scale keeps the requested resolution. Lower values may reduce picture quality.": "Täisskaala säilitab soovitud eraldusvõime. Väiksemad väärtused võivad vähendada pildikvaliteeti.",
-  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Täname ProsperoLighti kaastöötajaid: Nikita Dybov, Kris Escobar."
+  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Täname ProsperoLighti kaastöötajaid: Nikita Dybov, Kris Escobar.",
+  "Debug log": "Silumislogi",
+  "Running": "Töötab"
 }

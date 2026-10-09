@@ -177,8 +177,8 @@
   "Resolution": "Distingivo",
   "Resume stream": "Komenci",
   "Run Sunshine on the PC": "Sunshine / Komputiloj: Komenci",
-  "Running now": "Komenci",
-  "Running on the PC": "Komputiloj: Komenci",
+  "Running now": "Rulanta",
+  "Running on the PC": "Rulanta",
   "Search again": "Serĉi denove",
   "Searching this network for Sunshine": "Serĉi denove: Sunshine / Reto",
   "Select": "Komenci",
@@ -307,5 +307,7 @@
   "Virtual display requires a ready host driver.": "Virtuala ekrano · Vibepollo",
   "Saved for this PC. DS4/DS5 emulation is selected on the host.": "Komputilaj agordoj · DS4/DS5: Gastiga seanco",
   "Full scale keeps the requested resolution. Lower values may reduce picture quality.": "Plena skalo konservas la petitan distingivon. Malpli altaj valoroj povas malpliigi la bildkvaliton.",
-  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Dankon al la kontribuantoj de ProsperoLight: Nikita Dybov, Kris Escobar."
+  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Dankon al la kontribuantoj de ProsperoLight: Nikita Dybov, Kris Escobar.",
+  "Debug log": "Sencimiga protokolo",
+  "Running": "Rulanta"
 }

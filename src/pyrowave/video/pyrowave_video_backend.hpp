@@ -6,9 +6,10 @@
 #include "../pyrowaveframing.h"
 struct VideoFrameTiming
 {
-    double decode_ms, render_ms, total_ms, cpu_ms;
+    double decode_ms{}, render_ms{}, total_ms{}, cpu_ms{};
     double acquire_ms{}, record_ms{}, submit_ms{}, prepared_wait_ms{}, pacing_ms{}, present_ms{},
         completion_ms{};
+    bool repeat_skipped{};
 };
 class PyroWaveVideoBackend
 {

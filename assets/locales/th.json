@@ -177,8 +177,8 @@
   "Resolution": "ความละเอียด",
   "Resume stream": "เริ่ม",
   "Run Sunshine on the PC": "Sunshine / คอมพิวเตอร์: เริ่ม",
-  "Running now": "เริ่ม",
-  "Running on the PC": "คอมพิวเตอร์: เริ่ม",
+  "Running now": "กำลังทำงาน",
+  "Running on the PC": "กำลังทำงาน",
   "Search again": "ค้นหาอีกครั้ง",
   "Searching this network for Sunshine": "ค้นหาอีกครั้ง: Sunshine / เครือข่าย",
   "Select": "เริ่ม",
@@ -307,5 +307,7 @@
   "Virtual display requires a ready host driver.": "จอภาพเสมือน · Vibepollo",
   "Saved for this PC. DS4/DS5 emulation is selected on the host.": "การตั้งค่าพีซี · DS4/DS5: เซสชันโฮสต์",
   "Full scale keeps the requested resolution. Lower values may reduce picture quality.": "ขนาดเต็มจะคงความละเอียดที่ขอไว้ ค่าที่ต่ำกว่าอาจลดคุณภาพของภาพ",
-  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "ขอขอบคุณผู้ร่วมพัฒนา ProsperoLight: Nikita Dybov, Kris Escobar."
+  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "ขอขอบคุณผู้ร่วมพัฒนา ProsperoLight: Nikita Dybov, Kris Escobar.",
+  "Debug log": "บันทึกการแก้ไขข้อบกพร่อง",
+  "Running": "กำลังทำงาน"
 }

@@ -83,8 +83,10 @@ struct OutputTrace
     std::unique_ptr<Sample[]> samples;
     size_t count{}, omitted{}, next{};
     moonlight::FramePacing &pacer;
+    moonlight::VrrRepeatPolicy &vrr;
     unsigned mode, fps;
-    OutputTrace(moonlight::FramePacing &p, unsigned m, unsigned f) : pacer(p), mode(m), fps(f)
+    OutputTrace(moonlight::FramePacing &p, moonlight::VrrRepeatPolicy &v, unsigned m, unsigned f)
+        : pacer(p), vrr(v), mode(m), fps(f)
     {
         if (prosperolight_logs_enabled())
             samples.reset(new (std::nothrow) Sample[capacity]);
@@ -102,15 +104,24 @@ struct OutputTrace
     }
     ~OutputTrace()
     {
-        log_line("PyroWave pacing result: mode=%u period_us=%llu reserve_us=%llu "
-                 "submissions=%llu "
-                 "misses=%llu resets=%llu late_max_us=%llu spacing_error_max_us=%llu",
-                 mode, (unsigned long long)pacer.stats.period_us,
-                 (unsigned long long)pacer.stats.reserve_us,
-                 (unsigned long long)pacer.stats.submissions,
-                 (unsigned long long)pacer.stats.misses, (unsigned long long)pacer.stats.resets,
-                 (unsigned long long)pacer.stats.late_max_us,
-                 (unsigned long long)pacer.stats.spacing_error_max_us);
+        if (ps5_vrr_output_active())
+            log_line("PyroWave VRR scheduler: period_us=%llu pictures=%llu repeats=%llu "
+                     "wait_us=%llu late_max_us=%llu submission_gap_max_us=%llu",
+                     (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
+                     (unsigned long long)vrr.stats.repeats,
+                     (unsigned long long)vrr.stats.wait_total_us,
+                     (unsigned long long)vrr.stats.late_max_us,
+                     (unsigned long long)vrr.stats.gap_max_us);
+        else
+            log_line("PyroWave pacing result: mode=%u period_us=%llu reserve_us=%llu "
+                     "submissions=%llu "
+                     "misses=%llu resets=%llu late_max_us=%llu spacing_error_max_us=%llu",
+                     mode, (unsigned long long)pacer.stats.period_us,
+                     (unsigned long long)pacer.stats.reserve_us,
+                     (unsigned long long)pacer.stats.submissions,
+                     (unsigned long long)pacer.stats.misses, (unsigned long long)pacer.stats.resets,
+                     (unsigned long long)pacer.stats.late_max_us,
+                     (unsigned long long)pacer.stats.spacing_error_max_us);
         if (!samples || !prosperolight_logs_enabled())
             return;
         char temporary[176], destination[176];
@@ -161,7 +172,16 @@ void wait_prepared_frame(void *context)
         wait.submit_us = started;
         return;
     }
-    if (ps5_vrr_output_active())
+    const uint64_t display_period = wait.refresh ? UINT64_C(100000000) / wait.refresh : 0;
+    const uint64_t nominal = wait.pacer->stats.period_us;
+    const uint64_t matched =
+        display_period ? std::max<uint64_t>(1, (nominal + display_period / 2) / display_period) *
+                             display_period
+                       : nominal;
+    const uint64_t mismatch = matched > nominal ? matched - nominal : nominal - matched;
+    const bool fractional_fixed = selected_vsync && display_period && mismatch > nominal / 100;
+    uint64_t flip_anchor = 0;
+    if (ps5_vrr_output_active() || fractional_fixed)
     {
         // A ready source image replaces the next repeat slot. Retire the
         // previous scanout first; a GPU fence cannot establish this floor.
@@ -169,11 +189,14 @@ void wait_prepared_frame(void *context)
         {
             const auto output = ps5_presentation_stats();
             if (!output.available)
-                fail("VRR scanout counters unavailable");
+                fail("Paced scanout counters unavailable");
             wait.vrr->scanned(output.flip_count, now_us());
             if (!wait.previous_request ||
                 moonlight::idle_repeat_ready(wait.previous_request, output.shown, output.available))
+            {
+                flip_anchor = now_us();
                 break;
+            }
             {
                 std::unique_lock<std::mutex> lock(s.mutex);
                 if (!s.running)
@@ -181,7 +204,7 @@ void wait_prepared_frame(void *context)
                 s.wake.wait_for(lock, std::chrono::microseconds(1000), [&] { return !s.running; });
             }
             if (now_us() - started > 100000)
-                fail("VRR previous scanout did not complete within 100ms");
+                fail("Paced previous scanout did not complete within 100ms");
         }
     }
     // VRR has ONE admission clock for fresh pictures and repeats. Applying
@@ -191,7 +214,8 @@ void wait_prepared_frame(void *context)
         ps5_vrr_output_active()
             ? wait.vrr->picture_target(now_us())
             : wait.pacer->target(wait.frame->number, wait.frame->presentation_us, started,
-                                 selected_vsync ? wait.refresh : 0);
+                                 selected_vsync ? wait.refresh : 0,
+                                 fractional_fixed ? flip_anchor : 0);
     s.decisions.record(wait.frame->number, wait.frame->presentation_us, now_us(), deadline,
                        "target");
     std::unique_lock<std::mutex> lock(s.mutex);
@@ -218,7 +242,10 @@ void wait_prepared_frame(void *context)
     s.decisions.record(wait.frame->number, wait.frame->presentation_us, submitted, deadline,
                        "submit");
     wait.submit_us = submitted;
-    wait.pacer->submitted(deadline, submitted, submitted - started);
+    if (ps5_vrr_output_active())
+        wait.vrr->waited(started, deadline, submitted);
+    else
+        wait.pacer->submitted(deadline, submitted, submitted - started);
 }
 
 void *worker(void *)
@@ -233,7 +260,9 @@ void *worker(void *)
     const uint32_t refresh = static_cast<uint32_t>(s.backend->refresh_hz() * 100 + 0.5);
     pacer.reset(s.fps);
     const bool paced = mode != 0;
-    OutputTrace trace(pacer, mode, s.fps);
+    moonlight::VrrRepeatPolicy vrr_repeats;
+    vrr_repeats.reset(s.fps);
+    OutputTrace trace(pacer, vrr_repeats, mode, s.fps);
     ScanoutTrace scanout_trace("pyrowave", mode);
     uint64_t repeat_argument = 0;
     log_line("PyroWave pacing: mode=%u requested_fps=%u selected_refresh_x100=%u "
@@ -249,9 +278,7 @@ void *worker(void *)
     uint64_t stall_count = 0, last_stall_log = 0;
     uint64_t last_scanout_us = 0, last_picture_us = 0, repeated = 0;
     uint64_t last_observed_picture = 0;
-    moonlight::VrrRepeatPolicy vrr_repeats;
-    vrr_repeats.reset(s.fps);
-    bool repeating = false;
+    bool repeating = false, repeat_blocked = false;
     try
     {
         for (;;)
@@ -263,7 +290,7 @@ void *worker(void *)
                 while (s.running && s.queue.empty())
                 {
                     // A fixed-refresh television holds the last picture by itself.
-                    if (!last_scanout_us || !ps5_vrr_output_active())
+                    if (!last_scanout_us || !ps5_vrr_output_active() || repeat_blocked)
                     {
                         s.wake.wait(lock, [&] { return !s.running || !s.queue.empty(); });
                         continue;
@@ -305,7 +332,16 @@ void *worker(void *)
                     // compressed frame or acquire a decoder/network slot.
                     repeat_argument = s.backend->requested() + 1;
                     const uint64_t repeat_submitted = now_us();
-                    s.backend->present(nullptr, nullptr, true, true);
+                    const auto repeated_timing = s.backend->present(nullptr, nullptr, true, true);
+                    if (repeated_timing.repeat_skipped)
+                    {
+                        repeat_blocked = true;
+                        log_line("PyroWave repeat skipped: reason=swapchain-not-ready; resume on "
+                                 "next picture");
+                        s.decisions.record(0, 0, now_us(), repeat_deadline, "repeat-skipped");
+                        lock.lock();
+                        continue;
+                    }
                     last_scanout_us = now_us();
                     s.decisions.record(0, 0, last_scanout_us, repeat_deadline, "repeat");
                     vrr_repeats.repeated(repeat_submitted);
@@ -391,6 +427,7 @@ void *worker(void *)
             repeating = repeating && last_picture_us &&
                         finished - last_picture_us > UINT64_C(1500000) / s.fps;
             last_picture_us = finished;
+            repeat_blocked = false;
             vrr_repeats.presented(wait.submit_us ? wait.submit_us : finished);
             if (finished - preparation_started > 50000 || preparation_started - dequeued > 50000)
             {

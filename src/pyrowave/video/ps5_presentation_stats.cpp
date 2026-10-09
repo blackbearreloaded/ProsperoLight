@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "ps5_presentation_stats.hpp"
 #include "../common.hpp"
+#include "frame_pacing.hpp"
 #include "native_agc_present.hpp"
 #include "lan_http_report.hpp"
 #include "app_storage.hpp"
@@ -53,8 +54,9 @@ extern "C" int __wrap_sceVideoOutVrrPegToFixedRate(int32_t handle, uint64_t rese
         vrr_output.store(false);
     // A released output that this process may not peg (an elevated app counts as a
     // system process on system software 6.02) stays variable.
-    else if (static_cast<uint32_t>(result) == 0x8029001cu &&
-             (prepared == 0 || static_cast<uint32_t>(prepared) == 0x8029001cu))
+    else if (moonlight::variable_after_peg(
+                 moonlight::output_released(static_cast<uint32_t>(prepared)),
+                 static_cast<uint32_t>(result)))
         vrr_output.store(true);
     record_output_policy(handle, "peg", result);
     return result;

@@ -1665,6 +1665,10 @@ static void publish_ready_frame(native_renderer_state_t *state, const stream_rea
     if (replaced)
     {
         ++state->not_displayed;
+        char drop[160];
+        snprintf(drop, sizeof(drop), "Native drop: frame=%d reason=ready-capacity age_us=%llu",
+                 displaced.frame, (unsigned long long)(monotonic_us() - displaced.ready_us));
+        (void)lan_http_report_text(drop);
         if (displaced.trace)
             displaced.trace->outcome = 2;
     }
@@ -2219,7 +2223,7 @@ static unsigned stream_presentation_mode = 0;
 
 static bool wait_presentation_deadline(native_renderer_state_t *state,
                                        const stream_ready_frame_t &item,
-                                       const moonlight::VrrRepeatPolicy &vrr,
+                                       moonlight::VrrRepeatPolicy &vrr,
                                        PacingDecisionTrace &decisions)
 {
     if (!stream_presentation_mode)
@@ -2256,7 +2260,10 @@ static bool wait_presentation_deadline(native_renderer_state_t *state,
             __builtin_ia32_pause(); // Active tail is bounded to at most 250 us.
         now = monotonic_us();
     }
-    stream_pacer.submitted(deadline, now, now - started);
+    if (native_agc_vrr_active())
+        vrr.waited(started, deadline, now);
+    else
+        stream_pacer.submitted(deadline, now, now - started);
     return true;
 }
 
@@ -2397,6 +2404,21 @@ static void *video_present_thread(void *context)
     PacingDecisionTrace decisions("native", stream_presentation_mode);
     moonlight::VrrRepeatPolicy vrr_repeats;
     vrr_repeats.reset(state->stream_fps);
+    struct VrrSummary
+    {
+        const moonlight::VrrRepeatPolicy &vrr;
+        ~VrrSummary()
+        {
+            if (native_agc_vrr_active())
+                LOGI("Native VRR scheduler: period_us=%llu pictures=%llu repeats=%llu wait_us=%llu "
+                     "late_max_us=%llu submission_gap_max_us=%llu",
+                     (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
+                     (unsigned long long)vrr.stats.repeats,
+                     (unsigned long long)vrr.stats.wait_total_us,
+                     (unsigned long long)vrr.stats.late_max_us,
+                     (unsigned long long)vrr.stats.gap_max_us);
+        }
+    } vrr_summary{vrr_repeats};
 
     if (state->layout.present)
         state->present_placement_result = ps5_thread_affinity_set(state->layout.present);
@@ -2541,6 +2563,8 @@ static void *video_present_thread(void *context)
         // Nothing reads the picture: return its slot and try the next one.
         ++failures;
         ++state->present_errors;
+        ++state->not_displayed;
+        decisions.record(current.frame, current.pts_us, monotonic_us(), 0, "drop-present-error");
         pthread_mutex_lock(&state->lock);
         state->frames.release(current.slot);
         pthread_mutex_unlock(&state->lock);

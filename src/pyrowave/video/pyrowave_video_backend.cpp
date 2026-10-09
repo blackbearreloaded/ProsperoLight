@@ -143,8 +143,15 @@ VideoFrameTiming PyroWaveVideoBackend::present(void (*before_present)(void *), v
 {
     double start = clock_ms();
     unsigned index = 0;
-    VK_OK(vkAcquireNextImageKHR(c_.device, swapchain_, UINT64_MAX, acquired_, VK_NULL_HANDLE,
-                                &index));
+    const VkResult acquire = vkAcquireNextImageKHR(
+        c_.device, swapchain_, repeat ? 2000000 : UINT64_MAX, acquired_, VK_NULL_HANDLE, &index);
+    if (repeat && (acquire == VK_TIMEOUT || acquire == VK_NOT_READY))
+    {
+        VideoFrameTiming skipped{};
+        skipped.repeat_skipped = true;
+        return skipped; // No image/semaphore acquired: safe to resume on the next picture.
+    }
+    VK_OK(acquire);
     const double acquired_at = clock_ms();
     c_.begin();
     if (!repeat)

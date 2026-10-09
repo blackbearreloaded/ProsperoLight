@@ -69,7 +69,7 @@ class FramePacing
         slot_ = ready_us > reserve_ ? ready_us - reserve_ : ready_us;
         cadence_source_ = 0;
         candidate_count_ = 0;
-        fractional_ = 0;
+        fractional_ = fixed_fraction_ = 0;
         resume_pending_ = true;
         ++stats.resets;
     }
@@ -228,12 +228,13 @@ class FramePacing
         {
             const uint64_t display_period = UINT64_C(100000000) / fixed_refresh_x100;
             const uint64_t lead = std::min<uint64_t>(preparation_lead_us, display_period / 4);
-            const uint64_t required = deadline + lead;
-            const uint64_t ticks =
-                required > flip_anchor_us
-                    ? (required - flip_anchor_us + display_period - 1) / display_period
-                    : 0;
-            deadline = flip_anchor_us + ticks * display_period - lead;
+            // Fractional rates need 1/1/2 refresh slots (90 on 120), not
+            // rounding each 11 ms source deadline to two display intervals.
+            fixed_fraction_ += period_q16_;
+            const uint64_t unit = display_period << 16;
+            const uint64_t ticks = std::max<uint64_t>(1, fixed_fraction_ / unit);
+            fixed_fraction_ %= unit;
+            deadline = std::max(ready_us, flip_anchor_us + (ticks - 1) * display_period + lead);
         }
         stats.reserve_us = reserve_;
         stats.period_us = period_;
@@ -275,11 +276,22 @@ class FramePacing
     uint64_t period_q16_ = (UINT64_C(1000000) << 16) / 60, fractional_{};
     uint64_t period_ = 16666, nominal_period_ = 16666, slot_{}, submitted_{}, last_source_{},
              cadence_source_{};
-    uint64_t reserve_ = 1500, candidate_{}, wake_lead_ = 100;
+    uint64_t reserve_ = 1500, candidate_{}, wake_lead_ = 100, fixed_fraction_{};
     unsigned candidate_count_{}, clean_{};
     int32_t last_frame_{}, cadence_frame_{};
     bool initialized_{}, resume_pending_{};
 };
+
+// Both backends classify the same public API result combinations. These
+// answers describe the process state, not a measured HDMI refresh rate.
+inline bool output_released(uint32_t unpeg)
+{
+    return unpeg == 0 || unpeg == 0x8029001cu;
+}
+inline bool variable_after_peg(bool released, uint32_t peg)
+{
+    return released && peg == 0x8029001cu;
+}
 
 // Fixed refresh tolerates two missing source periods before idle repetition.
 // VRR repeats are timed from observed scanout completion, never GPU completion.
@@ -308,6 +320,20 @@ inline bool idle_repeat_ready(uint64_t requested, uint64_t shown, bool available
 class VrrRepeatPolicy
 {
   public:
+    struct Stats
+    {
+        uint64_t pictures{}, repeats{}, wait_total_us{}, late_max_us{}, gap_max_us{};
+    } stats;
+    void waited(uint64_t ready, uint64_t planned, uint64_t submitted)
+    {
+        stats.wait_total_us += submitted > ready ? submitted - ready : 0;
+        if (submitted > planned)
+            stats.late_max_us = std::max(stats.late_max_us, submitted - planned);
+    }
+    uint64_t period() const
+    {
+        return period_;
+    }
     void reset(unsigned fps)
     {
         *this = VrrRepeatPolicy{};
@@ -390,6 +416,7 @@ class VrrRepeatPolicy
     }
     void presented(uint64_t submitted)
     {
+        ++stats.pictures;
         advance(submitted);
         if (!low_)
             gap_ = false;
@@ -405,6 +432,7 @@ class VrrRepeatPolicy
     }
     void repeated(uint64_t submitted)
     {
+        ++stats.repeats;
         gap_ = true;
         advance(submitted);
     }
@@ -428,6 +456,8 @@ class VrrRepeatPolicy
         // Counter completion authorizes another flip. Its observation time is
         // an upper bound, NOT the time that scanout began. Keep deadlines on
         // the submission grid instead of restarting them when polling is late.
+        if (submitted_at_ && submitted > submitted_at_)
+            stats.gap_max_us = std::max(stats.gap_max_us, submitted - submitted_at_);
         submitted_at_ = submitted;
         if (grid_active() && next_)
         {
@@ -451,8 +481,8 @@ class VrrRepeatPolicy
 // Paced+VRR; the active name does not.
 inline const char *effective_pacing_name(unsigned mode, bool vrr_active)
 {
-    if (mode == 2u && vrr_active)
-        return "Paced+VRR";
+    if (vrr_active && mode != 0u)
+        return mode == 2u ? "Paced+VRR" : "Paced (variable output)";
     if (mode != 0u)
         return "Paced";
     return "Unpaced";

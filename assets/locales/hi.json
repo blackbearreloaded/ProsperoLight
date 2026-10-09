@@ -177,8 +177,8 @@
   "Resolution": "रिज़ॉल्यूशन",
   "Resume stream": "शुरू करें",
   "Run Sunshine on the PC": "Sunshine / कंप्यूटर: शुरू करें",
-  "Running now": "शुरू करें",
-  "Running on the PC": "कंप्यूटर: शुरू करें",
+  "Running now": "चल रहा है",
+  "Running on the PC": "चल रहा है",
   "Search again": "फिर खोजें",
   "Searching this network for Sunshine": "फिर खोजें: Sunshine / नेटवर्क",
   "Select": "शुरू करें",
@@ -307,5 +307,7 @@
   "Virtual display requires a ready host driver.": "वर्चुअल डिस्प्ले · Vibepollo",
   "Saved for this PC. DS4/DS5 emulation is selected on the host.": "पीसी सेटिंग · DS4/DS5: होस्ट सत्र",
   "Full scale keeps the requested resolution. Lower values may reduce picture quality.": "पूरा पैमाना अनुरोधित रिज़ॉल्यूशन बनाए रखता है। कम मान से चित्र की गुणवत्ता घट सकती है।",
-  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "ProsperoLight के योगदानकर्ताओं का धन्यवाद: Nikita Dybov, Kris Escobar."
+  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "ProsperoLight के योगदानकर्ताओं का धन्यवाद: Nikita Dybov, Kris Escobar.",
+  "Debug log": "डीबग लॉग",
+  "Running": "चल रहा है"
 }

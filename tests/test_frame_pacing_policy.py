@@ -18,6 +18,21 @@ class FramePacingPolicy(unittest.TestCase):
 #include <cassert>
 #include <cstring>
 int main() {
+    for(uint32_t unpeg: {0u,0x8029001cu,0x80290012u}) {
+        const bool released=moonlight::output_released(unpeg);
+        assert(released==(unpeg!=0x80290012u));
+        assert(!moonlight::variable_after_peg(released,0));
+        assert(!moonlight::variable_after_peg(released,0x80290012u));
+        assert(moonlight::variable_after_peg(released,0x8029001cu)==released);
+    }
+    moonlight::VrrRepeatPolicy telemetry;
+    telemetry.reset(60);
+    telemetry.presented(1000000);
+    telemetry.repeated(1020000);
+    telemetry.waited(1019000,1019500,1020000);
+    assert(telemetry.stats.pictures==1 && telemetry.stats.repeats==1);
+    assert(telemetry.stats.gap_max_us==20000 && telemetry.stats.wait_total_us==1000);
+    assert(telemetry.stats.late_max_us==500);
     moonlight::SourceTimestamp clock;
     const auto before=clock.update(0xfffffff0u,0);
     const auto after=clock.update(734u,0);
@@ -271,6 +286,23 @@ int main() {
     fixed.submitted(first,first,0);
     auto second=fixed.target(2,33333,1000001,11988,first+250);
     assert(second-first>=16000);
+    // Fixed 90 on 120 must alternate 1/1/2 refresh intervals rather than
+    // rounding every source frame to two refreshes (the 60 FPS regression).
+    moonlight::FramePacing fractional;
+    fractional.reset(90);
+    uint64_t flip=1000000;
+    const uint64_t display=100000000/11988;
+    unsigned one=0,two=0;
+    for(int f=1;f<=300;f++) {
+        const uint64_t ready=flip+300;
+        const auto target=fractional.target(f,uint64_t(f)*1000000/90,ready,11988,flip);
+        const auto ticks=(target-flip+display-1)/display;
+        assert(ticks==1 || ticks==2);
+        if(ticks==1) ++one; else ++two;
+        fractional.submitted(target,target,target-ready);
+        flip+=ticks*display;
+    }
+    assert(one>=199 && one<=201 && two>=99 && two<=101);
     moonlight::FramePacing p;
     p.reset(120);
     uint64_t last=0;

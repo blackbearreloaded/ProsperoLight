@@ -38,7 +38,7 @@ REFERENCE_FRAME_INVALIDATION ?= 0
 # Six-picture decoder slot. Off by default; Punktfunk's GameStream encoder needs it.
 EXPERIMENTAL_HOST_DPB ?= 0
 # Milliseconds the display is left alone after a stream above 60 Hz or in HDR.
-HFR_SETTLE_MS ?= 5000
+HFR_SETTLE_MS ?= 100
 APP_DEFINITIONS ?= GL_GLEXT_PROTOTYPES=1
 APP_DEFINITIONS += PROSPEROLIGHT_HFR_SETTLE_MS=$(HFR_SETTLE_MS)
 APP_DEFINITIONS += PROSPEROLIGHT_PYROWAVE=$(PYROWAVE)

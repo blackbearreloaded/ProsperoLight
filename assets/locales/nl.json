@@ -177,8 +177,8 @@
   "Resolution": "Resolutie",
   "Resume stream": "Starten",
   "Run Sunshine on the PC": "Sunshine / Computers: Starten",
-  "Running now": "Starten",
-  "Running on the PC": "Computers: Starten",
+  "Running now": "Actief",
+  "Running on the PC": "Actief",
   "Search again": "Opnieuw zoeken",
   "Searching this network for Sunshine": "Opnieuw zoeken: Sunshine / Netwerk",
   "Select": "Starten",
@@ -307,5 +307,7 @@
   "Virtual display requires a ready host driver.": "Virtueel scherm · Vibepollo",
   "Saved for this PC. DS4/DS5 emulation is selected on the host.": "Pc-instellingen · DS4/DS5: Hostsessie",
   "Full scale keeps the requested resolution. Lower values may reduce picture quality.": "Volledige schaal behoudt de gevraagde resolutie. Lagere waarden kunnen de beeldkwaliteit verminderen.",
-  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Dank aan de bijdragers van ProsperoLight: Nikita Dybov, Kris Escobar."
+  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Dank aan de bijdragers van ProsperoLight: Nikita Dybov, Kris Escobar.",
+  "Debug log": "Debuglogboek",
+  "Running": "Actief"
 }

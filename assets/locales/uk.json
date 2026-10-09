@@ -177,8 +177,8 @@
   "Resolution": "Роздільність",
   "Resume stream": "Запустити",
   "Run Sunshine on the PC": "Sunshine / Комп’ютери: Запустити",
-  "Running now": "Запустити",
-  "Running on the PC": "Комп’ютери: Запустити",
+  "Running now": "Запущено",
+  "Running on the PC": "Запущено",
   "Search again": "Шукати знову",
   "Searching this network for Sunshine": "Шукати знову: Sunshine / Мережа",
   "Select": "Запустити",
@@ -307,5 +307,7 @@
   "Virtual display requires a ready host driver.": "Віртуальний дисплей · Vibepollo",
   "Saved for this PC. DS4/DS5 emulation is selected on the host.": "Налаштування ПК · DS4/DS5: Сеанс хоста",
   "Full scale keeps the requested resolution. Lower values may reduce picture quality.": "Повний масштаб зберігає запитану роздільність. Менші значення можуть знизити якість зображення.",
-  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Дякуємо учасникам ProsperoLight: Nikita Dybov, Kris Escobar."
+  "Thanks to ProsperoLight contributors: Nikita Dybov, Kris Escobar.": "Дякуємо учасникам ProsperoLight: Nikita Dybov, Kris Escobar.",
+  "Debug log": "Журнал налагодження",
+  "Running": "Запущено"
 }

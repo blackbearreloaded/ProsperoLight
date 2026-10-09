@@ -329,7 +329,7 @@ class ToolTests(unittest.TestCase):
         loop = main[main.index("for (;;)", main.index("int main()")) :]
         self.assertLess(loop.index("launcher::Run("), loop.index("moonlight_stream_run("))
         # After a stream above 60 Hz the television is left to switch back.
-        self.assertIn("HFR_SETTLE_MS ?= 5000", makefile)
+        self.assertIn("HFR_SETTLE_MS ?= 100", makefile)
         self.assertIn("APP_DEFINITIONS += PROSPEROLIGHT_HFR_SETTLE_MS=$(HFR_SETTLE_MS)", makefile)
         self.assertIn(
             "selection.stream_fps > MOONLIGHT_STREAM_FPS_60 || selection.hdr_enabled != 0;", main

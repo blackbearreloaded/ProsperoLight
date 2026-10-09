@@ -1264,7 +1264,7 @@ static bool settle_refresh_policy(int32_t handle, bool variable, int32_t *unpeg_
     if (!variable)
     {
         *peg_result = sceVideoOutVrrPegToFixedRate(handle, 0, 0);
-        result = released && (uint32_t)*peg_result == VIDEO_OUT_ERROR_VRR_STATE;
+        result = moonlight::variable_after_peg(released, (uint32_t)*peg_result);
     }
     char policy[176];
     snprintf(

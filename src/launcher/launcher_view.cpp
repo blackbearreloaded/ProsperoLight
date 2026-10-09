@@ -533,9 +533,8 @@ void View::build()
     form_.add_header(i18n::tr("Diagnostics"));
     form_.add_toggle(kLogging, i18n::tr("Diagnostic logs"), true).description =
         i18n::tr("Bounded logs and output interval traces saved after the stream.");
-    // Technical wording, shown in English like the other diagnostics.
-    form_.add_toggle(kDebugLog, "Debug log", false).description =
-        "Timed trace of everything the app does, for reporting a problem. Off by default.";
+    form_.add_toggle(kDebugLog, i18n::tr("Debug log"), false).description =
+        std::string(i18n::tr("Diagnostic logs")) + ": debug-trace.txt";
     form_.style.row_height = 66.0f;
     form_.style.header_height = 54.0f;
     form_.style.label_size = 26.0f;
@@ -1048,8 +1047,8 @@ void View::apply_setting(int id)
             toasts_.push(ui::StatusKind::danger, i18n::tr("Could not save logging"),
                          i18n::tr("Try again."));
         else if (form_.toggle_value(kDebugLog))
-            toasts_.push(ui::StatusKind::info, "Debug log is on",
-                         "Repeat the problem, then send debug-trace.txt from the logs folder.");
+            toasts_.push(ui::StatusKind::info, i18n::tr("Debug log"),
+                         std::string(i18n::tr("Diagnostic logs")) + ": debug-trace.txt");
         sync_settings_from_config();
         return;
     case kLogging:
@@ -2227,7 +2226,7 @@ void View::draw_games(ui::Canvas &canvas, ui::Painter &paint) const
     const float word =
         paint.label(offline   ? (model_.reconnecting() ? i18n::tr("Reconnecting")
                                                        : i18n::tr("The PC is not answering"))
-                    : running ? i18n::tr("Running on the PC")
+                    : running ? i18n::tr("Running")
                               : i18n::tr("Ready to start"),
                     kMargin + 26.0f, 325.0f, 24.0f, running && !offline ? t.success : ink);
     char text[512];
