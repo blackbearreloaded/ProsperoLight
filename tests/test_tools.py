@@ -524,7 +524,9 @@ class ToolTests(unittest.TestCase):
         self.assertIn("sceVideoOutConfigureOutput", presenter)
         self.assertNotIn("sceVideoOutSysConfigureOutput", presenter)
         self.assertNotIn("VIDEO_OUT_REQUEST_HIGH_RES", presenter)
-        self.assertIn("*vrr_result = sceVideoOutVrrUnpegFromFixedRate(handle);", presenter)
+        self.assertIn("*unpeg_result = sceVideoOutVrrUnpegFromFixedRate(handle);", presenter)
+        self.assertIn("(uint32_t)*unpeg_result == VIDEO_OUT_ERROR_VRR_STATE", presenter)
+        self.assertIn("#define VIDEO_OUT_ERROR_VRR_STATE 0x8029001cu", presenter)
         self.assertIn(
             "native_agc_output_geometry(output_source_width, output_source_height, requested_fps)",
             presenter,
@@ -804,7 +806,9 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["applicationCategoryType"], 0)
         self.assertEqual(configured["attribute"], 0x62000000)
         self.assertEqual(configured["attribute2"], 0)
-        self.assertEqual(configured["attribute3"], 0x80040)
+        # 120 Hz (0x40) and VRR (0x40000). System software 6.02 rejects the newer
+        # "VRR 120 Hz" bit (0x80000) as an unknown VRR parameter and turns VRR off.
+        self.assertEqual(configured["attribute3"], 0x40040)
 
     def test_automation_builds_the_zip_only(self):
         # Builds and releases carry the app-folder ZIP and SHA256SUMS; no image is

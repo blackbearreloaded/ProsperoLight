@@ -1241,6 +1241,41 @@ static uint32_t video_output_refresh_x100(uint64_t refresh_rate)
     return 0u;
 }
 
+// VideoOut answers this when the refresh policy is already what was asked for.
+#define VIDEO_OUT_ERROR_VRR_STATE 0x8029001cu
+
+// Leaves the output variable (returns true) or fixed (false).
+//
+// VideoOut keeps one released/pegged flag for the process. System software
+// 6.02 releases the output by itself when it opens, so the request to release
+// it answers "already" (8029001c): that is a released output, not a refusal.
+// Only a released output can be pegged, so the release is asked for in both
+// cases. An app with elevated filesystem access counts as a system process
+// there and is refused the peg with the same code: its output stays variable,
+// whatever the pacing mode, and must be driven as a variable one.
+static bool settle_refresh_policy(int32_t handle, bool variable, int32_t *unpeg_result,
+                                  int32_t *peg_result)
+{
+    *peg_result = 0;
+    *unpeg_result = sceVideoOutVrrUnpegFromFixedRate(handle);
+    const bool released =
+        *unpeg_result == 0 || (uint32_t)*unpeg_result == VIDEO_OUT_ERROR_VRR_STATE;
+    bool result = released;
+    if (!variable)
+    {
+        *peg_result = sceVideoOutVrrPegToFixedRate(handle, 0, 0);
+        result = released && (uint32_t)*peg_result == VIDEO_OUT_ERROR_VRR_STATE;
+    }
+    char policy[176];
+    snprintf(
+        policy, sizeof(policy),
+        "VideoOut refresh policy: handle=%08x requested_vrr=%d unpeg=%08x peg=%08x variable=%d",
+        (unsigned)handle, variable ? 1 : 0, (unsigned)*unpeg_result, (unsigned)*peg_result,
+        result ? 1 : 0);
+    report_agc_receipt(policy);
+    return result;
+}
+
 static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
                                          int32_t *support_result, int32_t *preset_result,
                                          int32_t *vrr_result)
@@ -1259,31 +1294,20 @@ static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
     const bool variable =
         vrr_requested.load(std::memory_order_relaxed) ||
         (requested_fps == 90u && unpaced_90_fps_unpeg.load(std::memory_order_relaxed));
-    if (!variable)
+    int32_t peg_result = 0;
+    const bool released = settle_refresh_policy(handle, variable, vrr_result, &peg_result);
+    vrr_active.store(released, std::memory_order_relaxed);
+    if (variable && !released)
     {
-        const int peg = sceVideoOutVrrPegToFixedRate(handle, 0, 0);
-        char policy[160];
-        snprintf(policy, sizeof(policy), "VideoOut peg: handle=%08x rc=%08x requested_vrr=0",
-                 (unsigned)handle, (unsigned)peg);
-        report_agc_receipt(policy);
-    }
-    if (variable)
-    {
-        *vrr_result = sceVideoOutVrrUnpegFromFixedRate(handle);
-        vrr_active.store(*vrr_result == 0, std::memory_order_relaxed);
-        if (*vrr_result != 0)
-        {
-            const uint32_t fixed_mode =
-                requested_fps > 60u ? VIDEO_OUT_REQUEST_120_HZ : VIDEO_OUT_REQUEST_DEFAULT;
-            const int fallback = sceVideoOutConfigureOutput(handle, fixed_mode, NULL, NULL, NULL);
-            const int fallback_peg = sceVideoOutVrrPegToFixedRate(handle, 0, 0);
-            char line[160];
-            snprintf(line, sizeof(line),
-                     "VRR unpeg unavailable: rc=%08x preset_fallback=%08x peg=%08x",
-                     (uint32_t)*vrr_result, (uint32_t)fallback, (uint32_t)fallback_peg);
-            report_agc_receipt(line);
-            return fallback;
-        }
+        const uint32_t fixed_mode =
+            requested_fps > 60u ? VIDEO_OUT_REQUEST_120_HZ : VIDEO_OUT_REQUEST_DEFAULT;
+        const int fallback = sceVideoOutConfigureOutput(handle, fixed_mode, NULL, NULL, NULL);
+        const int fallback_peg = sceVideoOutVrrPegToFixedRate(handle, 0, 0);
+        char line[160];
+        snprintf(line, sizeof(line), "VRR unpeg unavailable: rc=%08x preset_fallback=%08x peg=%08x",
+                 (uint32_t)*vrr_result, (uint32_t)fallback, (uint32_t)fallback_peg);
+        report_agc_receipt(line);
+        return fallback;
     }
     return 0;
 }
@@ -1490,7 +1514,11 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
             configure_high_refresh_output(presenter.video, requested_fps, &mode_support_result,
                                           &mode_preset_result, &mode_vrr_result);
     else if (presenter.video >= 0)
-        (void)sceVideoOutVrrPegToFixedRate(presenter.video, 0, 0);
+    {
+        int32_t unpeg_result = 0, peg_result = 0;
+        vrr_active.store(settle_refresh_policy(presenter.video, false, &unpeg_result, &peg_result),
+                         std::memory_order_relaxed);
+    }
     if (presenter.video >= 0)
         result = sceVideoOutSetFlipRate(presenter.video, 0);
     else

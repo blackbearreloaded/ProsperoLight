@@ -2361,8 +2361,9 @@ static void *video_present_thread(void *context)
     bool flip_pending = false;
     bool first_picture = true;
     unsigned failures = 0;
-    uint64_t last_scanout_us = 0, last_picture_us = 0, repeated = 0;
-    bool repeating = false;
+    uint64_t last_scanout_us = 0, repeated = 0;
+    // A repeat that failed: no more of them until the next picture is shown.
+    bool repeat_blocked = false;
     ScanoutTrace scanout_trace("native", stream_presentation_mode);
     PacingDecisionTrace decisions("native", stream_presentation_mode);
     moonlight::VrrRepeatPolicy vrr_repeats;
@@ -2395,28 +2396,22 @@ static void *video_present_thread(void *context)
                 scanout_trace.observe(count, argument, last_scanout_us, false);
                 vrr_repeats.scanned(count, last_scanout_us);
             }
-            // A sparse host must not restart the idle grace period on every
-            // new picture. Leave repetition only when source motion resumes.
-            repeating = repeating && last_picture_us &&
-                        last_scanout_us - last_picture_us > UINT64_C(1500000) / state->stream_fps;
-            last_picture_us = last_scanout_us;
+            repeat_blocked = false;
             failures = 0;
         }
         pthread_mutex_lock(&state->lock);
         while (!state->mailbox.full && !state->stop_presenting)
         {
-            if (!last_scanout_us)
+            // A fixed-refresh television holds the last picture by itself. Only a
+            // variable output needs it sent again, to stay above the display's
+            // lowest rate while the PC has nothing new.
+            if (!last_scanout_us || !native_agc_vrr_active() || repeat_blocked)
             {
                 pthread_cond_wait(&state->wake, &state->lock);
                 continue;
             }
-            uint32_t width = 0, height = 0, refresh = 0;
-            native_agc_output_status(&width, &height, &refresh);
-            const uint64_t idle_delay = moonlight::idle_scanout_delay_us(
-                state->stream_fps, refresh, native_agc_vrr_active(), repeating);
             const uint64_t now = monotonic_us();
-            const uint64_t repeat_deadline =
-                native_agc_vrr_active() ? vrr_repeats.deadline() : last_scanout_us + idle_delay;
+            const uint64_t repeat_deadline = vrr_repeats.deadline();
             if (now >= repeat_deadline)
             {
                 pthread_mutex_unlock(&state->lock);
@@ -2431,7 +2426,6 @@ static void *video_present_thread(void *context)
                     scanout_trace.observe(count, argument, last_scanout_us, true);
                     vrr_repeats.scanned(count, last_scanout_us);
                 }
-                repeating = true;
                 if (result == 0)
                     ++repeated;
                 if (repeated == 1 || repeated % 600 == 0 || result != 0)
@@ -2441,19 +2435,15 @@ static void *video_present_thread(void *context)
                              "Scanout repeat: count=%llu rc=%08x delay_us=%llu vrr_api=%d "
                              "compensation=%d",
                              (unsigned long long)repeated, (unsigned)result,
-                             (unsigned long long)(native_agc_vrr_active() ? vrr_repeats.interval()
-                                                                          : idle_delay),
-                             native_agc_vrr_active(), vrr_repeats.compensating());
+                             (unsigned long long)vrr_repeats.interval(), native_agc_vrr_active(),
+                             vrr_repeats.compensating());
                     (void)lan_http_report_text(receipt);
                 }
                 pthread_mutex_lock(&state->lock);
+                // Sending the held picture again is a courtesy to the display. When it
+                // fails the stream goes on, and the next real picture is shown as usual.
                 if (result != 0)
-                {
-                    state->stop_presenting = true;
-                    pthread_mutex_unlock(&state->lock);
-                    fail_stream(result);
-                    return nullptr;
-                }
+                    repeat_blocked = true;
                 continue;
             }
             timespec timeout{};

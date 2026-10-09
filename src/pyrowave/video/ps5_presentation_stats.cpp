@@ -51,6 +51,11 @@ extern "C" int __wrap_sceVideoOutVrrPegToFixedRate(int32_t handle, uint64_t rese
     const int result = __real_sceVideoOutVrrPegToFixedRate(handle, reserved1, reserved2);
     if (result == 0)
         vrr_output.store(false);
+    // A released output that this process may not peg (an elevated app counts as a
+    // system process on system software 6.02) stays variable.
+    else if (static_cast<uint32_t>(result) == 0x8029001cu &&
+             (prepared == 0 || static_cast<uint32_t>(prepared) == 0x8029001cu))
+        vrr_output.store(true);
     record_output_policy(handle, "peg", result);
     return result;
 }
@@ -72,6 +77,10 @@ extern "C" int __wrap_sceVideoOutVrrUnpegFromFixedRate(int32_t handle)
             result = __real_sceVideoOutVrrUnpegFromFixedRate(handle);
             record_output_policy(handle, "unpeg-retry", result);
         }
+        // The peg is refused too: the system released the output itself when it opened
+        // (system software 6.02) and does not let this process peg it. It is released.
+        else if (static_cast<uint32_t>(reset) == 0x8029001cu)
+            result = 0;
     }
     vrr_output.store(result == 0);
     record_output_policy(handle, "unpeg", result);

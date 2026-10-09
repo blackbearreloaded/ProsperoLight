@@ -168,6 +168,13 @@ explicitly saved endpoints; the port is not a global streaming setting.
 | Paced | Learn source cadence, retain a bounded readiness reserve, and align fixed-VSync submissions using observed flip timing. | On/Off is retained independently. |
 | Paced + VRR | Use source-clock pacing and request variable-rate VideoOut; API failure uses fixed-output pacing. | Synchronized flips are required; the saved preference is restored when another policy is selected. |
 
+The app declares VRR to the console in `sce_sys/param.json`: `attribute3` carries `0x40`
+(120 Hz) and `0x40000` (VRR). System software 6.02 rejects the newer `0x80000` "VRR 120 Hz"
+bit as an unknown VRR parameter and turns VRR off for the app; its kernel log says so
+(`[AvControl] ... (HFR:o VRR:x)` against `VRR:TypeA`). The console reads the declaration
+when the app is registered, so a changed value needs the app deleted from the home screen
+and registered again.
+
 VRR is a request, not proof that the display accepted it. A rejected request
 falls back to fixed output and is recorded in the session log. Native
 immediate flips can also fall back to VSync if the system rejects them.

@@ -262,7 +262,8 @@ void *worker(void *)
                 std::unique_lock<std::mutex> lock(s.mutex);
                 while (s.running && s.queue.empty())
                 {
-                    if (!last_scanout_us)
+                    // A fixed-refresh television holds the last picture by itself.
+                    if (!last_scanout_us || !ps5_vrr_output_active())
                     {
                         s.wake.wait(lock, [&] { return !s.running || !s.queue.empty(); });
                         continue;
