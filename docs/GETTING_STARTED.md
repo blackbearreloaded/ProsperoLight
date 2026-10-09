@@ -75,9 +75,10 @@ unit. The launcher draws with the ps5-opengl SDK, which the build downloads and
 verifies on first use.
 See [Native build tooling](NATIVE_TOOLING.md).
 
-Compressed `.ffpfsc` output uses Python 3.9 or newer with `venv` support. The
-build fetches MkPFS and installs it into an ignored virtual environment under
-`.deps/MkPFS/` when selected.
+The raw exFAT image (`make exfat`) uses Python 3.9 or newer with `venv`
+support. The build fetches MkPFS, whose exFAT writer the packer uses, and
+installs it into an ignored virtual environment under `.deps/MkPFS/` when
+selected.
 
 Uncompressed `.ffpkg` output requires the .NET SDK 8 or newer. The build
 fetches a pinned UFS2Tool checkout, builds its command-line application under
@@ -224,7 +225,6 @@ Choose the final output with Make:
 ```bash
 make app
 make ffpkg
-make ffpfsc
 make packages
 ```
 
@@ -233,7 +233,6 @@ The equivalent PowerShell selections are:
 ```powershell
 ./build.ps1 -OutputFormat Folder
 ./build.ps1 -OutputFormat Ffpkg
-./build.ps1 -OutputFormat Ffpfsc
 ./build.ps1 -OutputFormat All
 ```
 

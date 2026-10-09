@@ -79,7 +79,7 @@ BSD-2-Clause software and is not distributed by this repository.
 
 ## Optional MkPFS dependency
 
-When `.ffpfsc` output is requested, the platform bootstrapper fetches
+When the raw exFAT image is requested (`make exfat`), the platform bootstrapper fetches
 [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) at commit
 `6cb8313dfe0c988ac52617794553f343243d3a56` into the ignored `.deps/MkPFS`
 cache and installs its Python dependencies into an ignored virtual environment

@@ -156,7 +156,7 @@ git submodule update --init --recursive
 make doctor
 ```
 
-Compressed `.ffpfsc` output requires Python 3.9 or newer with `venv` support.
+The optional local raw exFAT image requires Python 3.9 or newer with `venv` support.
 The optional local `.ffpkg` target additionally requires .NET 8 or newer.
 Nothing is installed globally by the project build.
 
@@ -535,13 +535,14 @@ Outputs are written to:
 ```text
 dist/PPSA99002/           complete title folder
 dist/PPSA99002.exfat      raw installation image (`make exfat` only; not released)
-dist/PPSA99002.ffpfsc     compressed image (`make ffpfsc` only; not released)
 ```
 
-`PPSA99002.exfat` holds the same files as the compressed image; the build reads
-every file back and checks its hash. On firmware 13.60 the compressed image was
-seen to mount with duplicated 64 KiB blocks of the executable, while the raw
-image started correctly: prefer the raw image there.
+`PPSA99002.exfat` holds the same files as the folder; the build reads
+every file back and checks its hash. The compressed `.ffpfsc` image of earlier
+versions is no longer built (on firmware 13.60 it was seen to mount with
+duplicated 64 KiB blocks of the executable): if an old `PPSA99002.ffpfsc` is
+still in a directory scanned by ShadowMountPlus, delete it before installing
+the folder.
 
 Useful development gates are:
 
@@ -582,10 +583,17 @@ behave as for the release. Locally, `BUILD_LABEL="my test" make` does the same.
 
 A tag matching the exact `contentVersion` verifies that build-time checksum
 again, then publishes the app-folder `.zip` and `SHA256SUMS`.
-No image is built or published by the automation (the raw `.exfat` and the compressed
-`.ffpfsc` remain local options, `make exfat` and `make ffpfsc`), to
+No image is built or published by the automation (the raw `.exfat` remains a
+local option, `make exfat`), to
 prevent compatibility issues with the in-app update worker and ProsperoStore, which
 install from the ZIP. `.ffpkg` builds are never attached to a release.
+
+A release is made by pushing the version tag and in no other way: the workflow
+builds, attests, and publishes the ZIP and `SHA256SUMS`, and files are not
+attached by hand. If the tag has no release yet, the workflow creates it; if a
+release exists without a ZIP (notes written in advance, or a draft), it adds the
+two files and leaves the title and notes alone; if a release already has a ZIP,
+nothing is replaced and the run ends with a warning.
 
 ## Deploy
 
@@ -600,10 +608,10 @@ current title below `/data/homebrew`, uploads through temporary names, and
 publishes `eboot.bin` and `sce_sys/param.json` last. Upload the complete folder;
 `eboot.bin` alone is not a valid deployment.
 
-To test the packaged form instead:
+To test the UFS2 image instead:
 
 ```bash
-make deploy PS5_HOST=192.168.1.100 DEPLOY_FORMAT=ffpfsc
+make deploy PS5_HOST=192.168.1.100 DEPLOY_FORMAT=ffpkg
 ```
 
 ProsperoLight never changes PS5 system settings or configures a loader. See
@@ -675,7 +683,7 @@ storage. See [Configuration](docs/CONFIGURATION.md).
 | [Performance Round 2](docs/PERFORMANCE_ROUND_2.md) | Offline A/B candidates, measurements, and hardware promotion gates |
 | [Validation](docs/VALIDATION.md) | Hardware acceptance checklist and recorded evidence |
 | [Deployment](docs/DEPLOYMENT.md) | Safe folder/image staging and smoke tests |
-| [Package formats](docs/FFPKG.md) | Folder, `.ffpkg`, and `.ffpfsc` outputs |
+| [Package formats](docs/FFPKG.md) | Folder, `.ffpkg`, and raw exFAT outputs |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common build, launch, and runtime failures |
 | [Platform notes](docs/PLATFORM_NOTES.md) | PS5 filesystem, loader, and presentation constraints |
 | [Runtime shim](docs/RUNTIME_SHIM.md) | Clean-room `libc.prx` scope and reproduction |

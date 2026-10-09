@@ -1,48 +1,37 @@
 # Build output formats
 
 Every application or package build creates and validates
-`dist/<TITLE_ID>/`. The Make targets map to the same PowerShell
-`-OutputFormat` selections:
+`dist/<TITLE_ID>/`. Releases and every CI build carry that folder as a ZIP
+with its `SHA256SUMS`, and nothing else; the images below are local options.
+The Make targets map to the same PowerShell `-OutputFormat` selections where
+one exists:
 
 | Make target / selection | Additional output | Packaging tool |
 | --- | --- | --- |
 | `make app` / `Folder` | None | None |
 | `make ffpkg` / `Ffpkg` | `dist/<TITLE_ID>.ffpkg` | UFS2Tool |
-| `make ffpfsc` / `Ffpfsc` | `dist/<TITLE_ID>.ffpfsc` | MkPFS |
+| `make exfat` | `dist/<TITLE_ID>.exfat` | MkPFS (its exFAT writer) |
 | `make packages` / `All` | Both images | Both tools |
 
 ```bash
 make app
 make ffpkg
-make ffpfsc
+make exfat
 make packages
 ```
 
 `-Ffpkg` remains accepted as a compatibility alias for
 `-OutputFormat Ffpkg` in the Windows PowerShell frontend.
 
-## Compressed FFPFSC
+## Raw exFAT image
 
-MkPFS creates the console-compatible, exFAT-wrapped compressed form directly
-from the validated app folder:
-
-```text
-python -m mkpfs pack folder --no-adjust-output-file-extension \
-  --version PS5 --verify \
-  <app-directory> <title.ffpfsc>
-```
-
-On first use, `tools/setup-packaging-dependencies.sh` or the equivalent
-PowerShell bootstrapper fetches the pinned
-[PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) revision into the ignored
-`.deps/MkPFS` cache and installs its dependencies under that ignored checkout;
-Linux/WSL uses `.venv-linux` and PowerShell uses `.venv`. The repository does
-not distribute MkPFS source or binaries. Python 3.9 or newer with `venv`
-support is required.
-
-The build uses MkPFS's default wrapped-folder mode because upstream documents
-it as the maximum-compatibility `.ffpfsc` layout. It does not use the advanced
-direct raw-PFS mode.
+`tools/pack-exfat.py` writes the validated app folder into a raw exFAT image
+and reads every file back. On first use, `tools/setup-packaging-dependencies.sh`
+fetches the pinned [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) revision,
+whose exFAT writer the packer uses, into the ignored `.deps/MkPFS` cache and
+installs its dependencies under that ignored checkout (`.venv-linux`). The
+repository does not distribute MkPFS source or binaries. Python 3.9 or newer
+with `venv` support is required.
 
 ## UFS2 FFPKG
 
@@ -71,3 +60,8 @@ project does not create a signed retail PKG/FPKG container.
 Package files from older builds are not automatically deleted when a different
 format is selected. Rebuild the exact format immediately before deployment so
 an old image is not mistaken for the current app.
+
+The compressed `.ffpfsc` image of earlier versions is no longer built, and
+`make ffpfsc` is gone with it. If an old `<TITLE_ID>.ffpfsc` is still in
+`/data/homebrew`, delete it before installing the folder: a folder and an
+image with the same title ID must not both be in the loader's scan paths.

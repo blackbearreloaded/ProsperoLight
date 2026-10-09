@@ -3,7 +3,8 @@
 # Copyright (C) 2026 BlackBearReloaded
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Fetches UFS2Tool or MkPFS into the ignored cache without a global install.
+# Fetches UFS2Tool, or MkPFS for the raw exFAT image, into the ignored cache
+# without a global install.
 
 set -euo pipefail
 
@@ -56,7 +57,7 @@ case "$kind" in
         "$runner" --help >/dev/null || [[ $? -eq 1 ]]
         printf '%s\n' "$runner"
         ;;
-    ffpfsc)
+    exfat)
         for command in git python3; do
             command -v "$command" >/dev/null || {
                 echo "missing required command: $command" >&2
@@ -110,7 +111,7 @@ case "$kind" in
         printf '%s\n' "$runner"
         ;;
     *)
-        echo "usage: tools/setup-packaging-dependencies.sh <ffpkg|ffpfsc>" >&2
+        echo "usage: tools/setup-packaging-dependencies.sh <ffpkg|exfat>" >&2
         exit 2
         ;;
 esac

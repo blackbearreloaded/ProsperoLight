@@ -137,8 +137,8 @@ Private modules used during research are neither build inputs nor repository
 content.
 
 The generated binary is not tracked in Git. CI reproduces it from source,
-checks `runtime/libc.prx.sha256`, and includes it in the `.ffpfsc` application
-image. Tagged GitHub Releases publish only that image.
+checks `runtime/libc.prx.sha256`, and includes it in the application folder.
+Tagged GitHub Releases publish that folder as a ZIP.
 
 ## Hardware validation
 

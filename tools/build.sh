@@ -11,8 +11,8 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$root/tools/native-toolchain.sh"
 format=${1:-Folder}
 format=${format,,}
-case "$format" in folder|ffpkg|ffpfsc|exfat|all) ;; *)
-    echo "usage: tools/build.sh [Folder|Ffpkg|Ffpfsc|Exfat|All]" >&2
+case "$format" in folder|ffpkg|exfat|all) ;; *)
+    echo "usage: tools/build.sh [Folder|Ffpkg|Exfat|All]" >&2
     exit 2
 esac
 # Checked before anything is built; written into the app folder further down.
@@ -446,21 +446,14 @@ with open(sys.argv[1], "rb") as stream:
         raise SystemExit("FFPKG is missing the UFS2 superblock magic")
 PY
 fi
-if [[ $format == ffpfsc || $format == all ]]; then
-    mkpfs=$(bash "$root/tools/setup-packaging-dependencies.sh" ffpfsc)
-    rm -f -- "$dist/$title_id.ffpfsc"
-    "$mkpfs" pack folder --no-adjust-output-file-extension \
-        --version PS5 --verify "$app" "$dist/$title_id.ffpfsc"
-fi
-if [[ $format == exfat || $format == ffpfsc || $format == all ]]; then
+if [[ $format == exfat || $format == all ]]; then
     # Raw exFAT avoids the PFSC mounting corruption observed on firmware 13.60. It is a
     # local option (releases carry the ZIP); its packer runs in the MkPFS Python environment.
-    bash "$root/tools/setup-packaging-dependencies.sh" ffpfsc >/dev/null
+    bash "$root/tools/setup-packaging-dependencies.sh" exfat >/dev/null
     "$root/.deps/MkPFS/.venv-linux/bin/python" "$root/tools/pack-exfat.py" \
         "$app" "$dist/$title_id.exfat"
 fi
 
 printf 'Build complete.\nApp folder: %s\n' "$app"
 [[ $format != ffpkg && $format != all ]] || printf 'FFPKG:     %s\n' "$dist/$title_id.ffpkg"
-[[ $format != ffpfsc && $format != all ]] || printf 'FFPFSC:    %s\n' "$dist/$title_id.ffpfsc"
-[[ $format != exfat && $format != ffpfsc && $format != all ]] || printf 'exFAT:     %s\n' "$dist/$title_id.exfat"
+[[ $format != exfat && $format != all ]] || printf 'exFAT:     %s\n' "$dist/$title_id.exfat"

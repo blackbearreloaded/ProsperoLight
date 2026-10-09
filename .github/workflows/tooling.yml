@@ -232,24 +232,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          TAG=$GITHUB_REF_NAME
           assets=("release/$ARCHIVE" "release/$CHECKSUM")
-          archive_name="${ARCHIVE##*/}"
-          checksum_name="${CHECKSUM##*/}"
           release_flags=()
           case "$GITHUB_REF_NAME" in
             01.000.062|01.000.070|01.000.080|01.000.090)
               release_flags=(--prerelease --latest=false)
               ;;
           esac
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            while IFS= read -r old_asset; do
-              if [[ $old_asset != "$archive_name" && $old_asset != "$checksum_name" ]]; then
-                gh release delete-asset "$GITHUB_REF_NAME" "$old_asset" --yes --repo "$GITHUB_REPOSITORY"
-              fi
-            done < <(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "ProsperoLight $GITHUB_REF_NAME" --notes-file release-notes.md "${release_flags[@]}"
+          # The files of a release come from the run of its tag, once. A release without a
+          # ZIP (notes written in advance, or a draft) gets them and keeps its title and
+          # notes; one that already has a ZIP is never touched, because the catalog records
+          # that ZIP's checksum.
+          if names=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null); then
+            has_zip=0
+            while IFS= read -r name; do
+              if [[ $name == *.zip ]]; then has_zip=1; fi
+            done <<< "$names"
+            if (( has_zip )); then
+              echo "::warning title=Release files not from this run::A release for $TAG already has a ZIP; it was not replaced. Its files were not published by this run and may have no attestation."
+            else
+              gh release upload "$TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY"
+            fi
           else
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" \

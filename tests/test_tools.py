@@ -844,6 +844,12 @@ class ToolTests(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn("\nexfat: ", makefile)
         self.assertIn("bash tools/build.sh Exfat", makefile)
+        # The compressed image is gone: no target, no script branch.
+        for name in ("Makefile", "tools/build.sh", "build.ps1",
+                     "tools/setup-packaging-dependencies.sh"):
+            text = (ROOT / name).read_text(encoding="utf-8").lower()
+            self.assertNotIn("ffpfsc", text, name)
+        self.assertFalse((ROOT / "tools/setup-mkpfs-tooling.ps1").exists())
 
     def test_release_workflow_publishes_folder_zip_and_checksums(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(
@@ -860,9 +866,15 @@ class ToolTests(unittest.TestCase):
         self.assertIn("find . -type f -name 'SHA256SUMS' -print0", workflow)
         self.assertIn('sha256sum -c "$(basename "${checksums[0]}")"', workflow)
         self.assertIn('assets=("release/$ARCHIVE" "release/$CHECKSUM")', workflow)
-        self.assertIn("gh release delete-asset", workflow)
+        # A release that already has a ZIP is never changed; one without gets the two files.
+        self.assertNotIn("--clobber", workflow)
+        self.assertNotIn("delete-asset", workflow)
+        self.assertNotIn("gh release edit", workflow)
+        self.assertEqual(workflow.count("gh release upload"), 1)
+        self.assertIn("--json assets --jq '.assets[].name'", workflow)
+        self.assertIn("::warning title=Release files not from this run::", workflow)
         self.assertIn('awk -v version="$GITHUB_REF_NAME"', workflow)
-        self.assertEqual(workflow.count("--notes-file release-notes.md"), 2)
+        self.assertEqual(workflow.count("--notes-file release-notes.md"), 1)
         self.assertNotIn(".ffpkg", workflow)
 
     def test_readme_bitrate_limits_match_the_measured_model(self):
@@ -1134,6 +1146,7 @@ class ToolTests(unittest.TestCase):
             (ROOT / "sce_sys/param.json").read_text(encoding="utf-8")
         )["titleId"]
         self.assertIn(f"/data/homebrew/{title_id}/", result.stdout)
+        # A compressed image left by an older version is still cleaned up.
         self.assertIn(f"{title_id}.{{ffpkg,ffpfsc}}", result.stdout)
         self.assertIn("no network request was sent", result.stdout)
 

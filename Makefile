@@ -113,7 +113,7 @@ STREAM_INPUTS := tools/pyrowave/apply-transport.sh tools/pyrowave/patches/moonli
 	$(wildcard third_party/mbedtls/library/* third_party/mbedtls/include/mbedtls/*) \
 	$(wildcard third_party/opus/src/* third_party/opus/include/*)
 
-.PHONY: transport-deps all app build init doctor test test-deps test-unit test-integration libc deps pacbrew pacbrew-list stream-deps assets-check format format-check tidy lint check ffpkg ffpfsc packages deploy undeploy clean distclean help
+.PHONY: transport-deps all app build init doctor test test-deps test-unit test-integration libc deps pacbrew pacbrew-list stream-deps assets-check format format-check tidy lint check ffpkg packages deploy undeploy clean distclean help
 
 all: app
 build: app
@@ -318,11 +318,6 @@ ffpkg: $(RUNTIME) $(STREAM_ARCHIVES)
 	@printf '%s\n' '==> [ffpkg] Building the app folder and UFS2 image'
 	@bash tools/build.sh Ffpkg
 
-ffpfsc: $(RUNTIME) $(STREAM_ARCHIVES)
-	@bash tools/build-stream-deps.sh --ensure
-	@printf '%s\n' '==> [ffpfsc] Building the app folder and compressed image'
-	@bash tools/build.sh Ffpfsc
-
 exfat: $(RUNTIME) $(STREAM_ARCHIVES)
 	@bash tools/build-stream-deps.sh --ensure
 	@printf '%s\n' '==> [exfat] Building the app folder and the raw exFAT image'
@@ -330,7 +325,7 @@ exfat: $(RUNTIME) $(STREAM_ARCHIVES)
 
 packages: $(RUNTIME) $(STREAM_ARCHIVES)
 	@bash tools/build-stream-deps.sh --ensure
-	@printf '%s\n' '==> [packages] Building the app folder and both package formats'
+	@printf '%s\n' '==> [packages] Building the app folder, the UFS2 image, and the raw exFAT image'
 	@bash tools/build.sh All
 
 deploy:
@@ -391,14 +386,13 @@ help:
 	  'make check           Run lint and build the skeleton app' \
 	  'make ffpkg           Build the folder and UFS2 .ffpkg image' \
 	  'make exfat           Build the folder and the raw exFAT image (local only; releases carry the ZIP)' \
-	  'make ffpfsc          Build the folder and compressed .ffpfsc image' \
-	  'make packages        Build folder, .ffpkg, and .ffpfsc outputs' \
+	  'make packages        Build folder, .ffpkg, and raw exFAT outputs (local only)' \
 	  'make deploy PS5_HOST=<address>  Build and FTP-deploy the app folder' \
 	  'make undeploy PS5_HOST=<address>  Remove this title from /data/homebrew' \
 	  'Build variables:     APP_DEFINITIONS, APP_INCLUDE_PATHS, APP_STATIC_ARCHIVES, APP_RUNTIME_MODULES' \
 	  'PacBrew variables:   PACBREW_PACKAGES, PACBREW_INCLUDE_PATHS, PACBREW_STATIC_ARCHIVES' \
 	  'Diagnostics:         LAN_TELEMETRY=1 enables the optional port-8767 development sink' \
-	  'Deploy variables:    FTP_PORT=2121, DEPLOY_FORMAT=folder|ffpfsc|ffpkg, DEPLOY_DRY_RUN=0|1' \
+	  'Deploy variables:    FTP_PORT=2121, DEPLOY_FORMAT=folder|ffpkg, DEPLOY_DRY_RUN=0|1' \
 	  'Local defaults:      Copy .env.example to the ignored .env file' \
 	  'make clean           Remove build/, dist/, and generated libc.prx' \
 	  'make distclean       Also remove the ignored .deps/ cache'
@@ -410,4 +404,4 @@ controller-deps: $(if $(wildcard tools/pyrowave/apply-transport.sh),transport-de
 $(HOST_UNIT_TEST) test-integration test-stream-performance test-performance-guards: | controller-deps
 
 # Every package carries the helper that installs the next release.
-app ffpkg ffpfsc exfat packages: self-update-helper
+app ffpkg exfat packages: self-update-helper
