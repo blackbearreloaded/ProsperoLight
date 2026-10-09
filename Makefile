@@ -77,7 +77,6 @@ PACBREW_INCLUDE_PATHS ?=
 PACBREW_STATIC_ARCHIVES ?=
 PS5_HOST ?=
 FTP_PORT ?= 2121
-DEPLOY_FORMAT ?= folder
 PS5_FTP_USER ?= anonymous
 PS5_FTP_PASSWORD ?= codex
 DEPLOY_DRY_RUN ?= 0
@@ -94,7 +93,7 @@ export FEC_SIMD OPUS_SIMD PYROWAVE
 export APP_DEFINITIONS APP_INCLUDE_PATHS APP_STATIC_ARCHIVES APP_IMPORT_STUBS APP_RUNTIME_MODULES
 export PS5_OPENGL_PREFIX
 export PACBREW_PACKAGES PACBREW_INCLUDE_PATHS PACBREW_STATIC_ARCHIVES
-export PS5_HOST FTP_PORT DEPLOY_FORMAT PS5_FTP_USER PS5_FTP_PASSWORD DEPLOY_DRY_RUN
+export PS5_HOST FTP_PORT PS5_FTP_USER PS5_FTP_PASSWORD DEPLOY_DRY_RUN
 export TITLE_ID APP_NAME APP_CATEGORY CONTENT_SUFFIX
 
 RUNTIME := runtime/libc.prx
@@ -113,7 +112,7 @@ STREAM_INPUTS := tools/pyrowave/apply-transport.sh tools/pyrowave/patches/moonli
 	$(wildcard third_party/mbedtls/library/* third_party/mbedtls/include/mbedtls/*) \
 	$(wildcard third_party/opus/src/* third_party/opus/include/*)
 
-.PHONY: transport-deps all app build init doctor test test-deps test-unit test-integration libc deps pacbrew pacbrew-list stream-deps assets-check format format-check tidy lint check ffpkg packages deploy undeploy clean distclean help
+.PHONY: transport-deps all app build init doctor test test-deps test-unit test-integration libc deps pacbrew pacbrew-list stream-deps assets-check format format-check tidy lint check deploy undeploy clean distclean help
 
 all: app
 build: app
@@ -313,23 +312,8 @@ $(STREAM_ARCHIVES) &: $(STREAM_INPUTS)
 	@printf '%s\n' '==> [stream] Building pinned Moonlight, mbedTLS, and Opus archives'
 	@bash tools/build-stream-deps.sh
 
-ffpkg: $(RUNTIME) $(STREAM_ARCHIVES)
-	@bash tools/build-stream-deps.sh --ensure
-	@printf '%s\n' '==> [ffpkg] Building the app folder and UFS2 image'
-	@bash tools/build.sh Ffpkg
-
-exfat: $(RUNTIME) $(STREAM_ARCHIVES)
-	@bash tools/build-stream-deps.sh --ensure
-	@printf '%s\n' '==> [exfat] Building the app folder and the raw exFAT image'
-	@bash tools/build.sh Exfat
-
-packages: $(RUNTIME) $(STREAM_ARCHIVES)
-	@bash tools/build-stream-deps.sh --ensure
-	@printf '%s\n' '==> [packages] Building the app folder, the UFS2 image, and the raw exFAT image'
-	@bash tools/build.sh All
-
 deploy:
-	@printf '%s\n' '==> [deploy] Building and publishing the selected app output over FTP'
+	@printf '%s\n' '==> [deploy] Building and publishing the app folder over FTP'
 	@bash tools/deploy.sh
 
 undeploy:
@@ -384,15 +368,12 @@ help:
 	  'make tidy            Run the shared Clang static-analysis policy' \
 	  'make lint            Run format, tidy, metadata, and shell checks' \
 	  'make check           Run lint and build the skeleton app' \
-	  'make ffpkg           Build the folder and UFS2 .ffpkg image' \
-	  'make exfat           Build the folder and the raw exFAT image (local only; releases carry the ZIP)' \
-	  'make packages        Build folder, .ffpkg, and raw exFAT outputs (local only)' \
 	  'make deploy PS5_HOST=<address>  Build and FTP-deploy the app folder' \
 	  'make undeploy PS5_HOST=<address>  Remove this title from /data/homebrew' \
 	  'Build variables:     APP_DEFINITIONS, APP_INCLUDE_PATHS, APP_STATIC_ARCHIVES, APP_RUNTIME_MODULES' \
 	  'PacBrew variables:   PACBREW_PACKAGES, PACBREW_INCLUDE_PATHS, PACBREW_STATIC_ARCHIVES' \
 	  'Diagnostics:         LAN_TELEMETRY=1 enables the optional port-8767 development sink' \
-	  'Deploy variables:    FTP_PORT=2121, DEPLOY_FORMAT=folder|ffpkg, DEPLOY_DRY_RUN=0|1' \
+	  'Deploy variables:    FTP_PORT=2121, DEPLOY_DRY_RUN=0|1' \
 	  'Local defaults:      Copy .env.example to the ignored .env file' \
 	  'make clean           Remove build/, dist/, and generated libc.prx' \
 	  'make distclean       Also remove the ignored .deps/ cache'
@@ -403,5 +384,5 @@ controller-deps: $(if $(wildcard tools/pyrowave/apply-transport.sh),transport-de
 
 $(HOST_UNIT_TEST) test-integration test-stream-performance test-performance-guards: | controller-deps
 
-# Every package carries the helper that installs the next release.
-app ffpkg exfat packages: self-update-helper
+# The app folder carries the helper that installs the next release.
+app: self-update-helper

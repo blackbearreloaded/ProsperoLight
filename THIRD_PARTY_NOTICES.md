@@ -14,9 +14,8 @@ ProsperoLight exists thanks to the maintainers and contributors of:
   [Mesa](https://www.mesa3d.org/), which the launcher draws with;
 - [mbedTLS](https://github.com/Mbed-TLS/mbedtls) and
   [Opus](https://github.com/xiph/opus) for secure protocol and audio support;
-- [MkPFS](https://github.com/PSBrew/MkPFS),
-  [UFS2Tool](https://github.com/SvenGDK/UFS2Tool), LLVM/Clang, Python, zlib,
-  and GoogleTest for build, packaging, and validation tooling.
+- LLVM/Clang, Python, zlib, and GoogleTest for build, packaging, and validation
+  tooling.
 
 The original ProsperoLight artwork and selection music are distributed under
 the project license.
@@ -68,23 +67,6 @@ release `v0.40.2`, verifies its published SHA-256, and extracts only the
 replace the pinned SDK or install files globally. PacBrew recipes and every
 linked third-party library retain their upstream licenses; applications must
 review those terms before redistribution.
-
-## Optional UFS2Tool dependency
-
-When `.ffpkg` output is requested, the platform bootstrapper fetches
-[SvenGDK/UFS2Tool](https://github.com/SvenGDK/UFS2Tool) at commit
-`b5307a60d5b4e3a68ba680e0e33cfadf05017c77` into the ignored
-`.deps/UFS2Tool` cache and builds it with the host .NET SDK. UFS2Tool is
-BSD-2-Clause software and is not distributed by this repository.
-
-## Optional MkPFS dependency
-
-When the raw exFAT image is requested (`make exfat`), the platform bootstrapper fetches
-[PSBrew/MkPFS](https://github.com/PSBrew/MkPFS) at commit
-`6cb8313dfe0c988ac52617794553f343243d3a56` into the ignored `.deps/MkPFS`
-cache and installs its Python dependencies into an ignored virtual environment
-there. MkPFS and its dependencies retain their own licenses and are not
-distributed by this repository.
 
 ## Independently authored runtime shim
 
