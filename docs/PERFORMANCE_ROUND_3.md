@@ -158,8 +158,7 @@ Other useful measurements in the overlap receipt:
 
 The earlier native fixed-source tests presented 600/600 frames at approximately
 119.88 FPS on firmware 6.02 and 12.70. That proves the presentation capability,
-not arbitrary live-stream decoding throughput. See the public
-[hardware benchmark definitions and results](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research/blob/main/docs/benchmarks.md).
+not arbitrary live-stream decoding throughput.
 
 ## Priorities and execution order
 
@@ -268,7 +267,6 @@ Why depth is not an easy win: prior live HEVC 4K60 research reduced API submissi
 from 5.464 to 0.333 ms at depth three, but output-ready latency rose from 5.472 to
 33.710 ms, with essentially unchanged 60 FPS throughput. A deeper queue must
 improve useful delivery and latency, not merely the number labeled "decode".
-Source: [pipeline-depth and live-stream benchmarks](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research/blob/main/docs/benchmarks.md).
 
 ### 3. Explain and improve the high-bitrate cliff
 
