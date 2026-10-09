@@ -7,6 +7,8 @@
 /* Native game Moonlight/Sunshine Videodec2 zero-copy stream. */
 
 #include "client_preferences.hpp"
+#include "scanout_trace.hpp"
+#include "pacing_decision_trace.hpp"
 #include "host_preferences.hpp"
 #include "ps5_dualsense.hpp"
 
@@ -2216,7 +2218,9 @@ static moonlight::FramePacing stream_pacer;
 static unsigned stream_presentation_mode = 0;
 
 static bool wait_presentation_deadline(native_renderer_state_t *state,
-                                       const stream_ready_frame_t &item)
+                                       const stream_ready_frame_t &item,
+                                       const moonlight::VrrRepeatPolicy &vrr,
+                                       PacingDecisionTrace &decisions)
 {
     if (!stream_presentation_mode)
         return true;
@@ -2228,10 +2232,14 @@ static bool wait_presentation_deadline(native_renderer_state_t *state,
         native_agc_vsync_active() && (stream_presentation_mode == 1 || !native_agc_vrr_active());
     const uint64_t started = monotonic_us();
     const uint64_t deadline =
-        stream_pacer.target(item.frame, item.pts_us, started, fixed ? refresh : 0,
-                            fixed ? state->last_present_us : 0, fixed ? 0 : refresh,
-                            std::max<uint64_t>(250, state->present_call_timing.percentile(99) +
-                                                        stream_pacer.wake_lead_us()));
+        native_agc_vrr_active()
+            ? vrr.picture_target(started)
+            : stream_pacer.target(
+                  item.frame, item.pts_us, started, fixed ? refresh : 0,
+                  fixed ? state->last_present_us : 0, fixed ? 0 : refresh,
+                  std::max<uint64_t>(250, state->present_call_timing.percentile(99) +
+                                              stream_pacer.wake_lead_us()));
+    decisions.record(item.frame, item.pts_us, started, deadline, "target");
     uint64_t now = started;
     while (now < deadline)
     {
@@ -2353,6 +2361,12 @@ static void *video_present_thread(void *context)
     bool flip_pending = false;
     bool first_picture = true;
     unsigned failures = 0;
+    uint64_t last_scanout_us = 0, last_picture_us = 0, repeated = 0;
+    bool repeating = false;
+    ScanoutTrace scanout_trace("native", stream_presentation_mode);
+    PacingDecisionTrace decisions("native", stream_presentation_mode);
+    moonlight::VrrRepeatPolicy vrr_repeats;
+    vrr_repeats.reset(state->stream_fps);
 
     if (state->layout.present)
         state->present_placement_result = ps5_thread_affinity_set(state->layout.present);
@@ -2374,21 +2388,97 @@ static void *video_present_thread(void *context)
                 continue;
             }
             flip_pending = false;
+            last_scanout_us = monotonic_us();
+            uint64_t count = 0, argument = 0;
+            if (native_agc_scanout_counter(&count, &argument) == 0)
+            {
+                scanout_trace.observe(count, argument, last_scanout_us, false);
+                vrr_repeats.scanned(count, last_scanout_us);
+            }
+            // A sparse host must not restart the idle grace period on every
+            // new picture. Leave repetition only when source motion resumes.
+            repeating = repeating && last_picture_us &&
+                        last_scanout_us - last_picture_us > UINT64_C(1500000) / state->stream_fps;
+            last_picture_us = last_scanout_us;
             failures = 0;
         }
         pthread_mutex_lock(&state->lock);
         while (!state->mailbox.full && !state->stop_presenting)
-            pthread_cond_wait(&state->wake, &state->lock);
+        {
+            if (!last_scanout_us)
+            {
+                pthread_cond_wait(&state->wake, &state->lock);
+                continue;
+            }
+            uint32_t width = 0, height = 0, refresh = 0;
+            native_agc_output_status(&width, &height, &refresh);
+            const uint64_t idle_delay = moonlight::idle_scanout_delay_us(
+                state->stream_fps, refresh, native_agc_vrr_active(), repeating);
+            const uint64_t now = monotonic_us();
+            const uint64_t repeat_deadline =
+                native_agc_vrr_active() ? vrr_repeats.deadline() : last_scanout_us + idle_delay;
+            if (now >= repeat_deadline)
+            {
+                pthread_mutex_unlock(&state->lock);
+                const uint64_t repeat_submitted = monotonic_us();
+                const int result = native_agc_repeat_frame();
+                last_scanout_us = monotonic_us();
+                vrr_repeats.repeated(repeat_submitted);
+                decisions.record(0, 0, repeat_submitted, repeat_deadline, "repeat");
+                uint64_t count = 0, argument = 0;
+                if (native_agc_scanout_counter(&count, &argument) == 0)
+                {
+                    scanout_trace.observe(count, argument, last_scanout_us, true);
+                    vrr_repeats.scanned(count, last_scanout_us);
+                }
+                repeating = true;
+                if (result == 0)
+                    ++repeated;
+                if (repeated == 1 || repeated % 600 == 0 || result != 0)
+                {
+                    char receipt[160];
+                    snprintf(receipt, sizeof(receipt),
+                             "Scanout repeat: count=%llu rc=%08x delay_us=%llu vrr_api=%d "
+                             "compensation=%d",
+                             (unsigned long long)repeated, (unsigned)result,
+                             (unsigned long long)(native_agc_vrr_active() ? vrr_repeats.interval()
+                                                                          : idle_delay),
+                             native_agc_vrr_active(), vrr_repeats.compensating());
+                    (void)lan_http_report_text(receipt);
+                }
+                pthread_mutex_lock(&state->lock);
+                if (result != 0)
+                {
+                    state->stop_presenting = true;
+                    pthread_mutex_unlock(&state->lock);
+                    fail_stream(result);
+                    return nullptr;
+                }
+                continue;
+            }
+            timespec timeout{};
+            clock_gettime(CLOCK_REALTIME, &timeout);
+            timeout.tv_nsec += (repeat_deadline - now) * 1000u;
+            timeout.tv_sec += timeout.tv_nsec / 1000000000;
+            timeout.tv_nsec %= 1000000000;
+            pthread_cond_timedwait(&state->wake, &state->lock, &timeout);
+        }
         if (state->stop_presenting || !state->mailbox.take(&current))
         {
             pthread_mutex_unlock(&state->lock);
             return nullptr;
         }
+        decisions.record(current.frame, current.pts_us, monotonic_us(), current.ready_us, "ready");
         // Only discard an old ready image if a decoded replacement exists.
         // GPU/decoder service is not counted as replaceable queue residence.
         while (stream_presentation_mode && state->mailbox.full &&
-               monotonic_us() > current.ready_us + stream_pacer.stale_limit_us())
+               monotonic_us() >
+                   current.ready_us + stream_pacer.admission_limit_us(
+                                          0, native_agc_vrr_active() && vrr_repeats.grid_active()
+                                                 ? vrr_repeats.interval()
+                                                 : 0))
         {
+            decisions.record(current.frame, current.pts_us, monotonic_us(), 0, "drop-age");
             state->frames.release(current.slot);
             if (current.trace)
                 current.trace->outcome = 2;
@@ -2405,7 +2495,17 @@ static void *video_present_thread(void *context)
             native_agc_reset_performance();
             first_picture = false;
         }
-        if (!wait_presentation_deadline(state, current))
+        const bool was_compensating = vrr_repeats.compensating();
+        vrr_repeats.observe_picture(current.pts_us);
+        if (native_agc_vrr_active() && was_compensating && !vrr_repeats.compensating())
+        {
+            stream_pacer.resume(monotonic_us());
+            char receipt[96];
+            snprintf(receipt, sizeof(receipt), "Native VRR recovery: source_fps=%u phase_resume=1",
+                     vrr_repeats.source_rate());
+            (void)lan_http_report_text(receipt);
+        }
+        if (!wait_presentation_deadline(state, current, vrr_repeats, decisions))
         {
             pthread_mutex_lock(&state->lock);
             state->frames.release(current.slot);
@@ -2414,6 +2514,8 @@ static void *video_present_thread(void *context)
         }
         if (submit_presentation(state, current) == 0)
         {
+            decisions.record(current.frame, current.pts_us, monotonic_us(), 0, "submit");
+            vrr_repeats.presented(monotonic_us());
             flip_pending = true;
             continue;
         }

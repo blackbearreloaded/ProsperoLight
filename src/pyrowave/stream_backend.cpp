@@ -1,23 +1,25 @@
+#include "app_storage.hpp"
 #include "frame_cadence.hpp"
 #include "frame_pacing.hpp"
+#include "scanout_trace.hpp"
+#include "pacing_decision_trace.hpp"
 #include "lan_http_report.hpp"
-#include "app_storage.hpp"
+#include "presentation_preferences.hpp"
 #include <cstdio>
 #include <new>
-#include "presentation_preferences.hpp"
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "stream_backend.hpp"
-#include "video/pyrowave_video_backend.hpp"
-#include "video/ps5_presentation_stats.hpp"
 #include "native_agc_present.hpp"
-#include <deque>
-#include <mutex>
-#include <condition_variable>
+#include "stream_backend.hpp"
+#include "video/ps5_presentation_stats.hpp"
+#include "video/pyrowave_video_backend.hpp"
 #include <atomic>
-#include <pthread.h>
-#include <ctime>
 #include <chrono>
+#include <condition_variable>
+#include <ctime>
+#include <deque>
 #include <exception>
+#include <mutex>
+#include <pthread.h>
 
 extern "C" int wsi_ps5_release_videoout(void);
 namespace prosperolight::pyrowave
@@ -38,6 +40,7 @@ struct Session
     std::mutex mutex;
     std::condition_variable wake;
     std::deque<Frame> queue;
+    PacingDecisionTrace decisions{"pyrowave", moonlight::presentation_mode()};
     bool running{}, started{};
     pthread_t worker{};
     unsigned width{}, height{}, fps{};
@@ -99,7 +102,8 @@ struct OutputTrace
     }
     ~OutputTrace()
     {
-        log_line("PyroWave pacing result: mode=%u period_us=%llu reserve_us=%llu submissions=%llu "
+        log_line("PyroWave pacing result: mode=%u period_us=%llu reserve_us=%llu "
+                 "submissions=%llu "
                  "misses=%llu resets=%llu late_max_us=%llu spacing_error_max_us=%llu",
                  mode, (unsigned long long)pacer.stats.period_us,
                  (unsigned long long)pacer.stats.reserve_us,
@@ -142,6 +146,8 @@ struct PacingWait
     unsigned mode;
     uint32_t refresh;
     uint64_t ready_us{}, submit_us{};
+    moonlight::VrrRepeatPolicy *vrr{};
+    uint64_t previous_request{};
 };
 
 void wait_prepared_frame(void *context)
@@ -155,9 +161,39 @@ void wait_prepared_frame(void *context)
         wait.submit_us = started;
         return;
     }
-    const uint64_t deadline = wait.pacer->target(
-        wait.frame->number, wait.frame->presentation_us, started,
-        wait.mode == 1 && selected_vsync ? wait.refresh : 0, 0, wait.mode == 2 ? wait.refresh : 0);
+    if (ps5_vrr_output_active())
+    {
+        // A ready source image replaces the next repeat slot. Retire the
+        // previous scanout first; a GPU fence cannot establish this floor.
+        for (;;)
+        {
+            const auto output = ps5_presentation_stats();
+            if (!output.available)
+                fail("VRR scanout counters unavailable");
+            wait.vrr->scanned(output.flip_count, now_us());
+            if (!wait.previous_request ||
+                moonlight::idle_repeat_ready(wait.previous_request, output.shown, output.available))
+                break;
+            {
+                std::unique_lock<std::mutex> lock(s.mutex);
+                if (!s.running)
+                    return;
+                s.wake.wait_for(lock, std::chrono::microseconds(1000), [&] { return !s.running; });
+            }
+            if (now_us() - started > 100000)
+                fail("VRR previous scanout did not complete within 100ms");
+        }
+    }
+    // VRR has ONE admission clock for fresh pictures and repeats. Applying
+    // the fixed/source pacer as well can postpone a prepared picture after a
+    // repeat and create an additional 30-50 ms transition gap.
+    const uint64_t deadline =
+        ps5_vrr_output_active()
+            ? wait.vrr->picture_target(now_us())
+            : wait.pacer->target(wait.frame->number, wait.frame->presentation_us, started,
+                                 selected_vsync ? wait.refresh : 0);
+    s.decisions.record(wait.frame->number, wait.frame->presentation_us, now_us(), deadline,
+                       "target");
     std::unique_lock<std::mutex> lock(s.mutex);
     while (s.running)
     {
@@ -179,6 +215,8 @@ void wait_prepared_frame(void *context)
         }
     }
     const uint64_t submitted = now_us();
+    s.decisions.record(wait.frame->number, wait.frame->presentation_us, submitted, deadline,
+                       "submit");
     wait.submit_us = submitted;
     wait.pacer->submitted(deadline, submitted, submitted - started);
 }
@@ -196,7 +234,10 @@ void *worker(void *)
     pacer.reset(s.fps);
     const bool paced = mode != 0;
     OutputTrace trace(pacer, mode, s.fps);
-    log_line("PyroWave pacing: mode=%u requested_fps=%u selected_refresh_x100=%u source_clock=1",
+    ScanoutTrace scanout_trace("pyrowave", mode);
+    uint64_t repeat_argument = 0;
+    log_line("PyroWave pacing: mode=%u requested_fps=%u selected_refresh_x100=%u "
+             "source_clock=1",
              mode, s.fps, refresh);
     uint64_t last = now_us(), incoming = 0, decoded = 0, shown = 0, bytes = 0;
     double decode_ms = 0, render_ms = 0;
@@ -206,6 +247,11 @@ void *worker(void *)
     bool refresh_reported = false;
     unsigned windows = 0;
     uint64_t stall_count = 0, last_stall_log = 0;
+    uint64_t last_scanout_us = 0, last_picture_us = 0, repeated = 0;
+    uint64_t last_observed_picture = 0;
+    moonlight::VrrRepeatPolicy vrr_repeats;
+    vrr_repeats.reset(s.fps);
+    bool repeating = false;
     try
     {
         for (;;)
@@ -214,7 +260,66 @@ void *worker(void *)
             Frame frame;
             {
                 std::unique_lock<std::mutex> lock(s.mutex);
-                s.wake.wait(lock, [&] { return !s.running || !s.queue.empty(); });
+                while (s.running && s.queue.empty())
+                {
+                    if (!last_scanout_us)
+                    {
+                        s.wake.wait(lock, [&] { return !s.running || !s.queue.empty(); });
+                        continue;
+                    }
+                    // vkQueuePresent/GPU fences are not display completion.
+                    // Observe the last WSI flip argument before scheduling an
+                    // idle repeat; queued source frames must drain first.
+                    const auto output = ps5_presentation_stats();
+                    if (output.available)
+                        scanout_trace.observe(output.flip_count, output.shown, now_us(),
+                                              output.shown == repeat_argument);
+                    if (output.available && output.shown != last_observed_picture)
+                    {
+                        last_observed_picture = output.shown;
+                        last_scanout_us = now_us();
+                        vrr_repeats.scanned(output.flip_count, last_scanout_us);
+                    }
+                    if (!moonlight::idle_repeat_ready(s.backend->requested(), output.shown,
+                                                      output.available))
+                    {
+                        s.wake.wait_for(lock, std::chrono::microseconds(1000),
+                                        [&] { return !s.running || !s.queue.empty(); });
+                        continue;
+                    }
+                    const uint64_t idle_delay = moonlight::idle_scanout_delay_us(
+                        s.fps, refresh, ps5_vrr_output_active(), repeating);
+                    const uint64_t repeat_deadline = ps5_vrr_output_active()
+                                                         ? vrr_repeats.deadline()
+                                                         : last_scanout_us + idle_delay;
+                    const uint64_t current = now_us();
+                    if (current < repeat_deadline)
+                    {
+                        s.wake.wait_for(lock, std::chrono::microseconds(repeat_deadline - current),
+                                        [&] { return !s.running || !s.queue.empty(); });
+                        continue;
+                    }
+                    lock.unlock();
+                    // Re-render retained decoded planes, never re-decode the
+                    // compressed frame or acquire a decoder/network slot.
+                    repeat_argument = s.backend->requested() + 1;
+                    const uint64_t repeat_submitted = now_us();
+                    s.backend->present(nullptr, nullptr, true, true);
+                    last_scanout_us = now_us();
+                    s.decisions.record(0, 0, last_scanout_us, repeat_deadline, "repeat");
+                    vrr_repeats.repeated(repeat_submitted);
+                    repeating = true;
+                    ++repeated;
+                    if (repeated == 1 || repeated % 600 == 0)
+                        log_line("PyroWave scanout repeat: count=%llu delay_us=%llu vrr_api=%d "
+                                 "compensation=%d",
+                                 (unsigned long long)repeated,
+                                 (unsigned long long)(ps5_vrr_output_active()
+                                                          ? vrr_repeats.interval()
+                                                          : idle_delay),
+                                 ps5_vrr_output_active(), vrr_repeats.compensating());
+                    lock.lock();
+                }
                 if (!s.running)
                     break;
                 if (paced)
@@ -222,8 +327,17 @@ void *worker(void *)
                     // Keep a small FIFO reserve; independent frames may be
                     // skipped before decode only when a successor exists.
                     while (s.queue.size() > 1 &&
-                           now_us() > s.queue.front().queued_us + pacer.stale_limit_us())
+                           now_us() > s.queue.front().queued_us +
+                                          pacer.admission_limit_us(
+                                              uint64_t(uint32_t(s.queue[1].rtp_timestamp -
+                                                                s.queue.front().rtp_timestamp)) *
+                                                  1000000 / 90000,
+                                              ps5_vrr_output_active() && vrr_repeats.grid_active()
+                                                  ? vrr_repeats.interval()
+                                                  : 0))
                     {
+                        s.decisions.record(s.queue.front().number, s.queue.front().rtp_timestamp,
+                                           now_us(), 0, "drop-age");
                         s.queue.pop_front();
                         ++s.stale;
                     }
@@ -239,6 +353,7 @@ void *worker(void *)
             }
 
             const uint64_t dequeued = now_us();
+            s.decisions.record(frame.number, frame.rtp_timestamp, dequeued, 0, "dequeue");
             frame.presentation_us = source_clock.update(frame.rtp_timestamp, frame.presentation_us);
             PyroWaveFraming::Frame parsed;
             std::string error;
@@ -257,17 +372,34 @@ void *worker(void *)
                 ++s.partial;
             ++s.decoded;
             s.backend->update_hud(nullptr, native_agc_hud_enabled() != 0);
+            const bool was_compensating = vrr_repeats.compensating();
+            vrr_repeats.observe_picture(frame.presentation_us);
+            if (ps5_vrr_output_active() && was_compensating && !vrr_repeats.compensating())
+            {
+                pacer.resume(now_us());
+                log_line("PyroWave VRR recovery: source_fps=%u phase_resume=1",
+                         vrr_repeats.source_rate());
+            }
             PacingWait wait{&s, &pacer, &frame, mode, refresh};
+            wait.vrr = &vrr_repeats;
+            wait.previous_request = s.backend->requested();
             const uint64_t preparation_started = now_us();
             auto timing = s.backend->present(wait_prepared_frame, &wait, paced);
             const uint64_t finished = now_us();
+            last_scanout_us = finished;
+            repeating = repeating && last_picture_us &&
+                        finished - last_picture_us > UINT64_C(1500000) / s.fps;
+            last_picture_us = finished;
+            vrr_repeats.presented(wait.submit_us ? wait.submit_us : finished);
             if (finished - preparation_started > 50000 || preparation_started - dequeued > 50000)
             {
                 ++stall_count;
                 if (finished - last_stall_log >= 1000000)
                 {
-                    log_line("PyroWave stall: count=%llu frame=%d dequeue_us=%llu ingest_us=%llu "
-                             "acquire_ms=%.3f record_ms=%.3f submit_ms=%.3f prepared_wait_ms=%.3f "
+                    log_line("PyroWave stall: count=%llu frame=%d dequeue_us=%llu "
+                             "ingest_us=%llu "
+                             "acquire_ms=%.3f record_ms=%.3f submit_ms=%.3f "
+                             "prepared_wait_ms=%.3f "
                              "pacing_ms=%.3f present_ms=%.3f completion_ms=%.3f gpu_ms=%.3f",
                              (unsigned long long)stall_count, frame.number,
                              (unsigned long long)(dequeued - iteration_started),
@@ -282,10 +414,14 @@ void *worker(void *)
             render_ms += timing.render_ms;
             ++samples;
             counters = ps5_presentation_stats();
+            if (counters.available)
+                scanout_trace.observe(counters.flip_count, counters.shown, now_us(),
+                                      counters.shown == repeat_argument);
             if (!counters.available)
             {
                 record_error("VideoOut presentation counters unavailable");
-                log_line("PyroWave worker failed: VideoOut presentation counters unavailable");
+                log_line("PyroWave worker failed: VideoOut presentation counters "
+                         "unavailable");
                 if (error_callback)
                     error_callback(-1);
                 return nullptr;
@@ -312,7 +448,8 @@ void *worker(void *)
                     log_line("PyroWave VideoOut actual %.3f Hz; selected %.3f Hz", refresh,
                              s.backend->refresh_hz());
                     if (s.fps > 100 && refresh < 100)
-                        log_line("PyroWave 120 Hz verification pending: short live window %.3f Hz; "
+                        log_line("PyroWave 120 Hz verification pending: short live window "
+                                 "%.3f Hz; "
                                  "continuing stream",
                                  refresh);
                     refresh_reported = true;
@@ -328,13 +465,14 @@ void *worker(void *)
                 }
                 if (s.shown.load() == shown && counters.failed && samples)
                 {
-                    record_error(
-                        "VideoOut stopped presenting frames; reconnect or restart ProsperoLight");
+                    record_error("VideoOut stopped presenting frames; reconnect or "
+                                 "restart ProsperoLight");
                     if (error_callback)
                         error_callback(-1);
                     return nullptr;
                 }
-                log_line("PyroWave live: in=%.2f decoded=%.2f shown=%.2f vblank=%.2f Mbps=%.2f GPU "
+                log_line("PyroWave live: in=%.2f decoded=%.2f shown=%.2f vblank=%.2f "
+                         "Mbps=%.2f GPU "
                          "decode=%.3f render=%.3f ms queue=%zu/%zu stale=%llu partial=%llu "
                          "rejected=%llu lost_packets=%llu flip_errors=%llu",
                          (s.incoming.load() - incoming) / seconds,
@@ -382,6 +520,7 @@ void *worker(void *)
         if (error_callback)
             error_callback(-1);
     }
+    log_line("PyroWave scanout repeats total=%llu", (unsigned long long)repeated);
     return nullptr;
 }
 int setup(int format, int width, int height, int fps, void *, int flags)
@@ -407,7 +546,8 @@ int setup(int format, int width, int height, int fps, void *, int flags)
         s.backend = std::make_unique<PyroWaveVideoBackend>(*s.context);
         s.backend->initialize(width, height, fps, s.chroma444, s.hdr, selected_vsync,
                               selected_tv_safe);
-        log_line("PyroWave negotiated: %dx%d @ %d FPS, %s %s %u-bit limited range, compression=0",
+        log_line("PyroWave negotiated: %dx%d @ %d FPS, %s %s %u-bit limited range, "
+                 "compression=0",
                  width, height, fps, s.hdr ? "HDR10" : "SDR", s.chroma444 ? "4:4:4" : "4:2:0",
                  s.hdr ? 10u : 8u);
         return 0;
@@ -454,7 +594,8 @@ int submit(PDECODE_UNIT unit)
         ((hdr_known.load() && !hdr_active.load()) || unit->colorspace != COLORSPACE_REC_2020))
     {
         record_error("HDR10 unavailable: enable HDR on the host capture display");
-        log_line("PyroWave HDR10 rejected: enable HDR on the host capture display; colorspace=%u",
+        log_line("PyroWave HDR10 rejected: enable HDR on the host capture display; "
+                 "colorspace=%u",
                  unit->colorspace);
         if (error_callback)
             error_callback(-1);
@@ -494,9 +635,13 @@ int submit(PDECODE_UNIT unit)
             return DR_OK;
         if (session->queue.size() == 2)
         {
+            session->decisions.record(session->queue.front().number,
+                                      session->queue.front().rtp_timestamp, now_us(), 0,
+                                      "drop-capacity");
             session->queue.pop_front();
             ++session->stale;
         }
+        session->decisions.record(frame.number, frame.rtp_timestamp, frame.queued_us, 0, "arrival");
         ++session->incoming;
         session->bytes += offset;
         session->queue.push_back(std::move(frame));
@@ -513,7 +658,8 @@ void cleanup()
     if (session)
     {
         log_line(
-            "PyroWave session summary: incoming=%llu decoded=%llu shown=%llu stale=%llu "
+            "PyroWave session summary: incoming=%llu decoded=%llu shown=%llu "
+            "stale=%llu "
             "partial=%llu rejected=%llu lost_packets=%llu high_water=%zu",
             (unsigned long long)session->incoming.load(),
             (unsigned long long)session->decoded.load(), (unsigned long long)session->shown.load(),
@@ -526,7 +672,8 @@ void cleanup()
         session.reset();
         const int release_result = wsi_ps5_release_videoout();
         if (release_result)
-            record_error("VideoOut release failed; restart ProsperoLight before streaming again");
+            record_error("VideoOut release failed; restart ProsperoLight before "
+                         "streaming again");
         log_line("PyroWave VideoOut handoff complete: rc=%08x", unsigned(release_result));
     }
 }

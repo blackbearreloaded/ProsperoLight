@@ -139,7 +139,7 @@ bool PyroWaveVideoBackend::ingest(const uint8_t *data,
                    : decoder_.frame_ready();
 }
 VideoFrameTiming PyroWaveVideoBackend::present(void (*before_present)(void *), void *context,
-                                               bool wait_for_prepared)
+                                               bool wait_for_prepared, bool repeat)
 {
     double start = clock_ms();
     unsigned index = 0;
@@ -147,10 +147,11 @@ VideoFrameTiming PyroWaveVideoBackend::present(void (*before_present)(void *), v
                                 &index));
     const double acquired_at = clock_ms();
     c_.begin();
-    output_->prepare();
+    if (!repeat)
+        output_->prepare();
     vkCmdResetQueryPool(c_.cmd, c_.queries, 0, 4);
     vkCmdWriteTimestamp(c_.cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, c_.queries, 0);
-    if (!decoder_.decode(c_.cmd, *output_))
+    if (!repeat && !decoder_.decode(c_.cmd, *output_))
         fail("decode frame");
     vkCmdWriteTimestamp(c_.cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, c_.queries, 1);
     vkCmdWriteTimestamp(c_.cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, c_.queries, 2);

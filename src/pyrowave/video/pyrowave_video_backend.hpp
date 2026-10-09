@@ -20,7 +20,7 @@ class PyroWaveVideoBackend
                     bool vsync, bool tv_safe);
     bool ingest(const uint8_t *data, const std::vector<PyroWaveFraming::Span> &spans, bool partial);
     VideoFrameTiming present(void (*before_present)(void *) = nullptr, void *context = nullptr,
-                             bool wait_for_prepared = true);
+                             bool wait_for_prepared = true, bool repeat = false);
     void update_hud(const char *text, bool enabled)
     {
         renderer_.update_hud(text, enabled);

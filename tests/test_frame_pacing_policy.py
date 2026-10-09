@@ -70,6 +70,200 @@ int main() {
     }
     assert(previous_jittered>0);
     assert(jittered.stats.period_us>16500 && jittered.stats.period_us<16800);
+    // Idle repetition must not steal the next regular source frame; once
+    // active it submits before the next display tick (60 Hz floor for VRR).
+    assert(moonlight::idle_scanout_delay_us(120,11988,false,false)==16666);
+    assert(moonlight::idle_scanout_delay_us(60,11988,false,false)==33333);
+    assert(moonlight::idle_scanout_delay_us(30,11988,true,false)==16000);
+    assert(moonlight::idle_scanout_delay_us(120,11988,true,true)==16000);
+    assert(moonlight::idle_scanout_delay_us(120,11988,false,true)==4170);
+    assert(moonlight::idle_scanout_delay_us(0,0,false,false)==33333);
+    assert(!moonlight::idle_repeat_ready(0,0,true));
+    assert(!moonlight::idle_repeat_ready(2,1,true));
+    assert(!moonlight::idle_repeat_ready(1,UINT64_MAX,true));
+    assert(!moonlight::idle_repeat_ready(2,2,false));
+    assert(moonlight::idle_repeat_ready(2,2,true));
+    // Simulate asynchronous scanout and a 60 FPS source on a 120 Hz link.
+    // A repeat must not fill the intervening display tick ahead of the next
+    // real frame. On idle, each repeat must retire before another is queued.
+    const auto delay=moonlight::idle_scanout_delay_us(60,11988,true,false);
+    assert(8333<delay && 16666<8333+delay);
+    uint64_t requested=1, shown=0;
+    assert(!moonlight::idle_repeat_ready(requested,shown,true));
+    shown=1;
+    assert(moonlight::idle_repeat_ready(requested,shown,true));
+    ++requested;
+    assert(!moonlight::idle_repeat_ready(requested,shown,true));
+    // VRR: capture/arrival jitter around normal 60/120 FPS must not
+    // schedule a duplicate ahead of the next real picture.
+    for(unsigned rate: {60u,120u}) {
+        moonlight::VrrRepeatPolicy v;
+        v.reset(rate);
+        for(uint64_t f=1;f<1000;f++) {
+            const uint64_t pts=f*1000000/rate;
+            const uint64_t submitted=1000000+pts+(f%2?1000:0);
+            v.picture(pts,submitted);
+            const uint64_t next=1000000+(f+1)*1000000/rate+((f+1)%2?1000:0);
+            assert(v.deadline()>next);
+            assert(!v.compensating());
+        }
+    }
+    // Sparse 16 FPS enters integral 4x compensation, then recovers to
+    // normal 60 FPS after a source-cadence window. No catch-up bursts.
+    moonlight::VrrRepeatPolicy adaptive;
+    adaptive.reset(60);
+    uint64_t pts=0;
+    for(int f=0;f<25;f++) {
+        pts+=62500;
+        adaptive.picture(pts,1000000+pts);
+    }
+    assert(adaptive.compensating());
+    assert(adaptive.interval()==15625);
+    const auto first_repeat=adaptive.deadline();
+    adaptive.repeated(first_repeat+200);
+    assert(adaptive.deadline()==first_repeat+15625);
+    adaptive.repeated(first_repeat+1000000);
+    assert(adaptive.deadline()>first_repeat+1000000);
+    for(int f=0;f<24;f++) {
+        pts+=16667;
+        adaptive.picture(pts,1000000+pts);
+    }
+    assert(!adaptive.compensating());
+    assert(adaptive.interval()==20000);
+    // Threshold jitter retains the previous compensation decision.
+    moonlight::VrrRepeatPolicy boundary;
+    boundary.reset(60);
+    for(int f=1;f<40;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
+    assert(!boundary.compensating());
+    boundary.reset(30);
+    for(int f=1;f<40;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
+    assert(boundary.compensating());
+    // One scanout grid covers BOTH source pictures and idle repeats. A
+    // jittered source arriving just after a repeat must replace a future slot,
+    // never create the 8 ms / 16 ms alternating intervals seen on the console.
+    moonlight::VrrRepeatPolicy grid;
+    grid.reset(16);
+    uint64_t now=1000000, count=1, last_scanout=now;
+    grid.picture(62500,now);
+    grid.scanned(count,now);
+    for(uint64_t frame=2;frame<200;frame++) {
+        const uint64_t ready=1000000+(frame-1)*62500+(frame%2?1500:0);
+        while(grid.deadline()<ready) {
+            const auto repeat=grid.deadline();
+            assert(repeat-last_scanout>=grid.interval()*95/100);
+            grid.repeated(repeat+200);
+            last_scanout=repeat+500;
+            grid.scanned(++count,last_scanout);
+        }
+        grid.observe_picture(frame*62500);
+        const auto target=grid.picture_target(ready);
+        assert(target>=last_scanout+grid.interval()*95/100-500);
+        assert(target-ready<=grid.interval()*2);
+        grid.presented(target);
+        last_scanout=target+500;
+        grid.scanned(++count,last_scanout);
+    }
+    const auto due=grid.deadline();
+    assert(grid.picture_target(due+200)==due+200);
+    // A late poll does not pretend scanout just started or restart a slot.
+    grid.scanned(++count,last_scanout+1000000);
+    assert(grid.deadline()==due);
+    assert(grid.picture_target(last_scanout+1000000)==last_scanout+1000000);
+    // Source resumes at 60/90/120: exit low-rate compensation after exactly
+    // three stable intervals, without a mixed old/static window re-entering it.
+    for(unsigned rate: {60u,90u,120u}) {
+        moonlight::VrrRepeatPolicy resume;
+        resume.reset(rate);
+        for(unsigned f=1;f<=16;f++) resume.observe_picture(uint64_t(f)*62500);
+        assert(resume.compensating());
+        uint64_t pts=17*62500;
+        resume.picture(pts,1000000+pts);
+        for(int f=1;f<=3;f++) {
+            pts+=1000000/rate;
+            resume.observe_picture(pts);
+            assert(resume.compensating()==(f<3));
+        }
+        assert(resume.source_rate()==rate);
+        for(int f=0;f<20;f++) {
+            pts+=1000000/rate;
+            resume.observe_picture(pts);
+            assert(!resume.compensating());
+        }
+    }
+    // Repeated mixed segments must not confirm a fictitious intermediate
+    // moving rate. A homogeneous return to 120 Hz preserves the nominal rate.
+    moonlight::VrrRepeatPolicy mixed;
+    mixed.reset(120);
+    uint64_t mixed_pts=100000;
+    mixed.observe_picture(mixed_pts);
+    for(int n=0;n<30;n++) {
+        for(int f=0;f<12;f++) {
+            mixed_pts+=62500; mixed.observe_picture(mixed_pts);
+        }
+        for(int f=0;f<20;f++) {
+            mixed_pts+=8333; mixed.observe_picture(mixed_pts);
+        }
+        assert(!mixed.compensating() && mixed.source_rate()==120);
+    }
+    // A new frame is governed by the SAME physical admission floor as
+    // repeats, without an additional source-pacer deadline after recovery.
+    mixed.presented(1000000);
+    mixed.scanned(1,1000000);
+    auto moving_target=mixed.picture_target(1000100);
+    assert(moving_target==1008333);
+    mixed.presented(moving_target);
+    // Real stable rate changes still fit after a homogeneous source window.
+    for(int f=0;f<30;f++) {
+        mixed_pts+=16667; mixed.observe_picture(mixed_pts);
+    }
+    assert(mixed.source_rate()==60);
+    mixed.presented(2000000);
+    mixed.scanned(2,2000000);
+    assert(mixed.picture_target(2000000)>=2016300);
+    // Delayed completion polling must not lower moving 120 Hz to ~103 Hz.
+    moonlight::VrrRepeatPolicy polled;
+    polled.reset(120);
+    uint64_t submitted=1000000;
+    polled.presented(submitted);
+    for(unsigned f=1;f<=120;f++) {
+        const uint64_t completed=submitted+1200;
+        polled.scanned(f,completed);
+        const auto target=polled.picture_target(completed);
+        assert(target==submitted+8333);
+        submitted=target;
+        polled.presented(submitted);
+    }
+    assert(submitted==1999960);
+    // Reproduce frame 813: a repeat submitted at zero is detected only
+    // ~10 ms later, but the ready picture must use the original 20 ms slot.
+    moonlight::VrrRepeatPolicy late_repeat;
+    late_repeat.reset(60);
+    late_repeat.repeated(1000000);
+    late_repeat.scanned(1,1010300);
+    assert(late_repeat.picture_target(1010300)==1020000);
+    late_repeat.scanned(2,1031000);
+    assert(late_repeat.picture_target(1031000)==1031000);
+    // Recovery preserves readiness learning and cumulative counters.
+    moonlight::FramePacing retained;
+    retained.reset(90);
+    for(int f=1;f<=10;f++) {
+        auto t=retained.target(f,uint64_t(f)*11111,1000000+uint64_t(f)*11111);
+        retained.submitted(t,t,0);
+    }
+    const auto reserve=retained.stats.reserve_us;
+    retained.resume(2000000);
+    auto resumed=retained.target(11,122221,2000000);
+    assert(retained.stats.submissions==10 && retained.stats.reserve_us==reserve);
+    assert(resumed==2000000);
+    assert(retained.admission_limit_us(62500,17000)>=79500);
+    assert(retained.admission_limit_us(UINT64_MAX/2,20000)<=100000);
+    // An isolated burst must not disengage compensation.
+    moonlight::VrrRepeatPolicy burst;
+    burst.reset(16);
+    burst.observe_picture(62500);
+    burst.observe_picture(73500);
+    burst.observe_picture(136000);
+    assert(burst.compensating());
     // Fixed 60-on-120 must not rush two frames into adjacent refreshes.
     moonlight::FramePacing fixed;
     fixed.reset(60);

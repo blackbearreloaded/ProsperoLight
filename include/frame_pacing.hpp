@@ -62,6 +62,24 @@ class FramePacing
         stats.period_us = period_;
     }
 
+    // Resume from a sparse desktop without losing learned readiness reserve
+    // or replacing the confirmed cadence with three noisy source intervals.
+    void resume(uint64_t ready_us)
+    {
+        slot_ = ready_us > reserve_ ? ready_us - reserve_ : ready_us;
+        cadence_source_ = 0;
+        candidate_count_ = 0;
+        fractional_ = 0;
+        resume_pending_ = true;
+        ++stats.resets;
+    }
+
+    uint64_t admission_limit_us(uint64_t successor_interval, uint64_t legal_wait) const
+    {
+        return std::max(stale_limit_us(),
+                        std::min<uint64_t>(100000, successor_interval + reserve_ + legal_wait));
+    }
+
     uint64_t target(int32_t frame, uint64_t source_us, uint64_t ready_us,
                     uint32_t fixed_refresh_x100 = 0, uint64_t flip_anchor_us = 0,
                     uint32_t display_ceiling_x100 = 0, uint64_t preparation_lead_us = 1000)
@@ -84,8 +102,8 @@ class FramePacing
             // rejects short jitter samples but accepts long ones, biasing the
             // period upward until a 60 FPS source is paced at about 40 FPS.
             const int64_t cadence_frames = int64_t(frame) - cadence_frame_;
-            if (cadence_frames >= 32 && cadence_frames < 240 &&
-                source_us > cadence_source_ && cadence_source_)
+            if (cadence_frames >= 32 && cadence_frames < 240 && source_us > cadence_source_ &&
+                cadence_source_)
             {
                 const uint64_t delta = source_us - cadence_source_;
                 const uint64_t sample = delta / uint64_t(cadence_frames);
@@ -112,8 +130,8 @@ class FramePacing
                     }
                     else
                     {
-                        period_q16_ = (period_q16_ * 7 +
-                                       (delta << 16) / uint64_t(cadence_frames)) / 8;
+                        period_q16_ =
+                            (period_q16_ * 7 + (delta << 16) / uint64_t(cadence_frames)) / 8;
                         candidate_count_ = 0;
                     }
                     period_q16_ = std::clamp<uint64_t>(period_q16_, (UINT64_C(1000000) << 16) / 120,
@@ -121,8 +139,8 @@ class FramePacing
                     period_ = period_q16_ >> 16;
                 }
             }
-            else if (cadence_frames <= 0 || cadence_frames >= 240 ||
-                     source_us < cadence_source_ || !cadence_source_)
+            else if (cadence_frames <= 0 || cadence_frames >= 240 || source_us < cadence_source_ ||
+                     !cadence_source_)
             {
                 cadence_source_ = source_us;
                 cadence_frame_ = frame;
@@ -134,17 +152,31 @@ class FramePacing
                 advance = scaled >> 16;
                 fractional_ = scaled & 65535;
             }
-            if (rate_changed || !advance || advance > 1000000 ||
-                ready_us > slot_ + advance + 250000)
+            if (!advance || advance > 1000000 || ready_us > slot_ + advance + 250000)
             {
                 slot_ = ready_us;
                 reserve_ = 1500;
                 ++stats.resets;
             }
             else
+            {
                 slot_ += advance;
+                if (rate_changed)
+                {
+                    const uint64_t desired = ready_us > reserve_ ? ready_us - reserve_ : ready_us;
+                    if (slot_ < desired)
+                        slot_ += std::min<uint64_t>(1000, desired - slot_);
+                    else
+                        slot_ -= std::min<uint64_t>(1000, slot_ - desired);
+                }
+            }
             last_frame_ = frame;
             last_source_ = source_us;
+        }
+        if (resume_pending_)
+        {
+            slot_ = ready_us > reserve_ ? ready_us - reserve_ : ready_us;
+            resume_pending_ = false;
         }
         // Initial GPU/decoder setup must not become a permanent playout delay.
         if (stats.submissions < 3)
@@ -246,7 +278,173 @@ class FramePacing
     uint64_t reserve_ = 1500, candidate_{}, wake_lead_ = 100;
     unsigned candidate_count_{}, clean_{};
     int32_t last_frame_{}, cadence_frame_{};
-    bool initialized_{};
+    bool initialized_{}, resume_pending_{};
+};
+
+// Fixed refresh tolerates two missing source periods before idle repetition.
+// VRR repeats are timed from observed scanout completion, never GPU completion.
+// Aim near a 60 Hz floor with submission lead, without filling every 120 Hz slot.
+inline uint64_t idle_scanout_delay_us(unsigned fps, unsigned refresh_x100, bool vrr_active,
+                                      bool repeating)
+{
+    if (vrr_active)
+        return 16000u;
+    const uint64_t period = UINT64_C(100000000) / (refresh_x100 ? refresh_x100 : 5994u);
+    return repeating ? period / 2u
+                     : std::max<uint64_t>(period, UINT64_C(2000000) / (fps ? fps : 60u));
+}
+
+// A queued real picture takes precedence over an idle repeat. Never enqueue
+// a repeat behind a picture still waiting for physical scanout.
+inline bool idle_repeat_ready(uint64_t requested, uint64_t shown, bool available)
+{
+    return available && requested && shown != UINT64_MAX && shown >= requested;
+}
+
+// PS5 adapter for timestamp-driven VRR playout. Inspired by Nonary's
+// separation of source cadence, presentation floors and bounded scheduling:
+// https://github.com/Nonary/moonlight-qt/tree/master/app/streaming/video/ffmpeg-renderers/pacer
+// No Qt/renderer code is copied. Repeat compensation is PS5-specific.
+class VrrRepeatPolicy
+{
+  public:
+    void reset(unsigned fps)
+    {
+        *this = VrrRepeatPolicy{};
+        period_ = UINT64_C(1000000) / std::max(1u, fps);
+        low_ = period_ > 22000;
+        moving_period_ = period_;
+    }
+    void observe_picture(uint64_t pts)
+    {
+        if (!pts || !last_pts_ || pts <= last_pts_ || pts - last_pts_ >= 1000000)
+        {
+            samples_ = fast_samples_ = 0;
+            candidate_sum_ = candidate_min_ = candidate_max_ = 0;
+        }
+        else
+        {
+            const uint64_t delta = pts - last_pts_;
+            fast_samples_ = delta >= 6000 && delta < 18500 ? fast_samples_ + 1 : 0;
+            // Motion detection is deliberately separate from rate fitting.
+            if (low_ && fast_samples_ >= 3)
+            {
+                low_ = gap_ = false;
+                period_ = moving_period_;
+                samples_ = candidate_sum_ = candidate_min_ = candidate_max_ = 0;
+            }
+            // A mixed static/moving segment is not a new source cadence.
+            // Restart on a >25% interval spread; confirmation requires 200 ms
+            // of homogeneous sender time, not a wall-clock timeout or burst.
+            if (!samples_ || delta * 4 < candidate_max_ * 3 || delta * 3 > candidate_min_ * 4)
+            {
+                samples_ = 0;
+                candidate_sum_ = 0;
+                candidate_min_ = candidate_max_ = delta;
+            }
+            candidate_min_ = std::min(candidate_min_, delta);
+            candidate_max_ = std::max(candidate_max_, delta);
+            candidate_sum_ += delta;
+            ++samples_;
+            if (samples_ >= 8 && candidate_sum_ >= 200000)
+            {
+                period_ = std::clamp<uint64_t>(candidate_sum_ / samples_, 8333, 250000);
+                if (period_ > 22000)
+                    low_ = true;
+                else if (period_ < 18500)
+                {
+                    low_ = false;
+                    moving_period_ = period_;
+                }
+                samples_ = candidate_sum_ = candidate_min_ = candidate_max_ = 0;
+            }
+        }
+        last_pts_ = pts;
+        const uint64_t copies = low_ ? (period_ + 19999) / 20000 : 1;
+        interval_ = low_ ? std::clamp<uint64_t>(period_ / copies, 8333, 20000) : 20000;
+    }
+    void scanned(uint64_t count, uint64_t observed)
+    {
+        if (count && count != scanned_count_)
+        {
+            scanned_count_ = count;
+            scanned_at_ = observed;
+        }
+    }
+    bool grid_active() const
+    {
+        return low_ || gap_;
+    }
+    uint64_t picture_target(uint64_t ready) const
+    {
+        if (!grid_active())
+            return std::max(ready, submitted_at_
+                                       ? submitted_at_ +
+                                             std::max<uint64_t>(8333, moving_period_ * 98 / 100)
+                                       : ready);
+        uint64_t target =
+            std::max(next_, submitted_at_ ? submitted_at_ + interval_ * 95 / 100 : ready);
+        // A prepared image just late for its slot uses it immediately. Rounding
+        // to the following slot would create a double-length scanout gap.
+        return std::max(target, ready);
+    }
+    void presented(uint64_t submitted)
+    {
+        advance(submitted);
+        if (!low_)
+            gap_ = false;
+    }
+    void picture(uint64_t pts, uint64_t submitted)
+    {
+        observe_picture(pts);
+        presented(submitted);
+    }
+    uint64_t deadline() const
+    {
+        return next_;
+    }
+    void repeated(uint64_t submitted)
+    {
+        gap_ = true;
+        advance(submitted);
+    }
+    uint64_t interval() const
+    {
+        return interval_;
+    }
+    bool compensating() const
+    {
+        return low_;
+    }
+    unsigned source_rate() const
+    {
+        return static_cast<unsigned>(
+            std::clamp<uint64_t>((1000000 + period_ / 2) / period_, 30, 120));
+    }
+
+  private:
+    void advance(uint64_t submitted)
+    {
+        // Counter completion authorizes another flip. Its observation time is
+        // an upper bound, NOT the time that scanout began. Keep deadlines on
+        // the submission grid instead of restarting them when polling is late.
+        submitted_at_ = submitted;
+        if (grid_active() && next_)
+        {
+            if (next_ <= submitted)
+                next_ += ((submitted - next_) / interval_ + 1) * interval_;
+            // A late show must not be followed by a short recovery interval.
+            if (next_ < submitted + interval_ * 95 / 100)
+                next_ = submitted + interval_;
+        }
+        else
+            next_ = submitted + interval_;
+    }
+    uint64_t period_{16666}, last_pts_{}, samples_{}, next_{}, interval_{20000};
+    uint64_t scanned_count_{}, scanned_at_{}, submitted_at_{}, fast_samples_{},
+        moving_period_{16666};
+    uint64_t candidate_sum_{}, candidate_min_{}, candidate_max_{};
+    bool low_{}, gap_{};
 };
 
 // A rejected VRR request is fixed-refresh pacing. The selected mode stays

@@ -102,3 +102,8 @@ int native_videoout_hdr_active(int32_t handle);
 void native_agc_keyboard_snapshot(int *enabled, uint32_t *selected, int *shifted);
 
 #endif
+
+int native_agc_scanout_counter(uint64_t *count, uint64_t *argument);
+
+// Repeat the completed scanout buffer, without retaining a decoder slot.
+int native_agc_repeat_frame(void);

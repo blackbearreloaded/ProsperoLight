@@ -7,15 +7,15 @@
 /* Foreground native AGC presentation of a Videodec2 AVC8 caller buffer. */
 
 #include "native_agc_present.hpp"
-#include "frame_pacing.hpp"
 #include "app_storage.hpp"
 #include "connecting_plate.hpp"
+#include "frame_pacing.hpp"
 #include "lan_http_report.hpp"
 #include "moonlight_stream_keyboard.hpp"
 #include "native_agc_output.hpp"
 
-#include <stddef.h>
 #include <atomic>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -204,6 +204,7 @@ extern "C"
     int sceVideoOutIsOutputSupported(int32_t handle, uint32_t request_type, const void *param3,
                                      const void *param4, const void *param5);
     int sceVideoOutVrrUnpegFromFixedRate(int32_t handle);
+    int sceVideoOutVrrPegToFixedRate(int32_t handle, uint64_t reserved1, uint64_t reserved2);
     int sceVideoOutGetResolutionStatus(int32_t handle, video_resolution_status_t *status);
     int sceVideoOutGetOutputStatus(int32_t handle, video_output_status_t *status);
     void sceVideoOutSetBufferAttribute2(video_attribute_t *attribute, uint64_t pixel_format,
@@ -411,7 +412,8 @@ static void refresh_hud_surface(uint8_t *surface, const native_agc_metrics_t *me
                  metrics->decoder_cores, (unsigned long long)metrics->decoder_cpu_mask);
     hud_line(luma, 2, text_luma, line);
     snprintf(line, sizeof(line),
-             "Decode (last second): %llu.%02llu ms avg / %llu.%02llu ms p95 / load %u%%",
+             "Decode (last second): %llu.%02llu ms avg / %llu.%02llu ms p95 / "
+             "load %u%%",
              (unsigned long long)(decode_us / 1000u),
              (unsigned long long)((decode_us % 1000u) / 10u), (unsigned long long)(p95_us / 1000u),
              (unsigned long long)((p95_us % 1000u) / 10u), metrics->decoder_load_permille / 10u);
@@ -1117,7 +1119,8 @@ static int wait_for_marker(int64_t marker, unsigned *waits_out)
     {
         char receipt[240];
         snprintf(receipt, sizeof(receipt),
-                 "Native flip timeout: handle=%08x expected=%lld shown=%lld count=%llu fps=%u "
+                 "Native flip timeout: handle=%08x expected=%lld shown=%lld "
+                 "count=%llu fps=%u "
                  "budget_us=%llu queue=%u",
                  (unsigned)presenter.video, (long long)marker, (long long)status[3],
                  (unsigned long long)status[0], presenter.requested_fps,
@@ -1183,6 +1186,43 @@ int native_agc_finish_frame(void)
     return result;
 }
 
+int native_agc_scanout_counter(uint64_t *count, uint64_t *argument)
+{
+    uint64_t status[16] = {};
+    if (!presenter.ready || sceVideoOutGetFlipStatus(presenter.video, status) != 0)
+        return -1;
+    *count = status[0];
+    *argument = status[3];
+    return 0;
+}
+
+int native_agc_repeat_frame(void)
+{
+    if (!presenter.ready || !presenter.frame_number || presenter.pending_marker)
+        return 0;
+    uint64_t before[16] = {}, after[16] = {};
+    int result = sceVideoOutGetFlipStatus(presenter.video, before);
+    if (result != 0)
+        return result;
+    // The presentation thread alone owns both scanout buffers. Wait for this
+    // repeat before allowing the next GPU render to reuse either buffer.
+    result = sceVideoOutSubmitFlip(presenter.video, (presenter.frame_number - 1u) & 1u,
+                                   VIDEO_OUT_FLIP_MODE_VSYNC, before[3]);
+    if (result != 0)
+        return result;
+    const uint64_t started = present_now_us();
+    do
+    {
+        result = sceVideoOutGetFlipStatus(presenter.video, after);
+        if (result != 0)
+            return result;
+        if (after[0] > before[0])
+            return 0;
+        sceKernelUsleep(PROSPEROLIGHT_FLIP_POLL_US);
+    } while (present_now_us() - started < 100000u);
+    return -1;
+}
+
 void native_agc_output_status(uint32_t *width, uint32_t *height, uint32_t *refresh_x100)
 {
     *width = presenter.output_width;
@@ -1216,8 +1256,18 @@ static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
     *preset_result = sceVideoOutConfigureOutput(handle, VIDEO_OUT_REQUEST_120_HZ, NULL, NULL, NULL);
     if (*preset_result != 0)
         return *preset_result;
-    if (vrr_requested.load(std::memory_order_relaxed) ||
-        (requested_fps == 90u && unpaced_90_fps_unpeg.load(std::memory_order_relaxed)))
+    const bool variable =
+        vrr_requested.load(std::memory_order_relaxed) ||
+        (requested_fps == 90u && unpaced_90_fps_unpeg.load(std::memory_order_relaxed));
+    if (!variable)
+    {
+        const int peg = sceVideoOutVrrPegToFixedRate(handle, 0, 0);
+        char policy[160];
+        snprintf(policy, sizeof(policy), "VideoOut peg: handle=%08x rc=%08x requested_vrr=0",
+                 (unsigned)handle, (unsigned)peg);
+        report_agc_receipt(policy);
+    }
+    if (variable)
     {
         *vrr_result = sceVideoOutVrrUnpegFromFixedRate(handle);
         vrr_active.store(*vrr_result == 0, std::memory_order_relaxed);
@@ -1226,9 +1276,11 @@ static int configure_high_refresh_output(int32_t handle, uint32_t requested_fps,
             const uint32_t fixed_mode =
                 requested_fps > 60u ? VIDEO_OUT_REQUEST_120_HZ : VIDEO_OUT_REQUEST_DEFAULT;
             const int fallback = sceVideoOutConfigureOutput(handle, fixed_mode, NULL, NULL, NULL);
+            const int fallback_peg = sceVideoOutVrrPegToFixedRate(handle, 0, 0);
             char line[160];
-            snprintf(line, sizeof(line), "VRR unavailable: rc=%08x fixed_fallback=%08x",
-                     (uint32_t)*vrr_result, (uint32_t)fallback);
+            snprintf(line, sizeof(line),
+                     "VRR unpeg unavailable: rc=%08x preset_fallback=%08x peg=%08x",
+                     (uint32_t)*vrr_result, (uint32_t)fallback, (uint32_t)fallback_peg);
             report_agc_receipt(line);
             return fallback;
         }
@@ -1283,7 +1335,8 @@ static void update_presenter_output_status(const char *stage)
 
         snprintf(receipt, sizeof(receipt),
                  "Native VideoOut %s: resolution_rc=%08x output_rc=%08x full=%ux%u "
-                 "pane=%ux%u refresh_ids=%llu/%llu active=%ux%u@%u.%02u requested=%ux%u@%u",
+                 "pane=%ux%u refresh_ids=%llu/%llu active=%ux%u@%u.%02u "
+                 "requested=%ux%u@%u",
                  stage ? stage : "changed", (uint32_t)resolution_result, (uint32_t)output_result,
                  resolution.full_width, resolution.full_height, resolution.pane_width,
                  resolution.pane_height, (unsigned long long)resolution.refresh_rate,
@@ -1363,7 +1416,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
             agc_initialized = 1;
     }
     snprintf(receipt, sizeof(receipt),
-             "Native AGC stage 1: init=%08x reused=%u source=%p bytes=%zx pitch=%u surface=%u "
+             "Native AGC stage 1: init=%08x reused=%u source=%p bytes=%zx "
+             "pitch=%u surface=%u "
              "visible=%ux%u",
              (uint32_t)result, reused ? 1u : 0u, source, source_bytes, pitch, surface_height,
              visible_width, visible_height);
@@ -1416,7 +1470,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
             sceAgcLinkShaders(presenter.shader_memory + 0x5000, presenter.shader_memory + 0x6000,
                               NULL, presenter.vertex_shader, presenter.pixel_shader, 6);
     snprintf(receipt, sizeof(receipt),
-             "Native AGC stage 2: create=%08x link=%08x vs=%p ps=%p hud_ps=%p shader=%p",
+             "Native AGC stage 2: create=%08x link=%08x vs=%p ps=%p hud_ps=%p "
+             "shader=%p",
              (uint32_t)result, (uint32_t)link_result, presenter.vertex_shader,
              presenter.pixel_shader, presenter.hud_pixel_shader,
              static_cast<void *>(presenter.shader_memory));
@@ -1434,6 +1489,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
         mode_result =
             configure_high_refresh_output(presenter.video, requested_fps, &mode_support_result,
                                           &mode_preset_result, &mode_vrr_result);
+    else if (presenter.video >= 0)
+        (void)sceVideoOutVrrPegToFixedRate(presenter.video, 0, 0);
     if (presenter.video >= 0)
         result = sceVideoOutSetFlipRate(presenter.video, 0);
     else
@@ -1449,7 +1506,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
             sceKernelMapDirectMemory(&presenter.framebuffer, framebuffer_pool_bytes, MAP_PROTECTION,
                                      0, framebuffer_start, FRAMEBUFFER_ALIGNMENT);
     snprintf(receipt, sizeof(receipt),
-             "Native AGC stage 3: video=%08x mode_rc=%08x support_rc=%08x preset_rc=%08x "
+             "Native AGC stage 3: video=%08x mode_rc=%08x support_rc=%08x "
+             "preset_rc=%08x "
              "vrr_rc=%08x "
              "framebuffer_rc=%08x "
              "framebuffer=%p/%zx output=%ux%u requested_fps=%u",
@@ -1476,7 +1534,8 @@ static int initialize_presenter(const void *source, size_t source_bytes, uint32_
             sceVideoOutRegisterBuffers2(presenter.video, 0, 0, buffers, 2, &attribute, 0, NULL);
     }
     snprintf(receipt, sizeof(receipt),
-             "Native AGC stage 4: register=%08x hdr=%u format=%016llx source=%p target=%p "
+             "Native AGC stage 4: register=%08x hdr=%u format=%016llx source=%p "
+             "target=%p "
              "same_source=%u output=%ux%u",
              (uint32_t)result, hdr ? 1u : 0u,
              (unsigned long long)(hdr ? VIDEO_OUT_PIXEL_FORMAT_HDR : VIDEO_OUT_PIXEL_FORMAT_SDR),
@@ -1653,7 +1712,8 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
     {
         snprintf(receipt, sizeof(receipt),
                  "Native AGC frame: rc=%08x frame=%u buffer=%u words=%u hdr=%u hud=%u "
-                 "flip_marker=%llx status=%llx waits=%u source=%p target=%p active=%ux%u@%u.%02u",
+                 "flip_marker=%llx status=%llx waits=%u source=%p target=%p "
+                 "active=%ux%u@%u.%02u",
                  (uint32_t)result, frame_number, buffer_index, words, hdr ? 1u : 0u,
                  draw_overlay ? 1u : 0u, (unsigned long long)render_marker,
                  (unsigned long long)status[3], render_waits, source, target, render_width,
@@ -1809,7 +1869,8 @@ int native_agc_present_shutdown(void)
             sceKernelReleaseDirectMemory(presenter.shader_start, SHADER_MEMORY_BYTES);
 
     snprintf(receipt, sizeof(receipt),
-             "Native AGC cleanup: pending=%08x waits=%u unregister=%08x restore=%08x close=%08x "
+             "Native AGC cleanup: pending=%08x waits=%u unregister=%08x "
+             "restore=%08x close=%08x "
              "framebuffer=%08x/%08x shader=%08x/%08x",
              (uint32_t)pending_result, drain_waits, (uint32_t)unregister_result,
              (uint32_t)restore_result, (uint32_t)close_result, (uint32_t)framebuffer_unmap_result,
