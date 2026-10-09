@@ -66,6 +66,13 @@ extern "C"
     {
         return 1;
     }
+    int prosperolight_debug_enabled(void)
+    {
+        return 0;
+    }
+    void prosperolight_debug_line(const char *, const char *, ...)
+    {
+    }
     int lan_http_report_text(const char *)
     {
         return 0;

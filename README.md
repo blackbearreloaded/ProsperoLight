@@ -452,6 +452,36 @@ at a time (the default). HDR, H.264 and the lower resolutions are not measured
 yet. `python3 tools/plot-bitrate-limits.py` redraws the chart from the model;
 [round 4](docs/PERFORMANCE_ROUND_4.md) has the measurements.
 
+## Reporting a problem
+
+When something does not work (a PC that will not pair, a stream that will not start,
+stutter, a black picture, no sound), a **Debug log** tells us what happened:
+
+1. Open **Settings**, go to **Diagnostics** and turn **Debug log** on. It is off by default.
+2. Repeat the problem. For a stream problem, let the stream run for half a minute if it can.
+3. Copy `debug-trace.txt` from the logs folder (`/data/prosperolight/logs`, or
+   `/download0` inside the app's sandbox when filesystem access was not granted; the
+   About page shows which) with an FTP client, and attach it to a
+   [GitHub issue](https://github.com/blackbearreloaded/ProsperoLight/issues) with a
+   sentence on what you did and what you saw. `debug-trace.prev.txt` is the run before.
+4. Turn **Debug log** off again.
+
+Every line carries the seconds since the app started and a tag:
+
+| Tag | What it records |
+| --- | --- |
+| `app`, `launcher`, `main` | Start-up, storage and filesystem access, each start-up stage with its time, the update check, every stream's start and end |
+| `screen`, `setting`, `notice` | The page opened, a setting changed, and every message the app showed you |
+| `job` | Each request to a PC (search, refresh, unpair, stop) with its result and how long it took |
+| `launch` | The PC, the app and every stream setting at the moment Start was pressed |
+| `session` | The stream's own reports: connection stages, decoder and display set-up with result codes, why it ended, clean-up |
+| `stream` | Once a second while streaming: frames received, decoded and shown, losses, decode and queue times, network delay |
+
+The file holds the names and local addresses of your PCs and the names of their apps.
+It never holds the pairing key, the certificate or a PIN. It stops growing at 16 MB and
+keeps its beginning. The existing **Diagnostic logs** switch is separate: it controls the
+launcher log and the performance files written after a stream.
+
 ## Files on the console
 
 When it starts, ProsperoLight gives a resident upstream Lapy service a bounded

@@ -5,6 +5,7 @@
  */
 
 #include "app_storage.hpp"
+#include "lan_http_report.hpp"
 #include "crash_report.hpp"
 #include "connecting_plate.hpp"
 #include "launcher/launcher.hpp"
@@ -130,6 +131,8 @@ namespace
 
 void Log(const char *text)
 {
+    prosperolight_debug_line("main", "%s", text);
+    prosperolight_debug_flush();
     std::printf("%s\n", text);
     char line[200];
     std::snprintf(line, sizeof(line), "%s\n", text);

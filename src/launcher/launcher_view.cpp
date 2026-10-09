@@ -88,6 +88,7 @@ enum FormId
     kChroma,
     kPacing,
     kLogging,
+    kDebugLog,
     kUiSound,
     kHostQuit,
     kLanguage,
@@ -532,6 +533,9 @@ void View::build()
     form_.add_header(i18n::tr("Diagnostics"));
     form_.add_toggle(kLogging, i18n::tr("Diagnostic logs"), true).description =
         i18n::tr("Bounded logs and output interval traces saved after the stream.");
+    // Technical wording, shown in English like the other diagnostics.
+    form_.add_toggle(kDebugLog, "Debug log", false).description =
+        "Timed trace of everything the app does, for reporting a problem. Off by default.";
     form_.style.row_height = 66.0f;
     form_.style.header_height = 54.0f;
     form_.style.label_size = 26.0f;
@@ -935,6 +939,7 @@ void View::sync_settings_from_config()
     form_.set_slider(kBitrate, static_cast<float>(config.bitrate_mbps));
     form_.set_choice(kPacing, static_cast<int>(moonlight::presentation_mode()));
     form_.set_toggle(kLogging, prosperolight_logs_enabled() != 0);
+    form_.set_toggle(kDebugLog, prosperolight_debug_enabled() == 1);
     form_.set_toggle(kUiSound, prosperolight::ui_sound_enabled());
 
     const bool native = config.video_codec != MOONLIGHT_VIDEO_CODEC_PYROWAVE;
@@ -950,6 +955,7 @@ void View::sync_settings_from_config()
 
 void View::apply_setting(int id)
 {
+    prosperolight_debug_line("setting", "row %d changed", id);
     moonlight_config_t &config = model_.settings();
     switch (id)
     {
@@ -1035,6 +1041,15 @@ void View::apply_setting(int id)
         if (!moonlight::save_presentation_mode(static_cast<unsigned>(form_.choice_index(kPacing))))
             toasts_.push(ui::StatusKind::danger, i18n::tr("Could not save frame pacing"),
                          i18n::tr("Try again."));
+        sync_settings_from_config();
+        return;
+    case kDebugLog:
+        if (!prosperolight_debug_set_enabled(form_.toggle_value(kDebugLog)))
+            toasts_.push(ui::StatusKind::danger, i18n::tr("Could not save logging"),
+                         i18n::tr("Try again."));
+        else if (form_.toggle_value(kDebugLog))
+            toasts_.push(ui::StatusKind::info, "Debug log is on",
+                         "Repeat the problem, then send debug-trace.txt from the logs folder.");
         sync_settings_from_config();
         return;
     case kLogging:
@@ -1262,6 +1277,8 @@ void View::show(int screen, ui::Feedback *feedback)
 {
     if (screen == screen_)
         return;
+    prosperolight_debug_line("screen", "%d -> %d (0 PCs, 1 Games, 2 Settings, 3 About)", screen_,
+                             screen);
     screen_ = screen;
     screen_age_ = 0.0f;
     tabs_.set_active(screen, feedback == nullptr);
@@ -1759,6 +1776,23 @@ void View::launch(ui::Feedback &feedback)
     loader_.show(feedback);
     feedback.play(audio::Cue::launch);
     launching_ = true;
+    {
+        const auto host_settings = prosperolight::host_preferences(model_.selected_host());
+        prosperolight_debug_line(
+            "launch",
+            "pc=\"%s\" server=%s app=\"%s\" id=%d running=%d | %s %u FPS codec=%s hdr=%u chroma=%u "
+            "bitrate=%u Mbps audio=%u "
+            "area=%u pacing=%u | host: mute=%d optimize=%d quit=%d extensions=%d vrr=%u "
+            "display=%u scale=%u",
+            backend.name, backend.server_version, backend.apps[model_.selected_app()].name,
+            backend.apps[model_.selected_app()].id, backend.current_app_id,
+            resolution_name(config.stream_resolution), config.stream_fps, codec_name(config),
+            config.hdr_enabled, config.chroma_sampling, config.bitrate_mbps,
+            config.audio_configuration, config.display_area,
+            static_cast<unsigned>(moonlight::presentation_mode()), host_settings.mute_host,
+            host_settings.optimize, host_settings.quit_host, host_settings.extensions,
+            host_settings.vrr, host_settings.display, host_settings.scale);
+    }
     launch_age_ = 0.0f;
 }
 

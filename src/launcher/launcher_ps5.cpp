@@ -5,6 +5,7 @@
  */
 
 #include "launcher/launcher.hpp"
+#include "lan_http_report.hpp"
 #include "ui_sound_preferences.hpp"
 #if PROSPEROLIGHT_PYROWAVE
 #include "pyrowave/video/ps5_presentation_stats.hpp"
@@ -92,6 +93,15 @@ namespace
 
 using namespace hui;
 
+// Every launcher line goes to the console's log and, while it is on, to the Debug log.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage): forwards a printf format with its arguments
+#define PL_LOG(...)                                                                                \
+    do                                                                                             \
+    {                                                                                              \
+        sys::log(__VA_ARGS__);                                                                     \
+        prosperolight_debug_line("launcher", __VA_ARGS__);                                         \
+    } while (0)
+
 // The app's own files: /app0 in the sandbox, the install folder outside it.
 std::string Assets()
 {
@@ -129,7 +139,7 @@ bool LoadFont(gfx::Renderer &renderer, const char *name, gfx::Font *font, ui::Fo
     const std::string path = Assets() + "/fonts/" + name;
     if (!save::read_file(path, &data, 32u << 20) || !font->load(data))
     {
-        sys::log("[PL] launcher: font %s failed: %s", name, font->error().c_str());
+        PL_LOG("[PL] launcher: font %s failed: %s", name, font->error().c_str());
         return false;
     }
     ref->font = font;
@@ -245,8 +255,8 @@ void CaptureConnecting(gfx::Renderer &renderer, View &view, Frame &frame, Select
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDeleteFramebuffers(1, &framebuffer);
     glDeleteTextures(1, &texture);
-    sys::log("[PL] launcher: connecting picture %s in %lld ms", ok ? "taken" : "not available",
-             static_cast<long long>((sys::monotonic_us() - started) / 1000));
+    PL_LOG("[PL] launcher: connecting picture %s in %lld ms", ok ? "taken" : "not available",
+           static_cast<long long>((sys::monotonic_us() - started) / 1000));
 }
 
 // Updates (third_party/update-check). Once per launch the worker asks the
@@ -324,16 +334,16 @@ bool CheckForUpdate(UpdateOffer *offer)
 #if PROSPEROLIGHT_UPDATE_DEV_OFFER
     if (DevelopmentOffer(&found))
     {
-        sys::log("[PL] update check: DEVELOPMENT: update-offer.txt replaces the catalog's answer");
+        PL_LOG("[PL] update check: DEVELOPMENT: update-offer.txt replaces the catalog's answer");
         state = SELF_UPDATE_AVAILABLE;
     }
 #endif
-    sys::log("[PL] update check: result=%s installed=%s available=%s version=%s size=%llu in "
-             "%lld ms",
-             static_cast<unsigned>(state) < 5 ? kNames[state] : "?",
-             found.installed[0] ? found.installed : "-", found.available[0] ? found.available : "-",
-             found.version[0] ? found.version : "-", static_cast<unsigned long long>(found.size),
-             static_cast<long long>((sys::monotonic_us() - started) / 1000));
+    PL_LOG("[PL] update check: result=%s installed=%s available=%s version=%s size=%llu in "
+           "%lld ms",
+           static_cast<unsigned>(state) < 5 ? kNames[state] : "?",
+           found.installed[0] ? found.installed : "-", found.available[0] ? found.available : "-",
+           found.version[0] ? found.version : "-", static_cast<unsigned long long>(found.size),
+           static_cast<long long>((sys::monotonic_us() - started) / 1000));
     if (state != SELF_UPDATE_AVAILABLE && state != SELF_UPDATE_NOT_INSTALLABLE)
         return false;
     {
@@ -358,8 +368,8 @@ bool BeginUpdate()
     if (g_update_begun)
         self_update_finish(&g_update_job);
     g_update_begun = self_update_start(&g_update_job, self_update_console(), &g_update_offer) == 1;
-    sys::log("[PL] update: %s %s", g_update_begun ? "updating to" : "could not begin for",
-             g_update_offer.available);
+    PL_LOG("[PL] update: %s %s", g_update_begun ? "updating to" : "could not begin for",
+           g_update_offer.available);
     return g_update_begun;
 }
 
@@ -384,10 +394,9 @@ void PollUpdate(UpdateProgress *progress)
     if (static_cast<int>(status.phase) != reported)
     {
         reported = static_cast<int>(status.phase);
-        sys::log("[PL] update: phase=%d done=%llu total=%llu error=%s", reported,
-                 static_cast<unsigned long long>(status.done),
-                 static_cast<unsigned long long>(status.total),
-                 status.error[0] ? status.error : "-");
+        PL_LOG("[PL] update: phase=%d done=%llu total=%llu error=%s", reported,
+               static_cast<unsigned long long>(status.done),
+               static_cast<unsigned long long>(status.total), status.error[0] ? status.error : "-");
     }
 }
 
@@ -404,9 +413,9 @@ bool ApplyUpdate()
     if (!g_update_begun)
         return false;
     const bool going = self_update_apply(&g_update_job) == 1;
-    sys::log("[PL] update: %s",
-             going ? "staged; the helper replaces the files once ProsperoLight has closed"
-                   : "the helper did not take the go-ahead");
+    PL_LOG("[PL] update: %s",
+           going ? "staged; the helper replaces the files once ProsperoLight has closed"
+                 : "the helper did not take the go-ahead");
     return going;
 }
 
@@ -442,7 +451,7 @@ audio::SoundBank &Sounds()
     {
         loaded = true;
         const auto stats = bank.load(Assets() + "/audio/sfx");
-        sys::log("[PL] launcher: sounds files=%d rejected=%d", stats.files, stats.rejected);
+        PL_LOG("[PL] launcher: sounds files=%d rejected=%d", stats.files, stats.rejected);
     }
     return bank;
 }
@@ -459,7 +468,7 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
     // Milliseconds since the launcher began to open, for the log.
     const auto elapsed = [opened_at]
     { return static_cast<long long>((sys::monotonic_us() - opened_at) / 1000); };
-    sys::log("[PL] launcher: opening (first=%d)", first_start ? 1 : 0);
+    PL_LOG("[PL] launcher: opening (first=%d)", first_start ? 1 : 0);
 
 #if PROSPEROLIGHT_PYROWAVE
     struct LauncherOutputPolicy
@@ -479,16 +488,16 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
     if (!(ps5::Display::supports_display_modes() && display.open(3840, 2160)) &&
         !display.open(1920, 1080))
     {
-        sys::log("[PL] launcher: display open failed");
+        PL_LOG("[PL] launcher: display open failed");
         return Result::failed;
     }
-    sys::log("[PL] launcher: display %dx%d after %lld ms", display.width(), display.height(),
-             elapsed());
+    PL_LOG("[PL] launcher: display %dx%d after %lld ms", display.width(), display.height(),
+           elapsed());
     // After the display: the graphics runtime's own threads keep the full mask.
     const int placed = ps5_thread_affinity_set(kScreenCpus);
-    sys::log("[PL] launcher: screen thread on CPUs %llx (was %llx), result %d",
-             static_cast<unsigned long long>(kScreenCpus),
-             static_cast<unsigned long long>(main_cpus), placed);
+    PL_LOG("[PL] launcher: screen thread on CPUs %llx (was %llx), result %d",
+           static_cast<unsigned long long>(kScreenCpus), static_cast<unsigned long long>(main_cpus),
+           placed);
 
     Result outcome = Result::failed;
     {
@@ -499,20 +508,20 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
         gfx::Font mono;
         ui::Fonts fonts;
         bool ready = renderer.init();
-        sys::log("[PL] launcher: renderer after %lld ms", elapsed());
+        PL_LOG("[PL] launcher: renderer after %lld ms", elapsed());
         ready = ready && LoadFont(renderer, "inter-regular.huifont", &regular, &fonts.regular) &&
                 LoadFont(renderer, "inter-semibold.huifont", &semibold, &fonts.semibold);
-        sys::log("[PL] launcher: two fonts after %lld ms", elapsed());
+        PL_LOG("[PL] launcher: two fonts after %lld ms", elapsed());
         ready = ready &&
                 LoadFont(renderer, "montserrat-medium.huifont", &headline, &fonts.display) &&
                 LoadFont(renderer, "dejavu-sans-mono.huifont", &mono, &fonts.mono);
         // The launcher's theme uses neither of these two faces.
         fonts.pixel = fonts.mono;
         fonts.hand = fonts.regular;
-        sys::log("[PL] launcher: renderer and fonts after %lld ms", elapsed());
+        PL_LOG("[PL] launcher: renderer and fonts after %lld ms", elapsed());
         if (!ready)
         {
-            sys::log("[PL] launcher: renderer or fonts failed");
+            PL_LOG("[PL] launcher: renderer or fonts failed");
         }
         else
         {
@@ -547,7 +556,7 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
                             shown += c;
                     }
                     view.set_build_label(shown);
-                    sys::log("[PL] launcher: build label %s", shown.c_str());
+                    PL_LOG("[PL] launcher: build label %s", shown.c_str());
                 }
             }
             view.set_storage(StorageFolders());
@@ -556,7 +565,7 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
             view.set_players(SignedInUsers());
             view.set_update_actions(
                 {BeginUpdate, PollUpdate, CancelUpdate, ApplyUpdate, FinishUpdate});
-            sys::log("[PL] launcher: sound, controller and screens after %lld ms", elapsed());
+            PL_LOG("[PL] launcher: sound, controller and screens after %lld ms", elapsed());
 
             Frame frame;
             ui::Feedback feedback;
@@ -572,9 +581,9 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
                 if (frames > 1 && now - last_frame > 50000 && slow_frames < 60)
                 {
                     ++slow_frames;
-                    sys::log("[PL] launcher: slow frame %lld ms on screen %d (frame %llu)",
-                             static_cast<long long>((now - last_frame) / 1000), view.screen(),
-                             static_cast<unsigned long long>(frames));
+                    PL_LOG("[PL] launcher: slow frame %lld ms on screen %d (frame %llu)",
+                           static_cast<long long>((now - last_frame) / 1000), view.screen(),
+                           static_cast<unsigned long long>(frames));
                 }
                 float dt = frames == 0 ? 1.0f / 60.0f : static_cast<float>(now - last_frame) / 1e6f;
                 last_frame = now;
@@ -644,16 +653,16 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
                     slow_frames < 60)
                 {
                     ++slow_frames;
-                    sys::log("[PL] launcher: frame %llu took (us) poll %lld, artwork %lld, update "
-                             "%lld, draw %lld, render %lld, swap %lld",
-                             static_cast<unsigned long long>(frames), parts[0], parts[1], parts[2],
-                             parts[3], parts[4], parts[5]);
+                    PL_LOG("[PL] launcher: frame %llu took (us) poll %lld, artwork %lld, update "
+                           "%lld, draw %lld, render %lld, swap %lld",
+                           static_cast<unsigned long long>(frames), parts[0], parts[1], parts[2],
+                           parts[3], parts[4], parts[5]);
                 }
                 if (!swapped)
                 {
-                    sys::log("[PL] launcher: swap failed frame=%llu error=%s",
-                             static_cast<unsigned long long>(frames),
-                             ps5::egl_error_name(display.last_error()));
+                    PL_LOG("[PL] launcher: swap failed frame=%llu error=%s",
+                           static_cast<unsigned long long>(frames),
+                           ps5::egl_error_name(display.last_error()));
                     break;
                 }
                 if (++frames == 1)
@@ -661,8 +670,8 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
                     // The console's splash picture has covered the wait.
                     prosperolight_release_splash();
                     const bool hidden = sys::hide_splash_screen();
-                    sys::log("[PL] launcher: first frame after %lld ms, splash hidden=%d",
-                             elapsed(), hidden ? 1 : 0);
+                    PL_LOG("[PL] launcher: first frame after %lld ms, splash hidden=%d", elapsed(),
+                           hidden ? 1 : 0);
                 }
 
 #if PROSPEROLIGHT_STOP_ACTIVE_APP_SELF_TEST != 0
@@ -710,8 +719,7 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
                             yes.connected = true;
                             yes.pressed = hui::action_bit(hui::Action::confirm);
                             view.update(yes, 0.0f, feedback);
-                            sys::log(
-                                "[PL] update: DEVELOPMENT: the offer was accepted by the build");
+                            PL_LOG("[PL] update: DEVELOPMENT: the offer was accepted by the build");
                         }
                     }
                 }
@@ -732,9 +740,9 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
             // Hand everything back before the stream opens it for itself:
             // the worker thread, the audio port, the controller, then the
             // graphics objects (they die with the context) and the display.
-            sys::log("[PL] launcher: closing after %llu frames (stream=%d)",
-                     static_cast<unsigned long long>(frames),
-                     outcome == Result::start_stream ? 1 : 0);
+            PL_LOG("[PL] launcher: closing after %llu frames (stream=%d)",
+                   static_cast<unsigned long long>(frames),
+                   outcome == Result::start_stream ? 1 : 0);
             model.Shutdown();
             audio_out.stop();
             pad.close();
@@ -748,7 +756,7 @@ Result Run(Selection *selection, const char *stream_error, bool first_start)
     display.close();
     if (main_cpus_known)
         (void)ps5_thread_affinity_set(main_cpus);
-    sys::log("[PL] launcher: closed");
+    PL_LOG("[PL] launcher: closed");
     return outcome;
 }
 

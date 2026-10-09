@@ -8,6 +8,8 @@
 #include "launcher/launcher_model.hpp"
 #include "host_preferences.hpp"
 #include "stream_profile.hpp"
+#include "lan_http_report.hpp"
+#include <chrono>
 
 #include <algorithm>
 #include <cstdio>
@@ -133,6 +135,9 @@ float Model::pairing_seconds_left() const
 
 void Model::Notify(NoticeKind kind, std::string title, std::string body, float seconds)
 {
+    // What the player is told is the outcome of what they asked for.
+    prosperolight_debug_line("notice", "kind=%d \"%s\" \"%s\"", static_cast<int>(kind),
+                             title.c_str(), body.c_str());
     notices_.push_back({kind, std::move(title), std::move(body), seconds});
 }
 
@@ -499,6 +504,32 @@ void *Model::Worker(void *self)
 
 void Model::Run(const Job &job, JobResult *result)
 {
+    const auto started = std::chrono::steady_clock::now();
+    // Named by number: 1 discover, 2 refresh, 3 health, 4 sweep, 5 unpair, 6 stop, 7 artwork, 8
+    // update.
+    struct Report
+    {
+        const Job &job;
+        const JobResult &result;
+        std::chrono::steady_clock::time_point started;
+        ~Report()
+        {
+            // The timer's own checks would fill the trace: they are noted only when they fail.
+            if ((job.kind == JobKind::health || job.kind == JobKind::artwork) && result.result == 0)
+                return;
+            prosperolight_debug_line(
+                "job",
+                "kind=%d pc=%s:%u app=%d result=%d online=%u paired=%u apps=%u running=%d found=%u "
+                "in %lld ms \"%s\"",
+                static_cast<int>(job.kind), job.host, job.port, job.app_id, result.result,
+                result.snapshot.online, result.snapshot.paired, result.snapshot.app_count,
+                result.snapshot.current_app_id, result.found_count,
+                static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now() - started)
+                                           .count()),
+                result.snapshot.error);
+        }
+    } report{job, *result, started};
     switch (job.kind)
     {
     case JobKind::discover:

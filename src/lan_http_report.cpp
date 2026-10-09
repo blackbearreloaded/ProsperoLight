@@ -9,11 +9,19 @@
 #include "lan_http_report.hpp"
 #include "app_storage.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <fcntl.h>
+#include <mutex>
+#include <pthread.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <mutex>
+#include <string>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 namespace
 {
@@ -68,10 +76,212 @@ int prosperolight_logs_set_enabled(int enabled)
     return 1;
 }
 
+// ---- Debug log ---------------------------------------------------------------
+
+namespace
+{
+constexpr size_t kDebugPendingLimit = 512u * 1024u;
+constexpr long long kDebugFileLimit = 16ll * 1024 * 1024;
+const auto debug_origin = std::chrono::steady_clock::now();
+std::mutex debug_mutex;
+std::atomic<int> debug_state{-1}; // -1: the setting has not been read yet
+std::string debug_pending;        // lines waiting for the writer
+unsigned long long debug_dropped = 0;
+std::string debug_folder;
+int debug_file = -1;
+long long debug_written = 0;
+bool debug_full = false;
+
+std::string debug_settings()
+{
+    return storage::setting_file("prosperolight-debug.bin");
+}
+
+double debug_seconds()
+{
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - debug_origin).count();
+}
+
+// With debug_mutex held. The first line of a trace says when it began, so the
+// seconds on every other line can be placed on a clock.
+bool debug_open()
+{
+    if (debug_file >= 0)
+        return true;
+    if (debug_folder.empty() || debug_full)
+        return false;
+    const std::string path = debug_folder + "/debug-trace.txt";
+    (void)rename(path.c_str(), (debug_folder + "/debug-trace.prev.txt").c_str());
+    debug_file = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0666);
+    if (debug_file < 0)
+        return false;
+    char stamp[40] = "unknown";
+    const time_t now = time(nullptr);
+    struct tm utc
+    {
+    };
+    if (gmtime_r(&now, &utc))
+        (void)strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S UTC", &utc);
+    char header[160];
+    const int length =
+        snprintf(header, sizeof(header), "[%9.3f] [trace] ProsperoLight debug log, opened %s\n",
+                 debug_seconds(), stamp);
+    if (length > 0)
+        debug_written += write(debug_file, header, static_cast<size_t>(length));
+    return true;
+}
+
+// With debug_mutex held.
+void debug_write_pending()
+{
+    if (debug_pending.empty() || !debug_open())
+        return;
+    if (debug_dropped)
+    {
+        char note[96];
+        snprintf(note, sizeof(note), "[%9.3f] [trace] %llu lines were not kept\n", debug_seconds(),
+                 debug_dropped);
+        debug_pending.insert(0, note);
+        debug_dropped = 0;
+    }
+    const ssize_t wrote = write(debug_file, debug_pending.data(), debug_pending.size());
+    if (wrote > 0)
+        debug_written += wrote;
+    debug_pending.clear();
+    if (debug_written > kDebugFileLimit)
+    {
+        // A full trace keeps its beginning, where a problem's cause usually is.
+        static const char full[] = "[trace] the debug log is full; nothing more is written\n";
+        (void)write(debug_file, full, sizeof(full) - 1);
+        close(debug_file);
+        debug_file = -1;
+        debug_full = true;
+    }
+}
+
+void *debug_writer(void *)
+{
+    for (;;)
+    {
+        usleep(250000);
+        if (debug_state.load(std::memory_order_relaxed) == 1)
+            prosperolight_debug_flush();
+    }
+    return nullptr;
+}
+} // namespace
+
+int prosperolight_debug_enabled(void)
+{
+    int state = debug_state.load(std::memory_order_relaxed);
+    if (state >= 0)
+        return state;
+    std::lock_guard<std::mutex> guard(debug_mutex);
+    state = 0;
+    if (FILE *file = fopen(debug_settings().c_str(), "rb"))
+    {
+        unsigned char data[5]{};
+        if (fread(data, 1, sizeof(data), file) == sizeof(data) && memcmp(data, "PLD\1", 4) == 0)
+            state = data[4] == 1;
+        fclose(file);
+    }
+    debug_state.store(state, std::memory_order_relaxed);
+    return state;
+}
+
+int prosperolight_debug_set_enabled(int enabled)
+{
+    const auto destination = debug_settings();
+    const auto temporary = destination + ".tmp";
+    FILE *file = fopen(temporary.c_str(), "wb");
+    if (!file)
+        return 0;
+    const unsigned char data[] = {'P', 'L', 'D', 1, static_cast<unsigned char>(enabled != 0)};
+    const bool written = fwrite(data, 1, sizeof(data), file) == sizeof(data);
+    const int closed = fclose(file);
+    if (!written || closed || rename(temporary.c_str(), destination.c_str()) != 0)
+    {
+        remove(temporary.c_str());
+        return 0;
+    }
+    if (!enabled)
+    {
+        prosperolight_debug_line("trace", "switched off in Settings");
+        prosperolight_debug_flush();
+    }
+    debug_state.store(enabled != 0, std::memory_order_relaxed);
+    if (enabled)
+        prosperolight_debug_line("trace", "switched on in Settings");
+    return 1;
+}
+
+void prosperolight_debug_line(const char *tag, const char *format, ...)
+{
+    if (!format || prosperolight_debug_enabled() != 1)
+        return;
+    char line[1280];
+    int used = snprintf(line, sizeof(line), "[%9.3f] [%s] ", debug_seconds(), tag ? tag : "app");
+    if (used < 0)
+        return;
+    va_list arguments;
+    va_start(arguments, format);
+    const int more =
+        vsnprintf(line + used, sizeof(line) - static_cast<size_t>(used) - 1, format, arguments);
+    va_end(arguments);
+    if (more < 0)
+        return;
+    // Lines that already carry the console log's "[PL] " mark lose it: the tag says the same.
+    if (strncmp(line + used, "[PL] ", 5) == 0)
+        memmove(line + used, line + used + 5, strlen(line + used + 5) + 1);
+    used = static_cast<int>(strnlen(line, sizeof(line) - 2));
+    while (used > 0 && (line[used - 1] == '\n' || line[used - 1] == '\r'))
+        --used;
+    line[used++] = '\n';
+    std::lock_guard<std::mutex> guard(debug_mutex);
+    if (debug_full || debug_pending.size() + static_cast<size_t>(used) > kDebugPendingLimit)
+    {
+        ++debug_dropped;
+        return;
+    }
+    debug_pending.append(line, static_cast<size_t>(used));
+}
+
+void prosperolight_debug_flush(void)
+{
+    std::lock_guard<std::mutex> guard(debug_mutex);
+    debug_write_pending();
+}
+
+void prosperolight_debug_start(const char *logs_folder)
+{
+    {
+        std::lock_guard<std::mutex> guard(debug_mutex);
+        if (!logs_folder || !debug_folder.empty())
+            return;
+        debug_folder = logs_folder;
+    }
+    pthread_attr_t attributes;
+    pthread_attr_init(&attributes);
+    pthread_attr_setstacksize(&attributes, 64u * 1024u);
+    pthread_t writer;
+    if (pthread_create(&writer, &attributes, debug_writer, nullptr) == 0)
+        pthread_detach(writer);
+    pthread_attr_destroy(&attributes);
+}
+
 void prosperolight_log_append(const char *path, const char *message)
 {
     if (!path || !message)
         return;
+    // The stream's reports reach the Debug log whatever the Diagnostic logs switch says.
+    {
+        const char *report = strrchr(path, '/') ? strrchr(path, '/') + 1 : path;
+        if (strncmp(report, "prosperolight-", 14) == 0)
+            report += 14;
+        char tag[24];
+        snprintf(tag, sizeof(tag), "%.*s", static_cast<int>(strcspn(report, ".")), report);
+        prosperolight_debug_line(tag, "%s", message);
+    }
     {
         std::lock_guard<std::mutex> guard(log_mutex);
         load_logs();
@@ -166,9 +376,9 @@ void lan_http_report_set_host(const char *host)
 
 int lan_http_report_text(const char *message)
 {
+    prosperolight_log_append("prosperolight-session.log", message);
     if (!prosperolight_logs_enabled())
         return 0;
-    prosperolight_log_append("prosperolight-session.log", message);
 #if PROSPEROLIGHT_LAN_TELEMETRY
     char request[256];
     size_t message_length;
