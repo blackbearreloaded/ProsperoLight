@@ -137,6 +137,65 @@ homebrew loaders. See the evidence and open acceptance items in
 > at 1440p or 2160p, 90 or 120 FPS, and higher bitrates. Wi-Fi can work, but
 > interference and variable latency may cause dropped frames or input delay.
 
+## Roadmap
+
+The aim is a client as capable as Moonlight on a PC, and better where the PS5 allows it.
+These are directions, not promises or dates: each one still has to be proven on hardware.
+Ideas and votes are welcome in
+[GitHub issues](https://github.com/blackbearreloaded/ProsperoLight/issues).
+
+### Next
+
+- **Quick menu during a stream.** Send Alt+Tab, Win, Esc and Alt+F4, switch between
+  controller and mouse, change monitor, and quit the app on the PC, without a keyboard.
+- **Home-screen tiles for PC games.** Start ProsperoLight with a PC and an app named, so
+  a forwarder tile on the PS5 home screen opens one game directly
+  ([#26](https://github.com/blackbearreloaded/ProsperoLight/issues/26)).
+- **Resume the last session** as the first choice when the app opens.
+- **Wake a sleeping PC** from the PCs page (Wake-on-LAN).
+- **Automatic bitrate.** A short network test picks it, with the decoder's measured
+  limit as the ceiling.
+- **Seamless reconnect.** After a network drop, keep the last picture and resume the
+  stream instead of returning to the launcher.
+
+### Picture
+
+- **Upscaling on the console.** Stream at 1080p or 1440p and upscale to 4K on the PS5:
+  less bitrate and less load on the PC for a similar picture.
+- **VRR without choosing a mode.** Use variable refresh whenever the television offers it,
+  and tell from the system when it is really active.
+- **HDR matched to the television.** Give the PC the display's calibrated HDR values so
+  games tone-map for the screen in the room.
+- **Latency you can read.** An end-to-end estimate in the statistics overlay.
+
+### Controllers and sound
+
+- **Microphone to the PC**, from the DualSense or a headset, for voice chat (where the
+  host supports it).
+- **Gyro aiming**, and the touchpad as a trackpad with two-finger scrolling.
+- **Controller speaker and light bar** driven by the game.
+- **Button remapping and profiles** for each game.
+- **7.1 surround**, beside stereo and 5.1.
+
+### Library and settings
+
+- **Settings for each game:** resolution, frame rate, bitrate and pacing remembered per
+  app.
+- **Hide, reorder and search apps**, with favourites first.
+- **Artwork and names** from a public database when the PC has none.
+- **Every PC at a glance:** which are awake and what they are running.
+
+### Reach
+
+- **Streaming over the internet:** an external address and port, IPv6, and a connection
+  test that says what is blocked.
+- **Host extras for Vibepollo and Apollo:** a virtual display matched to the television,
+  and HDR and VRR set up automatically.
+- **Reviewed translations.** A simple way for native speakers to correct the 31
+  languages.
+- **Tested across system software versions** before each release, since consoles on
+  different versions do not always behave alike.
+
 ## Requirements
 
 Build from Linux, WSL, or a Linux CI runner. On Ubuntu, Debian, or WSL:
