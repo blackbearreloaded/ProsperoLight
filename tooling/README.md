@@ -10,7 +10,7 @@ The root build performs four native stages:
    constructors, TLS, and unwind information into an intermediate PIE.
 3. `native/ps5-native-tool` converts that PIE to the PS5 ELF layout and wraps
    it in a deterministic development FSELF.
-4. The requested folder or optional filesystem image is assembled.
+4. The app folder is assembled.
 
 `native/libc_builder.cpp` independently reproduces the generated clean-room
 runtime from the two manifests under `native/runtime/`. Run `make libc` on

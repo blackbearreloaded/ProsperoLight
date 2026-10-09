@@ -806,34 +806,84 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["attribute2"], 0)
         self.assertEqual(configured["attribute3"], 0x80040)
 
-    def test_release_workflow_publishes_exfat_folder_zip_and_checksums(self):
+    def test_automation_builds_the_zip_only(self):
+        # Builds and releases carry the app-folder ZIP and SHA256SUMS; no image is
+        # built anywhere, by the automation or by a local target.
+        workflow = (ROOT / ".github/workflows/tooling.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("exfat", workflow.lower())
+        self.assertNotIn("ffpfsc", workflow.lower())
+        self.assertNotIn("ffpkg", workflow.lower())
+        self.assertIn('sha256sum "$TITLE_ID.zip" > SHA256SUMS', workflow)
+        self.assertIn("if (( ${#files[@]} != 2 )); then", workflow)
+        self.assertIn('assets=("release/$ARCHIVE" "release/$CHECKSUM")', workflow)
+        upload = workflow.split("- name: Upload build\n", 1)[1].split("\n\n", 1)[0]
+        paths = [line.strip() for line in upload.splitlines() if "dist/" in line]
+        self.assertEqual(
+            paths, ["dist/${{ env.TITLE_ID }}.zip", "dist/SHA256SUMS"]
+        )
+        # The ZIP is attested (signed provenance) once final, before the upload.
+        attest = (
+            "uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6"
+            " # v4.2.2"
+        )
+        self.assertEqual(workflow.count(attest), 1)
+        checked = workflow.index("- name: Check that every ZIP entry is stored as 0777\n")
+        upload = workflow.index("- name: Upload build provenance\n")
+        self.assertLess(checked, workflow.index(attest))
+        self.assertLess(workflow.index(attest), upload)
+        self.assertIn("subject-path: dist/${{ env.TITLE_ID }}.zip\n", workflow)
+        self.assertIn(
+            "if: github.event_name != 'pull_request' && !github.event.repository.private\n",
+            workflow,
+        )
+        needed = ("contents: read", "id-token: write", "attestations: write")
+        for permission in needed:
+            self.assertIn(f"      {permission}\n", workflow)
+        # No image is built: no target, no build mode, no script branch, no tooling.
+        gone = ("ffpkg", "ffpfsc", "exfat", "ufs2tool", "mkpfs")
+        for name in ("Makefile", "tools/build.sh", "build.ps1",
+                     ".github/workflows/tooling.yml"):
+            text = (ROOT / name).read_text(encoding="utf-8").lower()
+            for word in gone:
+                self.assertNotIn(word, text, name)
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertNotIn("\npackages:", makefile)
+        self.assertNotIn("DEPLOY_FORMAT", makefile)
+        self.assertNotIn("OutputFormat", (ROOT / "build.ps1").read_text(encoding="utf-8"))
+        for name in ("setup-packaging-dependencies.sh", "setup-ffpkg-tooling.ps1",
+                     "setup-mkpfs-tooling.ps1", "pack-exfat.py"):
+            self.assertFalse((ROOT / "tools" / name).exists(), name)
+        # A deploy builds and uploads the folder; it only deletes an old image.
+        deploy = (ROOT / "tools/deploy.sh").read_text(encoding="utf-8")
+        self.assertIn('make -C "$root" --no-print-directory app\n', deploy)
+        self.assertNotIn("$format", deploy)
+
+    def test_release_workflow_publishes_folder_zip_and_checksums(self):
         workflow = (ROOT / ".github/workflows/tooling.yml").read_text(
             encoding="utf-8"
         )
         self.assertIn('"Jinja2==3.1.6" "jsonschema==4.25.1"', workflow)
         self.assertIn('python3 -m zipfile -c "$TITLE_ID.zip" "$TITLE_ID"', workflow)
-        self.assertIn(
-            'sha256sum "$TITLE_ID.exfat" "$TITLE_ID.zip" > SHA256SUMS',
-            workflow,
-        )
+        self.assertIn('sha256sum "$TITLE_ID.zip" > SHA256SUMS', workflow)
         self.assertIn("dist/${{ env.TITLE_ID }}.zip", workflow)
         self.assertIn("dist/SHA256SUMS", workflow)
-        self.assertIn(
-            "Expected one raw exFAT image, one app-folder ZIP, and SHA256SUMS.",
-            workflow,
-        )
-        self.assertIn("find . -type f -name 'PPSA*.exfat' -print0", workflow)
+        self.assertIn("Expected one app-folder ZIP and SHA256SUMS.", workflow)
         self.assertNotIn("ffpfsc", workflow.lower())
         self.assertIn("find . -type f -name 'PPSA*.zip' -print0", workflow)
         self.assertIn("find . -type f -name 'SHA256SUMS' -print0", workflow)
         self.assertIn('sha256sum -c "$(basename "${checksums[0]}")"', workflow)
-        self.assertIn(
-            'assets=("release/$RAW_IMAGE" "release/$ARCHIVE" "release/$CHECKSUM")',
-            workflow,
-        )
-        self.assertIn("gh release delete-asset", workflow)
+        self.assertIn('assets=("release/$ARCHIVE" "release/$CHECKSUM")', workflow)
+        # A release that already has a ZIP is never changed; one without gets the two files.
+        self.assertNotIn("--clobber", workflow)
+        self.assertNotIn("delete-asset", workflow)
+        self.assertNotIn("gh release edit", workflow)
+        self.assertEqual(workflow.count("gh release upload"), 1)
+        self.assertIn("--json assets --jq '.assets[].name'", workflow)
+        self.assertIn("::warning title=Release files not from this run::", workflow)
         self.assertIn('awk -v version="$GITHUB_REF_NAME"', workflow)
-        self.assertEqual(workflow.count("--notes-file release-notes.md"), 2)
+        self.assertEqual(workflow.count("--notes-file release-notes.md"), 1)
         self.assertNotIn(".ffpkg", workflow)
 
     def test_readme_bitrate_limits_match_the_measured_model(self):
@@ -1105,6 +1155,7 @@ class ToolTests(unittest.TestCase):
             (ROOT / "sce_sys/param.json").read_text(encoding="utf-8")
         )["titleId"]
         self.assertIn(f"/data/homebrew/{title_id}/", result.stdout)
+        # An image left by an older version is still cleaned up.
         self.assertIn(f"{title_id}.{{ffpkg,ffpfsc}}", result.stdout)
         self.assertIn("no network request was sent", result.stdout)
 
@@ -1123,8 +1174,10 @@ class ToolTests(unittest.TestCase):
             mock_make = mock_bin / "make"
             mock_make.write_text(
                 "#!/usr/bin/env bash\n"
-                "mkdir -p \"$MOCK_ROOT/dist\"\n"
-                "printf package > \"$MOCK_ROOT/dist/PPSA12345.ffpkg\"\n",
+                "printf '%s\\n' \"$*\" > \"$MOCK_ROOT/make-arguments\"\n"
+                "mkdir -p \"$MOCK_ROOT/dist/PPSA12345/sce_sys\"\n"
+                "printf eboot > \"$MOCK_ROOT/dist/PPSA12345/eboot.bin\"\n"
+                "printf param > \"$MOCK_ROOT/dist/PPSA12345/sce_sys/param.json\"\n",
                 encoding="utf-8",
             )
             mock_make.chmod(0o755)
@@ -1133,7 +1186,6 @@ class ToolTests(unittest.TestCase):
             environment.update(
                 PS5_HOST="192.0.2.1",
                 DEPLOY_DRY_RUN="1",
-                DEPLOY_FORMAT="ffpkg",
                 MOCK_ROOT=str(sandbox),
                 PATH=f"{mock_bin}{os.pathsep}{environment['PATH']}",
             )
@@ -1146,8 +1198,26 @@ class ToolTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("/data/homebrew/PPSA12345.ffpkg", result.stdout)
+            self.assertIn("/data/homebrew/PPSA12345/\n", result.stdout)
+            self.assertIn("Would publish 2 files", result.stdout)
             self.assertIn("no network request was sent", result.stdout)
+            built = sandbox / "make-arguments"
+            self.assertEqual(built.read_text(encoding="utf-8").split()[-1], "app")
+
+            # The folder is the only output: an image format is refused before any build.
+            built.unlink()
+            environment["DEPLOY_FORMAT"] = "ffpkg"
+            refused = subprocess.run(
+                ["bash", str(sandbox / "tools/deploy.sh")],
+                cwd=sandbox,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(refused.returncode, 2, refused.stdout)
+            self.assertIn("DEPLOY_FORMAT", refused.stderr)
+            self.assertFalse(built.exists())
 
 
 if __name__ == "__main__":

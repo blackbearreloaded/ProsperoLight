@@ -6,7 +6,6 @@ Before deploying, run:
 
 ```sh
 make check
-make ffpfsc
 ```
 
 Confirm the package uses the expected `titleId`, `contentVersion`, and

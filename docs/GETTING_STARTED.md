@@ -64,9 +64,9 @@ image. Pass module names through `PACBREW_PACKAGES`; `make` then downloads and
 links them automatically. Use `make pacbrew-list` to inspect available modules.
 See [PacBrew dependencies](PACBREW.md).
 
-## 3. Install optional packaging prerequisites
+## 3. No packaging prerequisites
 
-The normal folder build needs no managed runtime or external host project.
+The build needs no managed runtime or external host project.
 Repository-owned tools are compiled from C/C++ source automatically.
 
 The root application is C++20. It uses the libc++ headers already present in
@@ -74,19 +74,6 @@ the fetched public SDK. Exceptions and RTTI are disabled in every translation
 unit. The launcher draws with the ps5-opengl SDK, which the build downloads and
 verifies on first use.
 See [Native build tooling](NATIVE_TOOLING.md).
-
-Compressed `.ffpfsc` output uses Python 3.9 or newer with `venv` support. The
-build fetches MkPFS and installs it into an ignored virtual environment under
-`.deps/MkPFS/` when selected.
-
-Uncompressed `.ffpkg` output requires the .NET SDK 8 or newer. The build
-fetches a pinned UFS2Tool checkout, builds its command-line application under
-`.deps/UFS2Tool/`, and reuses that ignored cache. It does not require
-administrator access or a global UFS2Tool installation.
-
-```bash
-dotnet --version
-```
 
 ## 4. Generate the clean-room loader shim
 
@@ -219,28 +206,10 @@ dist/PPSA99999/
   sce_sys/snd0.at9
 ```
 
-Choose the final output with Make:
-
-```bash
-make app
-make ffpkg
-make ffpfsc
-make packages
-```
-
-The equivalent PowerShell selections are:
-
-```powershell
-./build.ps1 -OutputFormat Folder
-./build.ps1 -OutputFormat Ffpkg
-./build.ps1 -OutputFormat Ffpfsc
-./build.ps1 -OutputFormat All
-```
-
-The optional packaging tools are fetched only on first use. See
-[Build output formats](FFPKG.md).
+The app folder is the only build output; see
+[The app folder and the release ZIP](RELEASE_ZIP.md).
 
 `runtime/libc.prx` is a generated, ignored file included inside the application
-image. Tagged GitHub Releases publish only the verified `.ffpfsc` image.
+folder. Tagged GitHub Releases publish the app-folder ZIP and `SHA256SUMS`.
 
 Continue with [Deployment](DEPLOYMENT.md).

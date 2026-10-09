@@ -9,12 +9,11 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$root/tools/native-toolchain.sh"
-format=${1:-Folder}
-format=${format,,}
-case "$format" in folder|ffpkg|ffpfsc|exfat|all) ;; *)
-    echo "usage: tools/build.sh [Folder|Ffpkg|Ffpfsc|Exfat|All]" >&2
+# The app folder is the only output. "Folder" is still accepted from older callers.
+[[ $# -eq 0 || ($# -eq 1 && ${1,,} == folder) ]] || {
+    echo "usage: tools/build.sh [Folder]" >&2
     exit 2
-esac
+}
 # Checked before anything is built; written into the app folder further down.
 if [[ -n ${BUILD_LABEL:-} ]]; then
     [[ $BUILD_LABEL =~ ^[A-Za-z0-9\ ,._#-]{1,40}$ ]] || {
@@ -432,35 +431,4 @@ fi
 "$tool" self --inspect --file "$app/eboot.bin"
 python3 "$root/tools/write-build-provenance.py" "$app/eboot.bin" "$build/build-provenance.json"
 
-if [[ $format == ffpkg || $format == all ]]; then
-    ufs2tool=$(bash "$root/tools/setup-packaging-dependencies.sh" ffpkg)
-    rm -f -- "$dist/$title_id.ffpkg"
-    "$ufs2tool" makefs -S 4096 -b 20% -t ffs \
-        -o version=2,bsize=32768,fsize=4096,minfree=0,softupdates=0,optimization=space \
-        "$dist/$title_id.ffpkg" "$app"
-    python3 - "$dist/$title_id.ffpkg" <<'PY'
-import struct, sys
-with open(sys.argv[1], "rb") as stream:
-    stream.seek(0x1055c)
-    if struct.unpack("<I", stream.read(4))[0] != 0x19540119:
-        raise SystemExit("FFPKG is missing the UFS2 superblock magic")
-PY
-fi
-if [[ $format == ffpfsc || $format == all ]]; then
-    mkpfs=$(bash "$root/tools/setup-packaging-dependencies.sh" ffpfsc)
-    rm -f -- "$dist/$title_id.ffpfsc"
-    "$mkpfs" pack folder --no-adjust-output-file-extension \
-        --version PS5 --verify "$app" "$dist/$title_id.ffpfsc"
-fi
-if [[ $format == exfat || $format == ffpfsc || $format == all ]]; then
-    # Raw exFAT avoids the PFSC mounting corruption observed on firmware 13.60. It is the
-    # image releases carry; its packer runs in the MkPFS Python environment.
-    bash "$root/tools/setup-packaging-dependencies.sh" ffpfsc >/dev/null
-    "$root/.deps/MkPFS/.venv-linux/bin/python" "$root/tools/pack-exfat.py" \
-        "$app" "$dist/$title_id.exfat"
-fi
-
 printf 'Build complete.\nApp folder: %s\n' "$app"
-[[ $format != ffpkg && $format != all ]] || printf 'FFPKG:     %s\n' "$dist/$title_id.ffpkg"
-[[ $format != ffpfsc && $format != all ]] || printf 'FFPFSC:    %s\n' "$dist/$title_id.ffpfsc"
-[[ $format != exfat && $format != ffpfsc && $format != all ]] || printf 'exFAT:     %s\n' "$dist/$title_id.exfat"
