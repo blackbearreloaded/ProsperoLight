@@ -866,7 +866,7 @@ void View::sync_games()
         item.title = app.name;
         item.tag = app.id;
         if (backend.current_app_id == app.id)
-            item.badge = "RUNNING";
+            item.badge = i18n::tr("Running");
         if (const Artwork *art = artwork(app.id))
         {
             item.texture = art->texture;
