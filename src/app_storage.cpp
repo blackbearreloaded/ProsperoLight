@@ -199,6 +199,7 @@ void open_log(const char *folder)
 void say(const char *line)
 {
     std::fputs(line, stdout);
+    prosperolight_debug_line("app", "%s", line);
     (void)sceKernelDebugOutText(0, line);
 }
 
@@ -272,6 +273,7 @@ void storage::Initialize()
                 (void)write_new(destination, g_kept[i]);
         }
     open_log(paths.logs);
+    prosperolight_debug_start(paths.logs);
 
     // The OpenGL runtime keeps the shaders it compiled, so later launches, and
     // the first visit to each screen, skip that work.

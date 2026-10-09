@@ -2264,6 +2264,35 @@ static int submit_presentation(native_renderer_state_t *state, const stream_read
     hud.pacing_mode = stream_presentation_mode;
     hud.vrr_api_active = native_agc_vrr_active();
     hud.pacing_reserve_us = stream_pacer.stats.reserve_us;
+    if (prosperolight_debug_enabled() == 1)
+    {
+        // The numbers of the statistics overlay, once a second, on this (presentation) thread.
+        static uint64_t traced_us = 0;
+        if (started - traced_us >= 1000000u)
+        {
+            traced_us = started;
+            prosperolight_debug_line(
+                "stream",
+                "fps in=%u.%02u decoded=%u.%02u shown=%u.%02u | lost network=%u.%02u%% "
+                "decoder=%u.%02u%% not_shown=%u | "
+                "decode avg=%llu p95=%llu us load=%u/1000 | queue avg=%llu max=%llu us pending=%u "
+                "| "
+                "rtt=%u+-%u ms valid=%u host=%u.%u ms | present wait=%llu us vsync=%u pacing=%u "
+                "vrr=%u",
+                hud.incoming_fps_x100 / 100, hud.incoming_fps_x100 % 100,
+                hud.decoded_fps_x100 / 100, hud.decoded_fps_x100 % 100,
+                hud.rendering_fps_x100 / 100, hud.rendering_fps_x100 % 100,
+                hud.network_drop_percent_x100 / 100, hud.network_drop_percent_x100 % 100,
+                hud.decoder_drop_percent_x100 / 100, hud.decoder_drop_percent_x100 % 100,
+                hud.not_displayed, static_cast<unsigned long long>(hud.decode_average_us),
+                static_cast<unsigned long long>(hud.decode_p95_us), hud.decoder_load_permille,
+                static_cast<unsigned long long>(hud.queue_delay_average_us),
+                static_cast<unsigned long long>(hud.queue_delay_max_us), hud.pending_frames,
+                hud.rtt_ms, hud.rtt_variance_ms, hud.rtt_valid, hud.host_average_tenths_ms / 10,
+                hud.host_average_tenths_ms % 10, static_cast<unsigned long long>(waited),
+                hud.vsync_enabled, hud.pacing_mode, hud.vrr_api_active);
+        }
+    }
     if (PROSPEROLIGHT_PERFORMANCE_DETAIL)
         state->present_wait_timing.add(waited);
     if (item.trace)
