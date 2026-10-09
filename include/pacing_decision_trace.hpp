@@ -1,3 +1,5 @@
+// ps5-native-app-boilerplate / ProsperoLight - Bounded presentation diagnostics.
+// Copyright (C) 2026 BlackBearReloaded
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "app_storage.hpp"
