@@ -18,8 +18,16 @@ extern "C" int sceVideoOutConfigureOutput(int32_t, uint32_t, const void *, const
                                           const void *);
 extern "C" int __real_sceVideoOutVrrUnpegFromFixedRate(int32_t);
 static std::atomic<bool> vrr_output{false};
+static std::atomic<int> video_handle{-1};
+static std::atomic<bool> launcher_output{false};
 static void record_output_policy(int handle, const char *operation, int result)
 {
+    prosperolight_debug_line(
+        "videoout",
+        "handle=%08x owner=%s mode=%u operation=%s rc=%08x variable=%d nominal_refresh_x100=%u",
+        unsigned(handle), launcher_output.load() ? "launcher" : "stream",
+        moonlight::presentation_mode(), operation, unsigned(result), vrr_output.load(),
+        handle >= 0 ? native_videoout_refresh_x100(handle) : 0);
     // Infrequent mode setup only: bypass buffered stdout so this receipt also
     // works on SDKs where reopening the process streams failed. Bounded file.
     if (!prosperolight_logs_enabled())
@@ -88,8 +96,6 @@ extern "C" int __wrap_sceVideoOutVrrUnpegFromFixedRate(int32_t handle)
     record_output_policy(handle, "unpeg", result);
     return result;
 }
-static std::atomic<int> video_handle{-1};
-static std::atomic<bool> launcher_output{false};
 static std::atomic<uint64_t> flips{0}, errors{0};
 extern "C" int __wrap_sceVideoOutOpen(int32_t user, int32_t bus, int32_t index, const void *p)
 {
@@ -113,10 +119,36 @@ extern "C" int __wrap_sceVideoOutOpen(int32_t user, int32_t bus, int32_t index, 
         // branch. They still need an explicit fixed-output request.
         if (!launcher_output.load() && moonlight::presentation_mode() != 2)
             (void)__wrap_sceVideoOutVrrPegToFixedRate(handle, 0, 0);
+        record_output_policy(handle, "open", 0);
         flips.store(0);
         errors.store(0);
     }
     return handle;
+}
+extern "C" int __real_sceVideoOutConfigureOutput(int32_t, uint32_t, const void *, const void *,
+                                                 const void *);
+extern "C" int __wrap_sceVideoOutConfigureOutput(int32_t handle, uint32_t mode, const void *a,
+                                                 const void *b, const void *c)
+{
+    const int result = __real_sceVideoOutConfigureOutput(handle, mode, a, b, c);
+    char operation[40];
+    std::snprintf(operation, sizeof(operation), "configure-%u", mode);
+    record_output_policy(handle, operation, result);
+    return result;
+}
+extern "C" int __real_sceVideoOutClose(int32_t);
+extern "C" int __wrap_sceVideoOutClose(int32_t handle)
+{
+    const int result = __real_sceVideoOutClose(handle);
+    // A close receipt must not query a handle that no longer exists.
+    prosperolight_debug_line("videoout", "close handle=%08x rc=%08x", unsigned(handle),
+                             unsigned(result));
+    if (result == 0 && handle == video_handle.load())
+    {
+        video_handle.store(-1);
+        vrr_output.store(false);
+    }
+    return result;
 }
 extern "C" int __wrap_sceVideoOutSubmitFlip(int32_t handle, int32_t buffer, uint32_t mode,
                                             int64_t argument)

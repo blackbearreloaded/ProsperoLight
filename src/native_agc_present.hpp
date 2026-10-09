@@ -99,6 +99,7 @@ void native_agc_note_initialized(void);
 
 // Codec-independent physical output status: -1 unknown, 0 SDR, 1 HDR.
 int native_videoout_hdr_active(int32_t handle);
+uint32_t native_videoout_refresh_x100(int32_t handle);
 void native_agc_keyboard_snapshot(int *enabled, uint32_t *selected, int *shifted);
 
 #endif

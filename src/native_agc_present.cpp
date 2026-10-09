@@ -1328,6 +1328,21 @@ int native_videoout_hdr_active(int32_t handle)
     return status.output_class == 2u || (status.flags & 1u) ? 1 : 0;
 }
 
+uint32_t native_videoout_refresh_x100(int32_t handle)
+{
+    video_resolution_status_t resolution = {};
+    if (handle >= 0 && sceVideoOutGetResolutionStatus(handle, &resolution) == 0)
+    {
+        const uint32_t refresh = video_output_refresh_x100(resolution.refresh_rate);
+        if (refresh)
+            return refresh;
+    }
+    video_output_status_t output = {};
+    return handle >= 0 && sceVideoOutGetOutputStatus(handle, &output) == 0
+               ? video_output_refresh_x100(output.refresh_rate)
+               : 0;
+}
+
 static void update_presenter_output_status(const char *stage)
 {
     video_resolution_status_t resolution = {};

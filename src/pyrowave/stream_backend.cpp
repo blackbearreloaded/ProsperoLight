@@ -266,8 +266,8 @@ void *worker(void *)
     ScanoutTrace scanout_trace("pyrowave", mode);
     uint64_t repeat_argument = 0;
     log_line("PyroWave pacing: mode=%u requested_fps=%u selected_refresh_x100=%u "
-             "source_clock=1",
-             mode, s.fps, refresh);
+             "source_clock=1 variable_output=%u",
+             mode, s.fps, refresh, ps5_vrr_output_active() ? 1u : 0u);
     uint64_t last = now_us(), incoming = 0, decoded = 0, shown = 0, bytes = 0;
     double decode_ms = 0, render_ms = 0;
     uint64_t samples = 0;
@@ -485,7 +485,7 @@ void *worker(void *)
                 {
                     log_line("PyroWave VideoOut actual %.3f Hz; selected %.3f Hz", refresh,
                              s.backend->refresh_hz());
-                    if (s.fps > 100 && refresh < 100)
+                    if (s.fps > 100 && refresh < 100 && !ps5_vrr_output_active())
                         log_line("PyroWave 120 Hz verification pending: short live window "
                                  "%.3f Hz; "
                                  "continuing stream",
@@ -516,6 +516,9 @@ void *worker(void *)
                          (s.incoming.load() - incoming) / seconds,
                          (s.decoded.load() - decoded) / seconds, (s.shown.load() - shown) / seconds,
                          refresh, (s.bytes.load() - bytes) * 8.0 / elapsed,
+                         moonlight::effective_pacing_name(mode, ps5_vrr_output_active()),
+                         mode == 2 && !ps5_vrr_output_active() ? " / fixed fallback" : "",
+                         selected_vsync || mode == 2 ? "On" : "Off", s.backend->refresh_hz(),
                          samples ? decode_ms / samples : 0, samples ? render_ms / samples : 0,
                          depth, high, (unsigned long long)s.stale.load(),
                          (unsigned long long)s.partial.load(),
@@ -526,6 +529,7 @@ void *worker(void *)
                          "PyroWave %ux%u %u FPS / %s %s %u-bit\n"
                          "Incoming %.2f   Decoded %.2f   Presented %.2f FPS\n"
                          "VideoOut %.2f Hz   Data %.2f Mbps\n"
+                         "Policy %s%s   VSync %s   Nominal %.2f Hz\n"
                          "GPU decode %.3f ms   render %.3f ms\n"
                          "Queue %zu/%zu   Stale %llu   Partial %llu\n"
                          "Lost packets %llu   Rejected %llu   Flip errors %llu",
@@ -534,6 +538,9 @@ void *worker(void *)
                          (s.incoming.load() - incoming) / seconds,
                          (s.decoded.load() - decoded) / seconds, (s.shown.load() - shown) / seconds,
                          refresh, (s.bytes.load() - bytes) * 8.0 / elapsed,
+                         moonlight::effective_pacing_name(mode, ps5_vrr_output_active()),
+                         mode == 2 && !ps5_vrr_output_active() ? " / fixed fallback" : "",
+                         selected_vsync || mode == 2 ? "On" : "Off", s.backend->refresh_hz(),
                          samples ? decode_ms / samples : 0, samples ? render_ms / samples : 0,
                          depth, high, (unsigned long long)s.stale.load(),
                          (unsigned long long)s.partial.load(), (unsigned long long)s.losses.load(),

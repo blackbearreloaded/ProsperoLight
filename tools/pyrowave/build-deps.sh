@@ -64,7 +64,8 @@ prepare_pyrowave_build() {
         radv_link_flags+=("--defsym=$symbol=0")
     done < "$weak_symbols"
     link_script=("${radv_linker_script[@]}")
-    radv_link_flags+=(--wrap=sceVideoOutOpen --wrap=sceVideoOutSubmitFlip
+    radv_link_flags+=(--wrap=sceVideoOutOpen --wrap=sceVideoOutClose
+                       --wrap=sceVideoOutConfigureOutput --wrap=sceVideoOutSubmitFlip
                        --wrap=sceVideoOutVrrUnpegFromFixedRate
                        --wrap=sceVideoOutVrrPegToFixedRate)
 }

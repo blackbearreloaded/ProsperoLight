@@ -178,7 +178,12 @@ and registered again.
 VRR is a request, not proof that the display accepted it. A rejected request
 falls back to fixed output and is recorded in the session log. Native
 immediate flips can also fall back to VSync if the system rejects them.
-The launcher requests fixed 60 Hz when its own VideoOut handle opens.
+The launcher requests fixed 60 Hz when its own VideoOut handle opens. A subsequent
+stream makes a new mode request; 60 Hz in the launcher does not limit that stream.
+RADV checks the independent `0x40` HFR bit, not the legacy combined `0x80040`
+mask, and restores the default mode even when its high-refresh request was refused.
+With VRR, low measured vblank rates on sparse content do not imply a 60 Hz ceiling:
+the PyroWave HUD separately reports the nominal mode and active pacing policy.
 
 Menu sounds and the presentation policy are stored separately from the paired
 host configuration in `prosperolight-ui-sound.bin` and
