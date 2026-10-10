@@ -168,4 +168,17 @@ int32_t sceVideoOutVrrUnpegFromFixedRate(int32_t handle)
 }
 
 /* Physical refresh validation for the optional RADV presenter. */
-int sceVideoOutGetVblankStatus(int32_t handle, void *status) { (void)handle; (void)status; return -1; }
+int sceVideoOutGetVblankStatus(int32_t handle, void *status)
+{
+    (void)handle;
+    (void)status;
+    return -1;
+}
+
+int32_t sceVideoOutVrrPegToFixedRate(int32_t handle, uint64_t reserved1, uint64_t reserved2)
+{
+    (void)handle;
+    (void)reserved1;
+    (void)reserved2;
+    return -1;
+}

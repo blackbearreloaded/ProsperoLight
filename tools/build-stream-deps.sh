@@ -59,7 +59,8 @@ fi
 [[ "$output" == "$root/build/stream-deps" ]] || exit 1
 # With USE_CCACHE=1 the three builds below compile through ccache.
 compile=("$cc")
-opus_launcher=()
+# CMake keeps this setting between runs; make USE_CCACHE=0 clear it explicitly.
+opus_launcher=(-DCMAKE_C_COMPILER_LAUNCHER=)
 if [[ ${USE_CCACHE:-0} != 0 ]]; then
     compile=(ccache "$cc")
     opus_launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache)

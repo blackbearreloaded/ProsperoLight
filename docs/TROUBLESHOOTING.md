@@ -217,8 +217,10 @@ in the title's `/download0`): opening the display, the first frame,
 closing before a stream, each stream's start and end, and how long the display
 was left to settle. The OpenGL runtime writes its own lines to the same file.
 A launcher that cannot open the display tries twice more, two seconds apart,
-then waits to be closed. After a stream above 60 Hz or in HDR, five seconds of
-black screen before the launcher returns are intended (`HFR_SETTLE_MS`).
+then waits to be closed. After a stream above 60 Hz or in HDR, the default
+settling delay is 100 ms (`HFR_SETTLE_MS`). A longer black screen can include
+television mode switching; compare the stream-end and launcher-first-frame
+timestamps in `debug-trace.txt` to separate the application delay.
 
 ## The app closed by itself
 

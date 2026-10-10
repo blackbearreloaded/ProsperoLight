@@ -229,6 +229,18 @@ int native_agc_finish_frame(void)
 {
     return 0;
 }
+static uint64_t repeat_submits;
+int native_agc_repeat_frame(void)
+{
+    ++repeat_submits;
+    return 0;
+}
+int native_agc_scanout_counter(uint64_t *count, uint64_t *argument)
+{
+    *count = submits + repeat_submits;
+    *argument = submits;
+    return 0;
+}
 void native_agc_output_status(uint32_t *width, uint32_t *height, uint32_t *refresh_x100)
 {
     *width = 3840;

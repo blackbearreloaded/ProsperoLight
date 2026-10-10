@@ -139,18 +139,35 @@ bool PyroWaveVideoBackend::ingest(const uint8_t *data,
                    : decoder_.frame_ready();
 }
 VideoFrameTiming PyroWaveVideoBackend::present(void (*before_present)(void *), void *context,
-                                               bool wait_for_prepared)
+                                               bool wait_for_prepared, bool repeat,
+                                               bool (*admit_repeat)(void *))
 {
+    // Optional repeats yield before acquiring any WSI image/semaphore.
+    // Once acquired, the existing GPU/present synchronization must complete.
+    if (repeat && admit_repeat && !admit_repeat(context))
+    {
+        VideoFrameTiming skipped{};
+        skipped.repeat_superseded = true;
+        return skipped;
+    }
     double start = clock_ms();
     unsigned index = 0;
-    VK_OK(vkAcquireNextImageKHR(c_.device, swapchain_, UINT64_MAX, acquired_, VK_NULL_HANDLE,
-                                &index));
+    const VkResult acquire = vkAcquireNextImageKHR(
+        c_.device, swapchain_, repeat ? 2000000 : UINT64_MAX, acquired_, VK_NULL_HANDLE, &index);
+    if (repeat && (acquire == VK_TIMEOUT || acquire == VK_NOT_READY))
+    {
+        VideoFrameTiming skipped{};
+        skipped.repeat_skipped = true;
+        return skipped; // No image/semaphore acquired: safe to resume on the next picture.
+    }
+    VK_OK(acquire);
     const double acquired_at = clock_ms();
     c_.begin();
-    output_->prepare();
+    if (!repeat)
+        output_->prepare();
     vkCmdResetQueryPool(c_.cmd, c_.queries, 0, 4);
     vkCmdWriteTimestamp(c_.cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, c_.queries, 0);
-    if (!decoder_.decode(c_.cmd, *output_))
+    if (!repeat && !decoder_.decode(c_.cmd, *output_))
         fail("decode frame");
     vkCmdWriteTimestamp(c_.cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, c_.queries, 1);
     vkCmdWriteTimestamp(c_.cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, c_.queries, 2);

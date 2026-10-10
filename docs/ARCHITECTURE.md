@@ -77,8 +77,9 @@ worker thread, closes its audio port and controller, deletes its graphics
 objects and closes the EGL display, and only then does the stream open
 VideoOut, the controllers and its own audio port. When the stream ends the
 launcher is built again from nothing. After a stream above 60 Hz or in HDR the
-display is left alone for five seconds first (`HFR_SETTLE_MS`), because the
-television is changing mode. AGC is initialised once per process, by the
+display settles for 100 ms by default (`HFR_SETTLE_MS`). This build override
+can extend the delay for televisions that require it; HDMI mode switching
+may still take additional time. AGC is initialised once per process, by the
 OpenGL runtime when the launcher draws its first frame; the stream's presenter
 uses that initialisation.
 

@@ -168,10 +168,22 @@ explicitly saved endpoints; the port is not a global streaming setting.
 | Paced | Learn source cadence, retain a bounded readiness reserve, and align fixed-VSync submissions using observed flip timing. | On/Off is retained independently. |
 | Paced + VRR | Use source-clock pacing and request variable-rate VideoOut; API failure uses fixed-output pacing. | Synchronized flips are required; the saved preference is restored when another policy is selected. |
 
+The app declares VRR to the console in `sce_sys/param.json`: `attribute3` carries `0x40`
+(120 Hz) and `0x40000` (VRR). System software 6.02 rejects the newer `0x80000` "VRR 120 Hz"
+bit as an unknown VRR parameter and turns VRR off for the app; its kernel log says so
+(`[AvControl] ... (HFR:o VRR:x)` against `VRR:TypeA`). The console reads the declaration
+when the app is registered, so a changed value needs the app deleted from the home screen
+and registered again.
+
 VRR is a request, not proof that the display accepted it. A rejected request
 falls back to fixed output and is recorded in the session log. Native
 immediate flips can also fall back to VSync if the system rejects them.
-The launcher requests fixed 60 Hz when its own VideoOut handle opens.
+The launcher requests fixed 60 Hz when its own VideoOut handle opens. A subsequent
+stream makes a new mode request; 60 Hz in the launcher does not limit that stream.
+RADV checks the independent `0x40` HFR bit, not the legacy combined `0x80040`
+mask, and restores the default mode even when its high-refresh request was refused.
+With VRR, low measured vblank rates on sparse content do not imply a 60 Hz ceiling:
+the PyroWave HUD separately reports the nominal mode and active pacing policy.
 
 Menu sounds and the presentation policy are stored separately from the paired
 host configuration in `prosperolight-ui-sound.bin` and
@@ -228,3 +240,11 @@ Off keeps the host app running for resume. ProsperoLight stays open in both
 cases. Initial setup failures do not trigger this optional cancel request.
 The setting persists in `config/prosperolight-host-quit.bin` (PLQ1 + boolean).
 The removed local app close setting is not reused.
+
+### Custom FPS and low-rate VRR compensation
+
+PyroWave and native H.264/HEVC pass original source frame numbers to the same VRR cadence estimator. Local drops do not become a falsely slower source rate. Initial and fitted source cadence use one repeat-factor calculation: a target of at least 60 Hz with 1% timestamp tolerance. Stable 30–59 FPS therefore uses two scanouts per picture; stable 60–120 uses one. Sparse desktop capture can use higher integral factors. These are scheduling targets, not interpolated frames or proof of physical HDMI frequency. Fixed Paced keeps 60 Hz for requested FPS ≤60 and 120 Hz above 60, with fractional refresh-slot placement for non-divisible source rates.
+
+See [the repeatable test matrix](PACING_TEST_MATRIX.md) for the dependency-free host scene, automatic FTP session collector, boundary cases and hardware-validation limits.
+
+Paced+VRR adapts to incoming source cadence at every requested FPS. Stable 51 FPS uses about 102 Hz; sparse 16 FPS capture uses about 64 Hz, with retained pictures filling the repeat slots. The requested FPS does not pin sparse output to its moving refresh rate. Frequency changes may produce brightness flicker on some displays. Repeats do not interpolate new frames. PyroWave prepares both fresh and retained pictures before their presentation deadlines.

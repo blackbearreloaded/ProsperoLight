@@ -8,24 +8,31 @@
     uint32_t flip_mode;
     bool stopping;
     int64_t physical;
-@@ -229,6 +230,8 @@
+@@ -229,6 +230,9 @@
     struct wsi_videoout_present queue[VIDEOOUT_BUFFERS * 2];
     uint32_t queue_head, queue_count;
  };
 +
 +extern int sceVideoOutVrrUnpegFromFixedRate(int32_t handle);
++extern int sceVideoOutVrrPegToFixedRate(int32_t handle, uint64_t reserved1, uint64_t reserved2);
  
  static struct wsi_videoout_output videoout_output = {
     .handle = -1,
-@@ -339,6 +342,12 @@
+@@ -339,6 +343,18 @@
              ? sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL)
              : supported;
        out->high_frame_rate = configured == 0;
++      if (out->high_frame_rate && !out->prefer_vrr) {
++         const int peg = sceVideoOutVrrPegToFixedRate(out->handle, 0, 0);
++         fprintf(stderr, "wsi/videoout: peg request rc=%08x\n", (unsigned)peg);
++      }
 +      if (out->high_frame_rate && out->prefer_vrr) {
 +         const int vrr = sceVideoOutVrrUnpegFromFixedRate(out->handle);
 +         fprintf(stderr, "wsi/videoout: VRR request rc=%08x\n", (unsigned)vrr);
-+         if (vrr != 0)
++         if (vrr != 0) {
 +            sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL);
++            sceVideoOutVrrPegToFixedRate(out->handle, 0, 0);
++         }
 +      }
        if (out->high_frame_rate) {
           const uint64_t period = videoout_vblank_period_ns(out->handle);

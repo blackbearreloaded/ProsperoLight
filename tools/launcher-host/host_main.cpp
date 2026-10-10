@@ -869,6 +869,9 @@ int main(int argc, char **argv)
                 {10, 0},
                 {10, 0, Direction::right},
                 {40, 0, Direction::none, "paced-vrr"},
+                // VRR timing is selectable once Paced+VRR enables it.
+                {10, 0, Direction::down},
+                {40, 0, Direction::none, "vrr-timing"},
                 {10, 0, Direction::down},
                 {10, 0, Direction::down},
                 {10, 0, Direction::down},

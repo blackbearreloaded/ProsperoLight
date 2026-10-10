@@ -9,7 +9,8 @@ prepare_pyrowave_build() {
     export PS5_MESA_FORK="$deps/PS5_Mesa" PS5_PAYLOADSDK_FORK="$deps/PS5_PayloadSDK"
     bash "$PS5_VULKAN_ROOT/tools/setup-native-dependencies.sh"
     # With USE_CCACHE=1 the RADV and PyroWave compiles go through ccache.
-    local launcher=()
+    # Clear persisted CMake launchers when caching is disabled on a reused build tree.
+    local launcher=(-DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER=)
     if [[ ${USE_CCACHE:-0} != 0 ]]; then
         export MESON="$root/tools/pyrowave/meson-ccache.sh"
         launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
@@ -70,5 +71,8 @@ prepare_pyrowave_build() {
         radv_link_flags+=("--defsym=$symbol=0")
     done < "$weak_symbols"
     link_script=("${radv_linker_script[@]}")
-    radv_link_flags+=(--wrap=sceVideoOutOpen --wrap=sceVideoOutSubmitFlip)
+    radv_link_flags+=(--wrap=sceVideoOutOpen --wrap=sceVideoOutClose
+                       --wrap=sceVideoOutConfigureOutput --wrap=sceVideoOutSubmitFlip
+                       --wrap=sceVideoOutVrrUnpegFromFixedRate
+                       --wrap=sceVideoOutVrrPegToFixedRate)
 }

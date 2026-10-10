@@ -113,7 +113,7 @@ class DebugLogTests(unittest.TestCase):
         self.assertIn('prosperolight_debug_line("notice"', squeezed["src/launcher/launcher_model.cpp"])
         self.assertIn('"job",', squeezed["src/launcher/launcher_model.cpp"])
         self.assertIn('"launch",', squeezed["src/launcher/launcher_view.cpp"])
-        self.assertIn('form_.add_toggle(kDebugLog, "Debug log", false)',
+        self.assertIn('form_.add_toggle(kDebugLog, i18n::tr("Debug log"), false)',
                       squeezed["src/launcher/launcher_view.cpp"])
         # Every launcher line goes through the one macro that also feeds the trace.
         self.assertEqual(squeezed["src/launcher/launcher_ps5.cpp"].count("sys::log("), 1)

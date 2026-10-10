@@ -19,6 +19,7 @@ zlib_stamp="$zlib_root/.source-version"
 sdk_url="https://github.com/ps5-payload-dev/sdk/releases/download/v0.42/ps5-payload-sdk.zip"
 sdk_hash="8cfbc7cd5811e719eb4f0c47eea668d3dc7b40bc8ab11c4a5031d40c23ec02da"
 zlib_url="https://zlib.net/fossils/zlib-$zlib_version.tar.gz"
+zlib_mirror="https://github.com/madler/zlib/releases/download/v$zlib_version/zlib-$zlib_version.tar.gz"
 zlib_hash="bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
 lapy_commit="c3bdfe3a399366d8eacfc580f20b19fd03b16ca3"
 lapy_source="$root/.deps/PS5-Lapy-JB-Daemon-c3bdfe3"
@@ -77,8 +78,25 @@ if [[ -z $zlib_library || ! -f $zlib_root/usr/include/zlib.h ||
         rm -f -- "$zlib_archive"
     fi
     if [[ ! -f $zlib_archive ]]; then
-        wget -q "$zlib_url" -O "$zlib_archive.download"
-        mv "$zlib_archive.download" "$zlib_archive"
+        verified=false
+        for url in "$zlib_url" "$zlib_mirror"; do
+            for attempt in 1 2; do
+                if wget -q --timeout=30 --tries=1 "$url" -O "$zlib_archive.download" &&
+                    printf '%s  %s\n' "$zlib_hash" "$zlib_archive.download" |
+                        sha256sum --check --strict >/dev/null 2>&1; then
+                    mv "$zlib_archive.download" "$zlib_archive"
+                    verified=true
+                    break
+                fi
+                echo "zlib download failed verification: $url (attempt $attempt)" >&2
+                rm -f -- "$zlib_archive.download"
+            done
+            $verified && break
+        done
+        if ! $verified; then
+            echo "unable to download zlib $zlib_version with the pinned SHA-256" >&2
+            exit 2
+        fi
     fi
     printf '%s  %s\n' "$zlib_hash" "$zlib_archive" | sha256sum --check --strict >/dev/null
     rm -rf -- "$zlib_source" "$zlib_root"

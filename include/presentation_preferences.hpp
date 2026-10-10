@@ -40,4 +40,37 @@ inline bool save_presentation_mode(unsigned mode)
     }
     return true;
 }
+// Separate versioned preference: existing Unpaced/Paced/Paced+VRR data remains
+// byte-for-byte compatible. Default is Balanced, 0=Low Latency, 2=Smooth.
+inline unsigned vrr_profile()
+{
+    unsigned char bytes[5]{};
+    FILE *file = std::fopen(storage::setting_file("prosperolight-vrr-profile.bin").c_str(), "rb");
+    if (!file)
+        return 1;
+    const bool valid = std::fread(bytes, 1, sizeof(bytes), file) == sizeof(bytes) &&
+                       bytes[0] == 'P' && bytes[1] == 'L' && bytes[2] == 'V' && bytes[3] == 2 &&
+                       bytes[4] <= 2;
+    std::fclose(file);
+    return valid ? bytes[4] : 1;
+}
+inline bool save_vrr_profile(unsigned profile)
+{
+    if (profile > 2)
+        return false;
+    const auto destination = storage::setting_file("prosperolight-vrr-profile.bin");
+    const auto temporary = destination + ".tmp";
+    FILE *file = std::fopen(temporary.c_str(), "wb");
+    if (!file)
+        return false;
+    const unsigned char bytes[] = {'P', 'L', 'V', 2, static_cast<unsigned char>(profile)};
+    const bool written = std::fwrite(bytes, 1, sizeof(bytes), file) == sizeof(bytes);
+    const int closed = std::fclose(file);
+    if (!written || closed || std::rename(temporary.c_str(), destination.c_str()) != 0)
+    {
+        std::remove(temporary.c_str());
+        return false;
+    }
+    return true;
+}
 } // namespace moonlight

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **VRR.** Paced+VRR now reaches the television on system software 6.02 as well: the app
+  declares VRR in the form older system software understands, and no longer mistakes the
+  console's "already released" answer for a refusal. The console reads that declaration
+  only when the app is registered: after updating, delete ProsperoLight from the home
+  screen once and let ShadowMountPlus register it again (saved PCs, pairing and settings
+  are kept).
+- The held picture is sent again only on a variable-refresh output, where the display
+  needs it; on a fixed one the stream waits for the next picture as before. A repeat that
+  fails no longer ends the stream.
+
 ## 01.000.090
 
 ### Beta: updates from the app, 31 languages, PyroWave, more of the DualSense

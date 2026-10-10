@@ -11,7 +11,8 @@ cc=${HOST_CC:-clang}
 cxx=${HOST_CXX:-clang++}
 # With USE_CCACHE=1 the C objects, Opus included, are compiled through ccache.
 compile=("$cc")
-opus_launcher=()
+# CMake keeps this setting between runs; make USE_CCACHE=0 clear it explicitly.
+opus_launcher=(-DCMAKE_C_COMPILER_LAUNCHER=)
 if [[ ${USE_CCACHE:-0} != 0 ]]; then
     compile=(ccache "$cc")
     opus_launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache)

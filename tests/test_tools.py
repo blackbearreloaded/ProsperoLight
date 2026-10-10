@@ -329,10 +329,10 @@ class ToolTests(unittest.TestCase):
         loop = main[main.index("for (;;)", main.index("int main()")) :]
         self.assertLess(loop.index("launcher::Run("), loop.index("moonlight_stream_run("))
         # After a stream above 60 Hz the television is left to switch back.
-        self.assertIn("HFR_SETTLE_MS ?= 5000", makefile)
+        self.assertIn("HFR_SETTLE_MS ?= 100", makefile)
         self.assertIn("APP_DEFINITIONS += PROSPEROLIGHT_HFR_SETTLE_MS=$(HFR_SETTLE_MS)", makefile)
         self.assertIn(
-            "selection.stream_fps > MOONLIGHT_STREAM_FPS_60 || selection.hdr_enabled != 0;", main
+            "selection.stream_fps > MOONLIGHT_STREAM_FPS_60 || selection.hdr_enabled != 0 || moonlight::presentation_mode() == 2u;", " ".join(main.split())
         )
         self.assertIn("mode_changed ? PROSPEROLIGHT_HFR_SETTLE_MS : 100;", main)
         # AGC is initialised once per process, by whichever renderer drew first.
@@ -524,7 +524,9 @@ class ToolTests(unittest.TestCase):
         self.assertIn("sceVideoOutConfigureOutput", presenter)
         self.assertNotIn("sceVideoOutSysConfigureOutput", presenter)
         self.assertNotIn("VIDEO_OUT_REQUEST_HIGH_RES", presenter)
-        self.assertIn("*vrr_result = sceVideoOutVrrUnpegFromFixedRate(handle);", presenter)
+        self.assertIn("*unpeg_result = sceVideoOutVrrUnpegFromFixedRate(handle);", presenter)
+        self.assertIn("(uint32_t)*unpeg_result == VIDEO_OUT_ERROR_VRR_STATE", presenter)
+        self.assertIn("#define VIDEO_OUT_ERROR_VRR_STATE 0x8029001cu", presenter)
         self.assertIn(
             "native_agc_output_geometry(output_source_width, output_source_height, requested_fps)",
             presenter,
@@ -804,7 +806,9 @@ class ToolTests(unittest.TestCase):
         self.assertEqual(configured["applicationCategoryType"], 0)
         self.assertEqual(configured["attribute"], 0x62000000)
         self.assertEqual(configured["attribute2"], 0)
-        self.assertEqual(configured["attribute3"], 0x80040)
+        # 120 Hz (0x40) and VRR (0x40000). System software 6.02 rejects the newer
+        # "VRR 120 Hz" bit (0x80000) as an unknown VRR parameter and turns VRR off.
+        self.assertEqual(configured["attribute3"], 0x40040)
 
     def test_automation_builds_the_zip_only(self):
         # Builds and releases carry the app-folder ZIP and SHA256SUMS; no image is
