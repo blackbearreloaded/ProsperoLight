@@ -31,12 +31,12 @@ class PacingTestTools(unittest.TestCase):
         script = html.split('<script>', 1)[1].split('</script>', 1)[0]
         harness = r'''
 const vm=require('vm'),assert=require('assert');
-let paints=0,queue=[];
+let paints=0,queue=[],uploads=[];
 const context={fillRect(){paints++},strokeRect(){},drawImage(){paints++},fillText(){paints++}};
 const fields={fps:{value:'45'},codec:{value:'HEVC'},mode:{value:'Paced+VRR'},hdr:{checked:true},vsync:{checked:true},start:{},save:{},result:{},scene:{getContext(){return context}}};
 const document={hidden:false,fullscreenElement:null,body:{classList:{add(){},remove(){}}},getElementById(id){return fields[id]},createElement(){return {getContext(){return context}}},addEventListener(){}};
 document.documentElement={async requestFullscreen(){document.fullscreenElement=this}};
-const sandbox={document,navigator:{userAgent:'test'},innerWidth:3840,innerHeight:2160,devicePixelRatio:1,performance:{now(){return 0}},requestAnimationFrame(f){queue.push(f)},Date,console,alert(){throw Error('Unexpected validation error')}};
+const sandbox={async fetch(url,options){uploads.push({url,data:JSON.parse(options.body)});return {ok:true,async json(){return {id:'test-saved'}}}},document,navigator:{userAgent:'test'},innerWidth:3840,innerHeight:2160,devicePixelRatio:1,performance:{now(){return 0}},requestAnimationFrame(f){queue.push(f)},Date,console,alert(){throw Error('Unexpected validation error')}};
 vm.createContext(sandbox);
 vm.runInContext(SCRIPT,sandbox);
 (async()=>{
@@ -55,6 +55,11 @@ vm.runInContext(SCRIPT,sandbox);
  assert.equal(vm.runInContext('report.aborted',sandbox),false);
  assert.equal(vm.runInContext('report.settings.fps',sandbox),45);
  assert.equal(fields.save.disabled,false);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(uploads.length,1);
+ assert.equal(uploads[0].url,'/api/reports');
+ assert.equal(uploads[0].data.aborted,false);
+ assert(fields.result.textContent.includes('test-saved'));
 })().catch(e=>{console.error(e);process.exitCode=1});
 '''.replace('SCRIPT', json.dumps(script))
         with tempfile.TemporaryDirectory() as directory:
