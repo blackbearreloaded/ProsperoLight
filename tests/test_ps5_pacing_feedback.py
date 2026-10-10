@@ -72,6 +72,13 @@ int main() {
         feedback.observe(i,pts,pts+1000000+uint64_t(i)*1500,pts+1000000+uint64_t(i)*1500,true);
     }
     assert(feedback.reserve_us()==0);
+    assert(feedback.epoch_resets()==0); // Disabled Low Latency is not a discontinuity.
+    feedback.configure(1);
+    feedback.observe(1,16667,1016667,1017167,true,1017000);
+    feedback.observe(2,33334,1033334,1033834,false,1033500);
+    assert(feedback.epoch_resets()==1);
+    feedback.observe(3,50001,1050001,1050501,false,1050300);
+    assert(feedback.epoch_resets()==1); // Count only the actual eligibility transition.
     std::cout << "PASS: receive deadlines, readiness p95, attributed spacing reserve\n";
 }
 ''')

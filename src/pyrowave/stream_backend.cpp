@@ -186,6 +186,8 @@ struct PacingWait
     moonlight::Ps5ReadinessEstimator *readiness{};
     bool repeat{};
     bool cancelled{}; // Stop requested after acquiring swapchain image.
+    void (*observe_output)(void *, const PresentationStats &, uint64_t){};
+    void *observation_context{};
     uint64_t minimum_deadline{};
 };
 
@@ -237,7 +239,10 @@ void wait_prepared_frame(void *context)
             const auto output = ps5_presentation_stats();
             if (!output.available)
                 fail("Paced scanout counters unavailable");
-            wait.vrr->scanned(output.flip_count, now_us());
+            const uint64_t observed = now_us();
+            if (wait.observe_output)
+                wait.observe_output(wait.observation_context, output, observed);
+            wait.vrr->scanned(output.flip_count, observed);
             if (!wait.previous_request ||
                 moonlight::idle_repeat_ready(wait.previous_request, output.shown, output.available))
             {
@@ -377,6 +382,23 @@ void *worker(void *)
             pending_feedback.valid = false;
         }
     };
+    const auto record_output = [&](const PresentationStats &output, uint64_t observed)
+    {
+        if (!output.available)
+            return;
+        scanout_trace.observe(output.flip_count, output.shown, observed,
+                              output.shown == repeat_argument);
+        // The same worker owns feedback during all previous-flip polls.
+        if (pending_feedback.valid && output.shown == pending_feedback.requested_argument)
+        {
+            vrr_repeats.observe_output_feedback(
+                pending_feedback.number, pending_feedback.pts, pending_feedback.ready, observed,
+                ps5_vrr_output_active(), pending_feedback.requested_at_us);
+            pending_feedback.valid = false;
+        }
+    };
+    const auto record_poll = [](void *context, const PresentationStats &output, uint64_t observed)
+    { (*static_cast<const decltype(record_output) *>(context))(output, observed); };
     bool repeating = false;
     moonlight::RepeatRetryPolicy repeat_retry;
     uint64_t skipped_repeats = 0;
@@ -441,6 +463,9 @@ void *worker(void *)
                     // compressed frame or acquire a decoder/network slot.
                     Frame retained{};
                     PacingWait repeat_wait{&s, &pacer, &retained, mode, refresh};
+                    repeat_wait.observe_output = record_poll;
+                    repeat_wait.observation_context =
+                        const_cast<void *>(static_cast<const void *>(&record_output));
                     repeat_wait.repeat = true;
                     repeat_wait.minimum_deadline = repeat_deadline;
                     repeat_wait.vrr = &vrr_repeats;
@@ -583,6 +608,9 @@ void *worker(void *)
                          (unsigned long long)vrr_repeats.interval());
             }
             PacingWait wait{&s, &pacer, &frame, mode, refresh};
+            wait.observe_output = record_poll;
+            wait.observation_context =
+                const_cast<void *>(static_cast<const void *>(&record_output));
             wait.vrr = &vrr_repeats;
             wait.successor_queued = successor_queued;
             wait.frame_queue_age_us = frame_queue_age_us;

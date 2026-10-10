@@ -147,8 +147,14 @@ class Ps5SpacingFeedback
     void observe(uint32_t frame, uint64_t source_us, uint64_t ready_us, uint64_t observed_us,
                  bool eligible, uint64_t requested_us = 0)
     {
-        if (!eligible || !frame || !source_us || !ready_us || !observed_us ||
-            observed_us < ready_us ||
+        // An intentionally disabled learner is not a broken timestamp epoch.
+        if (!eligible || !cap_)
+        {
+            if (continuity_)
+                reset_epoch();
+            return;
+        }
+        if (!frame || !source_us || !ready_us || !observed_us || observed_us < ready_us ||
             (requested_us && (requested_us < ready_us || requested_us > observed_us)))
         {
             reset_epoch();
