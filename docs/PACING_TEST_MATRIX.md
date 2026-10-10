@@ -54,3 +54,5 @@ Compare **unique pictures**, repetitions, and network losses separately. Native 
 Automated host regression tests cover every integer Custom FPS from 30 to 120, including recovery from sparse input and locally skipped frames. They validate scheduling calculations, not firmware/TV acceptance. The hardware matrix above remains necessary.
 
 Small losses from a requested 120 FPS versus nominal 119.88 Hz, source jitter or decoder load must not be mistaken for the former ~60 FPS scheduling cap. Record their rate and cause instead of requiring absolutely zero discarded pictures.
+
+For requested 30–59 FPS, the duplicated scanout grid is now held across static/moving transitions. Sparse capture changes source FPS, not this grid. The logged sparse repeat factor is approximate; it does not imply interpolation. Compare the new reference scene with HEVC 60 FPS / Paced / VSync On before evaluating HEVC/PyroWave 51 FPS / Paced+VRR. Prefer a 120 Hz host display for the 60 FPS reference; rAF at 200 Hz sampled at 51 FPS is not a perfectly uniform motion generator.

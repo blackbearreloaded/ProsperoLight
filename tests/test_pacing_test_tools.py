@@ -33,7 +33,7 @@ class PacingTestTools(unittest.TestCase):
 const vm=require('vm'),assert=require('assert');
 let paints=0,queue=[],uploads=[];
 const context={fillRect(){paints++},strokeRect(){},drawImage(){paints++},fillText(){paints++}};
-const fields={fps:{value:'45'},codec:{value:'HEVC'},mode:{value:'Paced+VRR'},hdr:{checked:true},vsync:{checked:true},start:{},save:{},result:{},scene:{getContext(){return context}}};
+const fields={stimulus:{value:'reference'},fps:{value:'45'},codec:{value:'HEVC'},mode:{value:'Paced+VRR'},hdr:{checked:true},vsync:{checked:true},start:{},save:{},result:{},scene:{getContext(){return context}}};
 const document={hidden:false,fullscreenElement:null,body:{classList:{add(){},remove(){}}},getElementById(id){return fields[id]},createElement(){return {getContext(){return context}}},addEventListener(){}};
 document.documentElement={async requestFullscreen(){document.fullscreenElement=this}};
 const sandbox={async fetch(url,options){uploads.push({url,data:JSON.parse(options.body)});return {ok:true,async json(){return {id:'test-saved'}}}},document,navigator:{userAgent:'test'},innerWidth:3840,innerHeight:2160,devicePixelRatio:1,performance:{now(){return 0}},requestAnimationFrame(f){queue.push(f)},Date,console,alert(){throw Error('Unexpected validation error')}};
@@ -55,6 +55,7 @@ vm.runInContext(SCRIPT,sandbox);
  assert.equal(vm.runInContext('report.aborted',sandbox),false);
  assert.equal(vm.runInContext('report.settings.fps',sandbox),45);
  assert.equal(fields.save.disabled,false);
+ assert.equal(vm.runInContext('report.settings.scene',sandbox),'reference');
  await new Promise(resolve=>setImmediate(resolve));
  assert.equal(uploads.length,1);
  assert.equal(uploads[0].url,'/api/reports');

@@ -469,7 +469,9 @@ class VrrRepeatPolicy
     }
     unsigned target_refresh_x100() const
     {
-        return unsigned(UINT64_C(100000000) * copies_ / period_);
+        return nominal_period_ > kSingleScanoutLimitUs
+                   ? unsigned(UINT64_C(100000000) / interval_)
+                   : unsigned(UINT64_C(100000000) * copies_ / period_);
     }
     unsigned source_rate() const
     {
@@ -495,6 +497,19 @@ class VrrRepeatPolicy
     }
     void update_repeat_policy()
     {
+        if (nominal_period_ > kSingleScanoutLimitUs)
+        {
+            // Low-FPS custom output already needs duplication. Keep its HDMI
+            // grid across sparse desktop capture instead of switching 100/102
+            // Hz to 64 Hz (OLED brightness flicker). Incoming cadence remains
+            // observable; retained pictures fill empty slots without decoding.
+            const uint64_t nominal_copies =
+                (nominal_period_ + kSingleScanoutLimitUs - 1) / kSingleScanoutLimitUs;
+            interval_ = std::clamp<uint64_t>(nominal_period_ / nominal_copies, 8333, 20000);
+            copies_ = unsigned(std::max<uint64_t>(1, (period_ + interval_ / 2) / interval_));
+            low_ = true;
+            return;
+        }
         copies_ = unsigned((period_ + kSingleScanoutLimitUs - 1) / kSingleScanoutLimitUs);
         low_ = copies_ > 1;
         interval_ = low_ ? std::clamp<uint64_t>(period_ / copies_, 8333, 20000) : 20000;

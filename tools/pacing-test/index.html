@@ -8,11 +8,12 @@ body{margin:0;background:#102030;color:#fff;font:18px system-ui}main{padding:24p
 </style>
 <main><h1>Проверка плавности ProsperoLight</h1>
 <p>Откройте эту страницу на транслируемом экране ПК. Она не меняет настройки PS5 или хоста: значения ниже — метки прогона. Выберите такие же настройки в ProsperoLight. Для 120 FPS экран ПК должен обновляться не реже 120 Гц; браузер должен оставаться на переднем плане.</p>
+<label>Сцена <select id="stimulus"><option value="reference">Сравнение: спокойное движение и серые участки</option><option value="stress">Прежний быстрый узор</option></select></label>
 <label>Кодек <select id="codec"><option>PyroWave</option><option>HEVC</option><option>H.264</option></select></label>
 <label>FPS <input id="fps" type="number" min="30" max="120" step="1" value="45"></label>
 <label>Режим <select id="mode"><option>Paced+VRR</option><option>Paced</option><option>Unpaced</option></select></label>
 <label>HDR <input id="hdr" type="checkbox"></label><label>VSync <input id="vsync" type="checkbox" checked></label>
-<p>В новом билде при Paced+VRR цель вывода во время движения: 49 FPS → 98 Гц, 50 → 100 Гц, 51 → 102 Гц. Кадры повторяются, новые промежуточные изображения не создаются. На статике частота может отличаться.</p>
+<p>Для сравнения начните с HEVC 60 FPS, Paced, VSync On; монитор ПК желательно выставить в 120 Гц. Идеальную плавность страница не гарантирует: при браузере 200 Гц и захвате 51 FPS шаги анимации могут различаться. В новом билде при Paced+VRR цель вывода во время движения: 49 FPS → 98 Гц, 50 → 100 Гц, 51 → 102 Гц. Кадры повторяются, новые промежуточные изображения не создаются. На статике частота может отличаться.</p>
 <p>90 секунд: разогрев 10 → движение 20 → статика 20 → движение 20 → четыре фазы по 5 секунд. На статике изображение полностью заморожено, включая счётчики. Движение зависит от времени, а не от числа кадров браузера. Это тест вывода, не HDR-калибровка.</p>
 <button id="start">Начать в полном экране</button><button id="save" disabled>Скачать JSON прогона</button>
 <p>После завершения отчёт автоматически отправляется на сервер. Дождитесь надписи «Отчёт сохранён на сервере». Escape завершает прогон. После окончания также нажмите Escape, чтобы выйти из полного экрана. Не переключайте приложения и не открывайте меню PS5 во время теста.</p><pre id="result"></pre>
@@ -47,6 +48,19 @@ for(let y=0;y<2160;y+=180) for(let x=0;x<3840;x+=192) {
 }
 let running=false,began=0,lastPhase=-1,previous=0,report=null;
 function draw(seconds,phase) {
+  if(report.settings.scene==='reference') {
+    const t=phase.motion?seconds:phase.start;
+    ctx.fillStyle='#303030';ctx.fillRect(0,0,3840,2160);
+    // No moving texture seam or wrap; constant area/luminance at every position.
+    ctx.fillStyle='#b0b0b0';ctx.fillRect(1840+1200*Math.sin(t*.2),420,160,1300);
+    for(let n=0;n<4;++n) {
+      const shade=[8,16,32,64][n];ctx.fillStyle='rgb('+shade+','+shade+','+shade+')';
+      ctx.fillRect(n*960,1800,960,360);
+    }
+    ctx.fillStyle='white';ctx.font='48px sans-serif';
+    ctx.fillText(report.settings.codec+' '+report.settings.fps+' FPS '+report.settings.mode+' | '+phase.name,80,100);
+    return;
+  }
   const t=phase.motion?seconds:phase.start;
   const offset=(t*240)%3840;
   ctx.drawImage(pattern,-offset,0);ctx.drawImage(pattern,3840-offset,0);
@@ -98,7 +112,7 @@ function tick(now) {
 async function start() {
   const fps=Number(document.getElementById('fps').value);
   if(!Number.isInteger(fps)||fps<30||fps>120) {alert('FPS: целое число от 30 до 120');return;}
-  report={schema:1,started_utc:new Date().toISOString(),user_agent:navigator.userAgent,host_viewport:{width:innerWidth,height:innerHeight,device_pixel_ratio:devicePixelRatio},settings:{codec:document.getElementById('codec').value,fps,mode:document.getElementById('mode').value,hdr:document.getElementById('hdr').checked,vsync:document.getElementById('vsync').checked},stages,transitions:[],raf_intervals_ms:[],warnings:[]};
+  report={schema:1,started_utc:new Date().toISOString(),user_agent:navigator.userAgent,host_viewport:{width:innerWidth,height:innerHeight,device_pixel_ratio:devicePixelRatio},settings:{scene:document.getElementById('stimulus')?.value||'stress',codec:document.getElementById('codec').value,fps,mode:document.getElementById('mode').value,hdr:document.getElementById('hdr').checked,vsync:document.getElementById('vsync').checked},stages,transitions:[],raf_intervals_ms:[],warnings:[]};
   try {await document.documentElement.requestFullscreen();} catch(e) {report.warnings.push('Полный экран недоступен: '+e.message);}
   document.body.classList.add('running');document.getElementById('save').disabled=true;
   running=true;began=performance.now();previous=0;lastPhase=-1;requestAnimationFrame(tick);

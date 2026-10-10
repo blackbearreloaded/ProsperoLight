@@ -246,7 +246,6 @@ extern "C"
     uint32_t sceAgcDriverWaitUntilSafeForRendering(uint32_t **command, uint32_t packet_size,
                                                    uint32_t reserved, uint32_t handle,
                                                    int buffer_index);
-#if PROSPEROLIGHT_GPU_TIMESTAMPS
     // Same call and arguments as the hardware-validated OpenGL runtime probe:
     // BOTTOM_OF_PIPE_TS (40) writing the GPU clock (data select 3) with write
     // confirmation (interrupt select 3).
@@ -254,7 +253,6 @@ extern "C"
                                  uint64_t reserved0, int8_t reserved1, void *address,
                                  uint32_t data_select, uint64_t data, uint16_t gds_offset,
                                  uint16_t gds_size, int8_t interrupt_select, int32_t reserved2);
-#endif
 }
 
 static uint64_t present_now_us(void)
@@ -894,6 +892,11 @@ static int render_frame(int video, int buffer_index, void *target, uint8_t *memo
                             3, 0))
         return -9;
 #endif
+    // Publish all colour tiles before VideoOut scans this target. A VSync flip
+    // controls timing; it must not substitute for the render-to-scanout cache
+    // barrier. Same flush/invalidate packet as the validated OpenGL probe.
+    if (!sceAgcCbReleaseMem(&command, 45, 12, 1, 0, nullptr, 0, 0, 0, 1, 0, 0))
+        return -9;
     sceAgcDcbSetFlip(&command, (uint32_t)video, buffer_index, flip_mode, render_marker);
 
     submit.words = words;
@@ -946,6 +949,7 @@ typedef struct native_agc_presenter
     uint8_t overlay_kind;
     uint8_t hdr;
     uint8_t ready;
+    uint8_t stream_receipt;
 } native_agc_presenter_t;
 
 static native_agc_presenter_t presenter = {
@@ -1751,22 +1755,26 @@ static int present_frame(const void *source, size_t source_bytes, uint32_t pitch
         render_waits = 0;
     }
 
-    if (result != 0 || frame_number == 0)
+    if (result != 0 || frame_number == 0 || (metrics && !presenter.stream_receipt))
     {
         snprintf(receipt, sizeof(receipt),
                  "Native AGC frame: rc=%08x frame=%u buffer=%u words=%u hdr=%u hud=%u "
                  "flip_marker=%llx status=%llx waits=%u source=%p target=%p "
-                 "active=%ux%u@%u.%02u",
+                 "active=%ux%u@%u.%02u flip_mode=%u vrr=%d cb_barrier=1",
                  (uint32_t)result, frame_number, buffer_index, words, hdr ? 1u : 0u,
                  draw_overlay ? 1u : 0u, (unsigned long long)render_marker,
                  (unsigned long long)status[3], render_waits, source, target, render_width,
                  render_height, presenter.scanout_refresh_x100 / 100u,
-                 presenter.scanout_refresh_x100 % 100u);
+                 presenter.scanout_refresh_x100 % 100u, flip_mode, native_agc_vrr_active());
         report_agc_receipt(receipt);
     }
 
     if (result == 0)
+    {
         ++presenter.frame_number;
+        if (metrics)
+            presenter.stream_receipt = 1;
+    }
     return result;
 }
 
