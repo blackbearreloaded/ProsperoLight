@@ -107,7 +107,8 @@ struct OutputTrace
         if (ps5_vrr_output_active())
             log_line(
                 "PyroWave VRR scheduler: period_us=%llu pictures=%llu repeats=%llu "
-                "wait_us=%llu late_max_us=%llu submission_gap_max_us=%llu",
+                "wait_us=%llu late_max_us=%llu submission_gap_max_us=%llu source_fps=%u "
+                "repeat_factor=%u interval_us=%llu",
                 (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
                 (unsigned long long)vrr.stats.repeats, (unsigned long long)vrr.stats.wait_total_us,
                 (unsigned long long)vrr.stats.late_max_us, (unsigned long long)vrr.stats.gap_max_us,

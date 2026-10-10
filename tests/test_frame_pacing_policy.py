@@ -134,6 +134,8 @@ int main() {
     }
     assert(adaptive.compensating());
     assert(adaptive.interval()==15625);
+    assert(adaptive.source_rate()==16 && adaptive.repeat_factor()==4);
+    assert(adaptive.target_refresh_x100()==6400);
     const auto first_repeat=adaptive.deadline();
     adaptive.repeated(first_repeat+200);
     assert(adaptive.deadline()==first_repeat+15625);

@@ -470,7 +470,7 @@ class VrrRepeatPolicy
     unsigned source_rate() const
     {
         return static_cast<unsigned>(
-            std::clamp<uint64_t>((1000000 + period_ / 2) / period_, 30, 120));
+            std::clamp<uint64_t>((1000000 + period_ / 2) / period_, 1, 120));
     }
 
   private:
