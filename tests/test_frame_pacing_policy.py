@@ -337,12 +337,13 @@ int main() {
     }
     assert(submitted==1000000+120*polled.display_floor_us());
     // Reproduce frame 813: a repeat submitted at zero is detected only
-    // ~10 ms later, but the ready picture must use the original 16 ms slot.
+    // ~10 ms later. It has already cleared the display ceiling, so a fresh
+    // picture must not wait for the old idle-repeat slot.
     moonlight::VrrRepeatPolicy late_repeat;
     late_repeat.reset(60);
     late_repeat.repeated(1000000);
     late_repeat.scanned(1,1010300);
-    assert(late_repeat.picture_target(1010300)==1016000);
+    assert(late_repeat.picture_target(1010300)==1010300);
     late_repeat.scanned(2,1031000);
     assert(late_repeat.picture_target(1031000)==1031000);
     // Recovery preserves readiness learning and cumulative counters.
@@ -474,6 +475,21 @@ int main() {
         // A truly sparse desktop does not wait for near-motion confirmation.
         for (unsigned n=0;n<24;++n) {pts+=62500;boundary.observe_picture(pts,frame++);}
         assert(boundary.source_rate()==16);
+    }
+    // Real 60 FPS trace: a late frame after an idle duplicate waited
+    // another 16 ms despite the 119.88 Hz display allowing it after 8.342 ms.
+    for(unsigned profile=0;profile<3;++profile) {
+        moonlight::VrrRepeatPolicy collision;
+        collision.reset(60); collision.configure(profile);
+        collision.observe_picture(100000,1);
+        collision.presented(1000000);
+        const uint64_t duplicate=collision.idle_deadline();
+        collision.repeated(duplicate);
+        collision.observe_picture(116666,2);
+        const uint64_t target=collision.picture_target(duplicate+1300);
+        assert(target==duplicate+collision.display_floor_us());
+        collision.presented(target);
+        assert(!collision.grid_active());
     }
     // All requested rates adapt to sparse capture and recover to their
     // negotiated cadence; low requested FPS must not pin the HDMI grid.

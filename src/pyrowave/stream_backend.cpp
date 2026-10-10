@@ -191,6 +191,17 @@ struct PacingWait
     uint64_t minimum_deadline{};
 };
 
+bool admit_idle_repeat(void *context)
+{
+    auto &wait = *static_cast<PacingWait *>(context);
+    auto &s = *wait.session;
+    std::lock_guard<std::mutex> lock(s.mutex);
+    const bool admitted = s.running && s.queue.empty();
+    if (!admitted)
+        s.decisions.record(0, 0, now_us(), wait.minimum_deadline, "repeat-superseded");
+    return admitted;
+}
+
 void wait_prepared_frame(void *context)
 {
     auto &wait = *static_cast<PacingWait *>(context);
@@ -450,8 +461,13 @@ void *worker(void *)
                     const uint64_t lead =
                         std::max<uint64_t>(preparation_lead.lead_us(),
                                            std::min<uint64_t>(6000, readiness.percentile_us() / 2));
-                    const uint64_t prepare_deadline =
-                        repeat_deadline > lead ? repeat_deadline - lead : repeat_deadline;
+                    // Normal motion: do not acquire an optional duplicate
+                    // early and wait while a fresh frame arrives. Sparse/LFC
+                    // output retains its preparation lead for regular repeats.
+                    const uint64_t repeat_lead = vrr_repeats.compensating() ? lead : 0;
+                    const uint64_t prepare_deadline = repeat_deadline > repeat_lead
+                                                          ? repeat_deadline - repeat_lead
+                                                          : repeat_deadline;
                     if (current < prepare_deadline)
                     {
                         s.wake.wait_for(lock, std::chrono::microseconds(prepare_deadline - current),
@@ -471,12 +487,17 @@ void *worker(void *)
                     repeat_wait.vrr = &vrr_repeats;
                     repeat_wait.previous_request = s.backend->requested();
                     repeat_wait.readiness = &readiness;
-                    const auto repeated_timing =
-                        s.backend->present(wait_prepared_frame, &repeat_wait, true, true);
+                    const auto repeated_timing = s.backend->present(
+                        wait_prepared_frame, &repeat_wait, true, true, admit_idle_repeat);
                     if (repeat_wait.cancelled)
                     {
                         lock.lock();
                         break; // Acquired image drained by backend; stop the worker.
+                    }
+                    if (repeated_timing.repeat_superseded)
+                    {
+                        lock.lock();
+                        continue; // Fresh source wins; no WSI failure/backoff.
                     }
                     if (repeated_timing.repeat_skipped)
                     {

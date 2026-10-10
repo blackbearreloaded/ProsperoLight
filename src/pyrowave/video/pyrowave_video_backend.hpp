@@ -9,7 +9,7 @@ struct VideoFrameTiming
     double decode_ms{}, render_ms{}, total_ms{}, cpu_ms{};
     double acquire_ms{}, record_ms{}, submit_ms{}, prepared_wait_ms{}, pacing_ms{}, present_ms{},
         completion_ms{};
-    bool repeat_skipped{};
+    bool repeat_skipped{}, repeat_superseded{};
 };
 class PyroWaveVideoBackend
 {
@@ -21,7 +21,8 @@ class PyroWaveVideoBackend
                     bool vsync, bool tv_safe);
     bool ingest(const uint8_t *data, const std::vector<PyroWaveFraming::Span> &spans, bool partial);
     VideoFrameTiming present(void (*before_present)(void *) = nullptr, void *context = nullptr,
-                             bool wait_for_prepared = true, bool repeat = false);
+                             bool wait_for_prepared = true, bool repeat = false,
+                             bool (*admit_repeat)(void *) = nullptr);
     void update_hud(const char *text, bool enabled)
     {
         renderer_.update_hud(text, enabled);

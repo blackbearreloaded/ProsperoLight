@@ -665,6 +665,10 @@ class VrrRepeatPolicy
             }
             return std::max(earliest, submitted_at_ + spacing);
         }
+        // An idle watchdog repeat must not impose a full 16 ms duplicate
+        // slot on resumed motion. Only the actual display ceiling applies.
+        if (!low_ && gap_)
+            return std::max(earliest, submitted_at_ + display_floor_us_);
         // LFC grid: the current real picture can consume the next repeat
         // slot, but a fresh frame never has to wait through an extra period.
         const uint64_t floor = submitted_at_ + display_floor_us_;

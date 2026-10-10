@@ -139,8 +139,17 @@ bool PyroWaveVideoBackend::ingest(const uint8_t *data,
                    : decoder_.frame_ready();
 }
 VideoFrameTiming PyroWaveVideoBackend::present(void (*before_present)(void *), void *context,
-                                               bool wait_for_prepared, bool repeat)
+                                               bool wait_for_prepared, bool repeat,
+                                               bool (*admit_repeat)(void *))
 {
+    // Optional repeats yield before acquiring any WSI image/semaphore.
+    // Once acquired, the existing GPU/present synchronization must complete.
+    if (repeat && admit_repeat && !admit_repeat(context))
+    {
+        VideoFrameTiming skipped{};
+        skipped.repeat_superseded = true;
+        return skipped;
+    }
     double start = clock_ms();
     unsigned index = 0;
     const VkResult acquire = vkAcquireNextImageKHR(
