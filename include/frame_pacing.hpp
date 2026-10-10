@@ -341,7 +341,7 @@ class VrrRepeatPolicy
         low_ = period_ > 22000;
         moving_period_ = period_;
     }
-    void observe_picture(uint64_t pts)
+    void observe_picture(uint64_t pts, uint32_t frame_number = 0)
     {
         if (!pts || !last_pts_ || pts <= last_pts_ || pts - last_pts_ >= 1000000)
         {
@@ -350,7 +350,12 @@ class VrrRepeatPolicy
         }
         else
         {
-            const uint64_t delta = pts - last_pts_;
+            // Dropped client frames must not look like a slower host cadence.
+            // Frame numbers count transmitted pictures, including ones skipped locally.
+            const uint32_t frames = frame_number && last_frame_number_
+                                        ? uint32_t(frame_number - last_frame_number_)
+                                        : 1;
+            const uint64_t delta = (pts - last_pts_) / (frames && frames < 120 ? frames : 1);
             fast_samples_ = delta >= 6000 && delta < 18500 ? fast_samples_ + 1 : 0;
             // Motion detection is deliberately separate from rate fitting.
             if (low_ && fast_samples_ >= 3)
@@ -386,6 +391,7 @@ class VrrRepeatPolicy
             }
         }
         last_pts_ = pts;
+        last_frame_number_ = frame_number;
         const uint64_t copies = low_ ? (period_ + 19999) / 20000 : 1;
         interval_ = low_ ? std::clamp<uint64_t>(period_ / copies, 8333, 20000) : 20000;
     }
@@ -474,6 +480,7 @@ class VrrRepeatPolicy
     uint64_t scanned_count_{}, scanned_at_{}, submitted_at_{}, fast_samples_{},
         moving_period_{16666};
     uint64_t candidate_sum_{}, candidate_min_{}, candidate_max_{};
+    uint32_t last_frame_number_{};
     bool low_{}, gap_{};
 };
 

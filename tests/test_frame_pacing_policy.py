@@ -286,6 +286,16 @@ int main() {
     fixed.submitted(first,first,0);
     auto second=fixed.target(2,33333,1000001,11988,first+250);
     assert(second-first>=16000);
+    // Client drops may reduce displayed cadence, never the sender rate estimate.
+    for (unsigned rate : {60u, 90u, 120u}) {
+        moonlight::VrrRepeatPolicy dropped;
+        dropped.reset(rate);
+        for (uint32_t frame=1; frame<301; frame+=2)
+            dropped.observe_picture(uint64_t(frame)*1000000/rate, frame);
+        assert(dropped.source_rate()==rate);
+        assert(!dropped.compensating());
+    }
+
     // Fixed 90 on 120 must alternate 1/1/2 refresh intervals rather than
     // rounding every source frame to two refreshes (the 60 FPS regression).
     moonlight::FramePacing fractional;

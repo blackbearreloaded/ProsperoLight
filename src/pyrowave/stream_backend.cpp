@@ -410,7 +410,7 @@ void *worker(void *)
             ++s.decoded;
             s.backend->update_hud(nullptr, native_agc_hud_enabled() != 0);
             const bool was_compensating = vrr_repeats.compensating();
-            vrr_repeats.observe_picture(frame.presentation_us);
+            vrr_repeats.observe_picture(frame.presentation_us, uint32_t(frame.number));
             if (ps5_vrr_output_active() && was_compensating && !vrr_repeats.compensating())
             {
                 pacer.resume(now_us());
@@ -516,9 +516,6 @@ void *worker(void *)
                          (s.incoming.load() - incoming) / seconds,
                          (s.decoded.load() - decoded) / seconds, (s.shown.load() - shown) / seconds,
                          refresh, (s.bytes.load() - bytes) * 8.0 / elapsed,
-                         moonlight::effective_pacing_name(mode, ps5_vrr_output_active()),
-                         mode == 2 && !ps5_vrr_output_active() ? " / fixed fallback" : "",
-                         selected_vsync || mode == 2 ? "On" : "Off", s.backend->refresh_hz(),
                          samples ? decode_ms / samples : 0, samples ? render_ms / samples : 0,
                          depth, high, (unsigned long long)s.stale.load(),
                          (unsigned long long)s.partial.load(),
