@@ -166,6 +166,7 @@ struct PacingWait
     uint64_t ready_us{}, submit_us{};
     moonlight::VrrRepeatPolicy *vrr{};
     uint64_t previous_request{};
+    bool repeat{};
 };
 
 void wait_prepared_frame(void *context)
@@ -225,7 +226,7 @@ void wait_prepared_frame(void *context)
                                  selected_vsync ? wait.refresh : 0,
                                  fractional_fixed ? flip_anchor : 0);
     s.decisions.record(wait.frame->number, wait.frame->presentation_us, now_us(), deadline,
-                       "target");
+                       wait.repeat ? "repeat-target" : "target");
     std::unique_lock<std::mutex> lock(s.mutex);
     while (s.running)
     {
@@ -248,7 +249,7 @@ void wait_prepared_frame(void *context)
     }
     const uint64_t submitted = now_us();
     s.decisions.record(wait.frame->number, wait.frame->presentation_us, submitted, deadline,
-                       "submit");
+                       wait.repeat ? "repeat-submit" : "submit");
     wait.submit_us = submitted;
     if (ps5_vrr_output_active())
         wait.vrr->waited(started, deadline, submitted);
@@ -331,9 +332,13 @@ void *worker(void *)
                                                          ? vrr_repeats.deadline()
                                                          : last_scanout_us + idle_delay;
                     const uint64_t current = now_us();
-                    if (current < repeat_deadline)
+                    // Prepare retained planes before their display slot, just like a
+                    // fresh picture. GPU preparation must not shift repeat flips.
+                    const uint64_t prepare_deadline =
+                        repeat_deadline > 1000 ? repeat_deadline - 1000 : repeat_deadline;
+                    if (current < prepare_deadline)
                     {
-                        s.wake.wait_for(lock, std::chrono::microseconds(repeat_deadline - current),
+                        s.wake.wait_for(lock, std::chrono::microseconds(prepare_deadline - current),
                                         [&] { return !s.running || !s.queue.empty(); });
                         continue;
                     }
@@ -341,8 +346,13 @@ void *worker(void *)
                     // Re-render retained decoded planes, never re-decode the
                     // compressed frame or acquire a decoder/network slot.
                     repeat_argument = s.backend->requested() + 1;
-                    const uint64_t repeat_submitted = now_us();
-                    const auto repeated_timing = s.backend->present(nullptr, nullptr, true, true);
+                    Frame retained{};
+                    PacingWait repeat_wait{&s, &pacer, &retained, mode, refresh};
+                    repeat_wait.repeat = true;
+                    repeat_wait.vrr = &vrr_repeats;
+                    repeat_wait.previous_request = s.backend->requested();
+                    const auto repeated_timing =
+                        s.backend->present(wait_prepared_frame, &repeat_wait, true, true);
                     if (repeated_timing.repeat_skipped)
                     {
                         repeat_blocked = true;
@@ -353,8 +363,9 @@ void *worker(void *)
                         continue;
                     }
                     last_scanout_us = now_us();
-                    s.decisions.record(0, 0, last_scanout_us, repeat_deadline, "repeat");
-                    vrr_repeats.repeated(repeat_submitted);
+                    s.decisions.record(0, 0, repeat_wait.submit_us, repeat_deadline, "repeat");
+                    vrr_repeats.repeated(repeat_wait.submit_us ? repeat_wait.submit_us
+                                                               : last_scanout_us);
                     repeating = true;
                     ++repeated;
                     if (repeated == 1 || repeated % 600 == 0)
