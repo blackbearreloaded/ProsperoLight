@@ -235,10 +235,10 @@ int main() {
     // The fitted repeat factor cannot depend on the starting rate.
     moonlight::VrrRepeatPolicy boundary;
     boundary.reset(60);
-    for(int f=1;f<40;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
+    for(int f=1;f<70;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
     assert(boundary.compensating());
     boundary.reset(30);
-    for(int f=1;f<40;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
+    for(int f=1;f<70;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
     assert(boundary.compensating());
     // One scanout grid covers BOTH source pictures and idle repeats. A
     // jittered source arriving just after a repeat must replace a future slot,
@@ -450,6 +450,30 @@ int main() {
         for (int n=0;n<3;++n) {pts+=1000000/rate;spikes.observe_picture(pts,frame++);}
         assert(spikes.source_rate()==rate);
         assert(spikes.repeat_factor()==(rate<60?2u:1u));
+    }
+    // PS5 60 FPS game trace: short ~55 FPS capture windows incorrectly
+    // enabled 110 Hz duplication before immediately recovering to 60.
+    for (unsigned profile=0; profile<3; ++profile) {
+        moonlight::VrrRepeatPolicy boundary;
+        boundary.reset(60); boundary.configure(profile);
+        uint64_t pts=100000; uint32_t frame=1;
+        boundary.observe_picture(pts,frame++);
+        for (unsigned cycle=0;cycle<12;++cycle) {
+            for (unsigned n=0;n<13;++n) {
+                pts+=18100; boundary.observe_picture(pts,frame++);
+                assert(boundary.repeat_factor()==1);
+            }
+            for (unsigned n=0;n<60;++n) {
+                pts+=16666; boundary.observe_picture(pts,frame++);
+                assert(boundary.repeat_factor()==1);
+            }
+        }
+        // Sustained lower motion rate still adapts, rather than locking 60 FPS.
+        for (unsigned n=0;n<90;++n) {pts+=18100;boundary.observe_picture(pts,frame++);}
+        assert(boundary.repeat_factor()==2);
+        // A truly sparse desktop does not wait for near-motion confirmation.
+        for (unsigned n=0;n<24;++n) {pts+=62500;boundary.observe_picture(pts,frame++);}
+        assert(boundary.source_rate()==16);
     }
     // All requested rates adapt to sparse capture and recover to their
     // negotiated cadence; low requested FPS must not pin the HDMI grid.

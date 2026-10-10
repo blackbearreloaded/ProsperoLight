@@ -547,6 +547,7 @@ class VrrRepeatPolicy
         {
             samples_ = fast_samples_ = fast_sum_ = 0;
             candidate_sum_ = candidate_min_ = candidate_max_ = 0;
+            slow_candidate_ = slow_confirmation_ = 0;
         }
         else
         {
@@ -595,8 +596,29 @@ class VrrRepeatPolicy
             samples_ += frames && frames < 120 ? frames : 1;
             if (samples_ >= 8 && candidate_sum_ >= 200000)
             {
-                period_ =
+                const uint64_t fitted =
                     std::clamp<uint64_t>(stable_period(candidate_sum_ / samples_), 8333, 250000);
+                // A brief 60->55/56 capture timestamp window must not enable
+                // doubled scanouts. Confirm modest near-motion slowdowns across
+                // several sender-time windows; genuine sparse capture stays fast.
+                const bool modest_slowdown = fitted > nominal_period_ * 105 / 100 &&
+                                             fitted <= nominal_period_ * 125 / 100 &&
+                                             period_ <= nominal_period_ * 105 / 100;
+                bool confirmed = true;
+                if (modest_slowdown)
+                {
+                    const uint64_t difference = fitted > slow_candidate_ ? fitted - slow_candidate_
+                                                                         : slow_candidate_ - fitted;
+                    if (!slow_candidate_ || difference * 100 > slow_candidate_ * 3)
+                        slow_confirmation_ = 0;
+                    slow_candidate_ = fitted;
+                    slow_confirmation_ += candidate_sum_;
+                    confirmed = slow_confirmation_ >= 750000;
+                }
+                else
+                    slow_candidate_ = slow_confirmation_ = 0;
+                if (confirmed)
+                    period_ = fitted;
                 update_repeat_policy();
                 if (!low_)
                     moving_period_ = period_;
@@ -769,6 +791,7 @@ class VrrRepeatPolicy
             next_ = submitted + interval_;
     }
     uint64_t period_{16666}, last_pts_{}, samples_{}, next_{}, interval_{16000};
+    uint64_t slow_candidate_{}, slow_confirmation_{};
     uint64_t display_floor_us_{8342};
     unsigned profile_{1};
     VrrReadinessReserve reserve_{};
