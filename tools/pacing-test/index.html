@@ -14,7 +14,7 @@ body{margin:0;background:#102030;color:#fff;font:18px system-ui}main{padding:24p
 <label>HDR <input id="hdr" type="checkbox"></label><label>VSync <input id="vsync" type="checkbox" checked></label>
 <p>90 секунд: разогрев 10 → движение 20 → статика 20 → движение 20 → четыре фазы по 5 секунд. На статике изображение полностью заморожено, включая счётчики. Движение зависит от времени, а не от числа кадров браузера. Это тест вывода, не HDR-калибровка.</p>
 <button id="start">Начать в полном экране</button><button id="save" disabled>Скачать JSON прогона</button>
-<p>Escape завершает прогон. После окончания также нажмите Escape, чтобы выйти из полного экрана. Не переключайте приложения и не открывайте меню PS5 во время теста.</p><pre id="result"></pre>
+<p>После завершения отчёт автоматически отправляется на сервер. Дождитесь надписи «Отчёт сохранён на сервере». Escape завершает прогон. После окончания также нажмите Escape, чтобы выйти из полного экрана. Не переключайте приложения и не открывайте меню PS5 во время теста.</p><pre id="result"></pre>
 </main><canvas id="scene" width="3840" height="2160"></canvas>
 <script>
 'use strict';
@@ -57,7 +57,7 @@ function draw(seconds,phase) {
   ctx.fillText('HDR '+report.settings.hdr+' | VSync '+report.settings.vsync+' | '+(phase.motion?'Движение':'Изображение полностью заморожено'),80,195);
   if(phase.motion) ctx.fillText('t = '+seconds.toFixed(2)+' s',80,270);
 }
-function finish(aborted) {
+async function finish(aborted) {
   if(!running) return;
   running=false;report.aborted=aborted;report.ended_utc=new Date().toISOString();
   const ordered=report.raf_intervals_ms.slice().sort((a,b)=>a-b);
@@ -68,6 +68,19 @@ function finish(aborted) {
   document.body.classList.remove('running');
   document.getElementById('save').disabled=false;
   document.getElementById('result').textContent=JSON.stringify({aborted,settings:report.settings,browser_refresh_hz:report.browser_refresh_hz,warnings:report.warnings},null,2);
+  await uploadReport(report);
+}
+  // Same-origin endpoint; offline copies retain the manual download option.
+async function uploadReport(snapshot) {
+  const result=document.getElementById('result');
+  try {
+    const response=await fetch('/api/reports',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(snapshot)});
+    if(!response.ok) throw Error('HTTP '+response.status);
+    const saved=await response.json();
+    result.textContent+='\nОтчёт сохранён на сервере: '+saved.id;
+  } catch(e) {
+    result.textContent+='\nНе удалось сохранить на сервере: '+e.message+'. Нажмите «Скачать JSON прогона». ';
+  }
 }
 function tick(now) {
   if(!running) return;

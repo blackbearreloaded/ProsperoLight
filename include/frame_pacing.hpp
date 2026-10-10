@@ -339,7 +339,7 @@ class VrrRepeatPolicy
     {
         *this = VrrRepeatPolicy{};
         period_ = UINT64_C(1000000) / std::max(1u, fps);
-        moving_period_ = period_;
+        moving_period_ = nominal_period_ = period_;
         update_repeat_policy();
     }
     void observe_picture(uint64_t pts, uint32_t frame_number = 0)
@@ -369,7 +369,8 @@ class VrrRepeatPolicy
             if (low_ && fast_samples_ >= 3)
             {
                 gap_ = false;
-                period_ = std::clamp<uint64_t>(fast_sum_ / fast_samples_, 8333, 250000);
+                period_ =
+                    std::clamp<uint64_t>(stable_period(fast_sum_ / fast_samples_), 8333, 250000);
                 moving_period_ = period_;
                 update_repeat_policy();
                 samples_ = candidate_sum_ = candidate_min_ = candidate_max_ = 0;
@@ -393,7 +394,8 @@ class VrrRepeatPolicy
             samples_ += frames && frames < 120 ? frames : 1;
             if (samples_ >= 8 && candidate_sum_ >= 200000)
             {
-                period_ = std::clamp<uint64_t>(candidate_sum_ / samples_, 8333, 250000);
+                period_ =
+                    std::clamp<uint64_t>(stable_period(candidate_sum_ / samples_), 8333, 250000);
                 update_repeat_policy();
                 if (!low_)
                     moving_period_ = period_;
@@ -478,6 +480,14 @@ class VrrRepeatPolicy
     // Target >=50 Hz, with 1% clock tolerance so nominal 50/100 FPS does
     // not oscillate between repetition factors due to timestamp rounding.
     static constexpr uint64_t kSingleScanoutLimitUs = 20200;
+    uint64_t stable_period(uint64_t measured) const
+    {
+        // Capture timestamps jitter across the LFC boundary even during motion.
+        // Anchor near the negotiated cadence; genuine sparse rates still fit.
+        const uint64_t difference =
+            measured > nominal_period_ ? measured - nominal_period_ : nominal_period_ - measured;
+        return difference * 100 <= nominal_period_ * 5 ? nominal_period_ : measured;
+    }
     void update_repeat_policy()
     {
         copies_ = unsigned((period_ + kSingleScanoutLimitUs - 1) / kSingleScanoutLimitUs);
@@ -505,7 +515,7 @@ class VrrRepeatPolicy
     }
     uint64_t period_{16666}, last_pts_{}, samples_{}, next_{}, interval_{20000};
     uint64_t scanned_count_{}, scanned_at_{}, submitted_at_{}, fast_samples_{}, fast_sum_{},
-        moving_period_{16666};
+        moving_period_{16666}, nominal_period_{16666};
     uint64_t candidate_sum_{}, candidate_min_{}, candidate_max_{};
     uint32_t last_frame_number_{};
     unsigned copies_{1};

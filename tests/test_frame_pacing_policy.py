@@ -330,6 +330,19 @@ int main() {
             if(expected>1) assert(custom.interval()>=8333 && custom.interval()<=20000);
         }
     }
+    // Real capture jitter around 49--51 must not toggle the LFC factor.
+    for (unsigned rate : {49u,50u,51u}) {
+        moonlight::VrrRepeatPolicy jitter;
+        jitter.reset(rate);
+        uint64_t pts=100000;
+        jitter.observe_picture(pts,1);
+        for (uint32_t frame=2;frame<800;++frame) {
+            // Alternating sustained +3%/-3% windows crossed the old threshold.
+            pts += (1000000/rate) * (frame/16%2 ? 103 : 97)/100;
+            jitter.observe_picture(pts,frame);
+            assert(jitter.repeat_factor()==(rate<50?2u:1u));
+        }
+    }
     // Clock rounding near the 50 FPS boundary must not trigger 2x repetition.
     moonlight::VrrRepeatPolicy tolerance;
     tolerance.reset(50);
