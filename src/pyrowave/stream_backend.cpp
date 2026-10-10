@@ -167,6 +167,7 @@ struct PacingWait
     moonlight::VrrRepeatPolicy *vrr{};
     uint64_t previous_request{};
     bool repeat{};
+    uint64_t minimum_deadline{};
 };
 
 void wait_prepared_frame(void *context)
@@ -219,12 +220,13 @@ void wait_prepared_frame(void *context)
     // VRR has ONE admission clock for fresh pictures and repeats. Applying
     // the fixed/source pacer as well can postpone a prepared picture after a
     // repeat and create an additional 30-50 ms transition gap.
-    const uint64_t deadline =
+    const uint64_t pacing_deadline =
         ps5_vrr_output_active()
             ? wait.vrr->picture_target(now_us())
             : wait.pacer->target(wait.frame->number, wait.frame->presentation_us, started,
                                  selected_vsync ? wait.refresh : 0,
                                  fractional_fixed ? flip_anchor : 0);
+    const uint64_t deadline = std::max(pacing_deadline, wait.minimum_deadline);
     s.decisions.record(wait.frame->number, wait.frame->presentation_us, now_us(), deadline,
                        wait.repeat ? "repeat-target" : "target");
     std::unique_lock<std::mutex> lock(s.mutex);
@@ -289,7 +291,9 @@ void *worker(void *)
     uint64_t stall_count = 0, last_stall_log = 0;
     uint64_t last_scanout_us = 0, last_picture_us = 0, repeated = 0;
     uint64_t last_observed_picture = 0;
-    bool repeating = false, repeat_blocked = false;
+    bool repeating = false;
+    moonlight::RepeatRetryPolicy repeat_retry;
+    uint64_t skipped_repeats = 0;
     try
     {
         for (;;)
@@ -301,7 +305,7 @@ void *worker(void *)
                 while (s.running && s.queue.empty())
                 {
                     // A fixed-refresh television holds the last picture by itself.
-                    if (!last_scanout_us || !ps5_vrr_output_active() || repeat_blocked)
+                    if (!last_scanout_us || !ps5_vrr_output_active())
                     {
                         s.wake.wait(lock, [&] { return !s.running || !s.queue.empty(); });
                         continue;
@@ -328,9 +332,9 @@ void *worker(void *)
                     }
                     const uint64_t idle_delay = moonlight::idle_scanout_delay_us(
                         s.fps, refresh, ps5_vrr_output_active(), repeating);
-                    const uint64_t repeat_deadline = ps5_vrr_output_active()
-                                                         ? vrr_repeats.deadline()
-                                                         : last_scanout_us + idle_delay;
+                    const uint64_t repeat_deadline = repeat_retry.deadline(
+                        ps5_vrr_output_active() ? vrr_repeats.idle_deadline()
+                                                : last_scanout_us + idle_delay);
                     const uint64_t current = now_us();
                     // Prepare retained planes before their display slot, just like a
                     // fresh picture. GPU preparation must not shift repeat flips.
@@ -345,23 +349,28 @@ void *worker(void *)
                     lock.unlock();
                     // Re-render retained decoded planes, never re-decode the
                     // compressed frame or acquire a decoder/network slot.
-                    repeat_argument = s.backend->requested() + 1;
                     Frame retained{};
                     PacingWait repeat_wait{&s, &pacer, &retained, mode, refresh};
                     repeat_wait.repeat = true;
+                    repeat_wait.minimum_deadline = repeat_deadline;
                     repeat_wait.vrr = &vrr_repeats;
                     repeat_wait.previous_request = s.backend->requested();
                     const auto repeated_timing =
                         s.backend->present(wait_prepared_frame, &repeat_wait, true, true);
                     if (repeated_timing.repeat_skipped)
                     {
-                        repeat_blocked = true;
-                        log_line("PyroWave repeat skipped: reason=swapchain-not-ready; resume on "
-                                 "next picture");
+                        ++skipped_repeats;
+                        repeat_retry.failed(now_us());
+                        if (skipped_repeats == 1 || skipped_repeats % 240 == 0)
+                            log_line("PyroWave repeat deferred: swapchain-not-ready "
+                                     "skipped=%llu retry_level=%u",
+                                     (unsigned long long)skipped_repeats, repeat_retry.failures());
                         s.decisions.record(0, 0, now_us(), repeat_deadline, "repeat-skipped");
                         lock.lock();
                         continue;
                     }
+                    repeat_retry.succeeded();
+                    repeat_argument = s.backend->requested();
                     last_scanout_us = now_us();
                     s.decisions.record(0, 0, repeat_wait.submit_us, repeat_deadline, "repeat");
                     vrr_repeats.repeated(repeat_wait.submit_us ? repeat_wait.submit_us
@@ -458,7 +467,7 @@ void *worker(void *)
             repeating = repeating && last_picture_us &&
                         finished - last_picture_us > UINT64_C(1500000) / s.fps;
             last_picture_us = finished;
-            repeat_blocked = false;
+            repeat_retry.succeeded();
             vrr_repeats.presented(wait.submit_us ? wait.submit_us : finished);
             if (finished - preparation_started > 50000 || preparation_started - dequeued > 50000)
             {

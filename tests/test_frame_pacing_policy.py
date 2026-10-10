@@ -109,6 +109,33 @@ int main() {
     assert(moonlight::idle_repeat_ready(requested,shown,true));
     ++requested;
     assert(!moonlight::idle_repeat_ready(requested,shown,true));
+    // With no fresh pictures, idle repeats stay above 60 Hz; the very first
+    // idle repeat still lets a 60 FPS real picture through.
+    for (unsigned rate : {60u, 90u, 120u}) {
+        moonlight::VrrRepeatPolicy idle;
+        idle.reset(rate);
+        idle.presented(1000000);
+        assert(idle.interval()==16000);
+        if (rate==60) assert(idle.idle_deadline()>1016666);
+        const auto first=idle.idle_deadline();
+        idle.repeated(first);
+        assert(idle.idle_deadline()==first+16000);
+        for (int i=0;i<20;++i) {
+            const auto due=idle.idle_deadline();
+            idle.repeated(due);
+            assert(idle.idle_deadline()==due+16000);
+        }
+    }
+    moonlight::RepeatRetryPolicy retry;
+    assert(retry.deadline(0)==0);
+    retry.failed(1000000);
+    assert(retry.deadline(0)==1005000);
+    retry.failed(1005000);
+    assert(retry.deadline(0)==1015000);
+    for (int i=0;i<20;++i) retry.failed(1100000+uint64_t(i)*250000);
+    assert(retry.failures()<=7);
+    retry.succeeded();
+    assert(retry.failures()==0 && retry.deadline(0)==0);
     // VRR: capture/arrival jitter around normal 60/120 FPS must not
     // schedule a duplicate ahead of the next real picture.
     for(unsigned rate: {60u,120u}) {
@@ -119,7 +146,7 @@ int main() {
             const uint64_t submitted=1000000+pts+(f%2?1000:0);
             v.picture(pts,submitted);
             const uint64_t next=1000000+(f+1)*1000000/rate+((f+1)%2?1000:0);
-            assert(v.deadline()>next);
+            assert(v.idle_deadline()>next);
             assert(!v.compensating());
         }
     }
@@ -146,7 +173,7 @@ int main() {
         adaptive.picture(pts,1000000+pts);
     }
     assert(!adaptive.compensating());
-    assert(adaptive.interval()==20000);
+    assert(adaptive.interval()==16000);
     // The fitted repeat factor cannot depend on the starting rate.
     moonlight::VrrRepeatPolicy boundary;
     boundary.reset(60);
@@ -252,12 +279,12 @@ int main() {
     }
     assert(submitted==1999960);
     // Reproduce frame 813: a repeat submitted at zero is detected only
-    // ~10 ms later, but the ready picture must use the original 20 ms slot.
+    // ~10 ms later, but the ready picture must use the original 16 ms slot.
     moonlight::VrrRepeatPolicy late_repeat;
     late_repeat.reset(60);
     late_repeat.repeated(1000000);
     late_repeat.scanned(1,1010300);
-    assert(late_repeat.picture_target(1010300)==1020000);
+    assert(late_repeat.picture_target(1010300)==1016000);
     late_repeat.scanned(2,1031000);
     assert(late_repeat.picture_target(1031000)==1031000);
     // Recovery preserves readiness learning and cumulative counters.

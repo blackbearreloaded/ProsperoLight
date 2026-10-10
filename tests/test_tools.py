@@ -332,7 +332,7 @@ class ToolTests(unittest.TestCase):
         self.assertIn("HFR_SETTLE_MS ?= 100", makefile)
         self.assertIn("APP_DEFINITIONS += PROSPEROLIGHT_HFR_SETTLE_MS=$(HFR_SETTLE_MS)", makefile)
         self.assertIn(
-            "selection.stream_fps > MOONLIGHT_STREAM_FPS_60 || selection.hdr_enabled != 0;", main
+            "selection.stream_fps > MOONLIGHT_STREAM_FPS_60 || selection.hdr_enabled != 0 || moonlight::presentation_mode() == 2u;", " ".join(main.split())
         )
         self.assertIn("mode_changed ? PROSPEROLIGHT_HFR_SETTLE_MS : 100;", main)
         # AGC is initialised once per process, by whichever renderer drew first.

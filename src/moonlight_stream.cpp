@@ -2400,8 +2400,9 @@ static void *video_present_thread(void *context)
     bool first_picture = true;
     unsigned failures = 0;
     uint64_t last_scanout_us = 0, repeated = 0;
-    // A repeat that failed: no more of them until the next picture is shown.
-    bool repeat_blocked = false;
+    // Deferred repeats retry with bounded backoff, even on a static desktop.
+    moonlight::RepeatRetryPolicy repeat_retry;
+    uint64_t failed_repeats = 0;
     ScanoutTrace scanout_trace("native", stream_presentation_mode);
     PacingDecisionTrace decisions("native", stream_presentation_mode);
     // Decode may publish while presentation exits. Publish/clear the borrowed
@@ -2470,7 +2471,7 @@ static void *video_present_thread(void *context)
                 scanout_trace.observe(count, argument, last_scanout_us, false);
                 vrr_repeats.scanned(count, last_scanout_us);
             }
-            repeat_blocked = false;
+            repeat_retry.succeeded();
             failures = 0;
         }
         pthread_mutex_lock(&state->lock);
@@ -2479,30 +2480,41 @@ static void *video_present_thread(void *context)
             // A fixed-refresh television holds the last picture by itself. Only a
             // variable output needs it sent again, to stay above the display's
             // lowest rate while the PC has nothing new.
-            if (!last_scanout_us || !native_agc_vrr_active() || repeat_blocked)
+            if (!last_scanout_us || !native_agc_vrr_active())
             {
                 pthread_cond_wait(&state->wake, &state->lock);
                 continue;
             }
             const uint64_t now = monotonic_us();
-            const uint64_t repeat_deadline = vrr_repeats.deadline();
+            const uint64_t repeat_deadline = repeat_retry.deadline(vrr_repeats.idle_deadline());
             if (now >= repeat_deadline)
             {
                 pthread_mutex_unlock(&state->lock);
                 const uint64_t repeat_submitted = monotonic_us();
                 const int result = native_agc_repeat_frame();
                 last_scanout_us = monotonic_us();
-                vrr_repeats.repeated(repeat_submitted);
-                decisions.record(0, 0, repeat_submitted, repeat_deadline, "repeat");
+                if (result == 0)
+                {
+                    vrr_repeats.repeated(repeat_submitted);
+                    repeat_retry.succeeded();
+                }
+                else
+                {
+                    ++failed_repeats;
+                    repeat_retry.failed(last_scanout_us);
+                }
+                decisions.record(0, 0, repeat_submitted, repeat_deadline,
+                                 result == 0 ? "repeat" : "repeat-deferred");
                 uint64_t count = 0, argument = 0;
-                if (native_agc_scanout_counter(&count, &argument) == 0)
+                if (result == 0 && native_agc_scanout_counter(&count, &argument) == 0)
                 {
                     scanout_trace.observe(count, argument, last_scanout_us, true);
                     vrr_repeats.scanned(count, last_scanout_us);
                 }
                 if (result == 0)
                     ++repeated;
-                if (repeated == 1 || repeated % 600 == 0 || result != 0)
+                if ((result == 0 && (repeated == 1 || repeated % 600 == 0)) ||
+                    (result != 0 && (failed_repeats == 1 || failed_repeats % 240 == 0)))
                 {
                     char receipt[160];
                     snprintf(receipt, sizeof(receipt),
@@ -2514,10 +2526,7 @@ static void *video_present_thread(void *context)
                     (void)lan_http_report_text(receipt);
                 }
                 pthread_mutex_lock(&state->lock);
-                // Sending the held picture again is a courtesy to the display. When it
-                // fails the stream goes on, and the next real picture is shown as usual.
-                if (result != 0)
-                    repeat_blocked = true;
+                // Keep accepting real pictures; retry optional repeats later.
                 continue;
             }
             timespec timeout{};

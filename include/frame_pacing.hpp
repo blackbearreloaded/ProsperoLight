@@ -314,6 +314,37 @@ inline bool idle_repeat_ready(uint64_t requested, uint64_t shown, bool available
     return available && requested && shown != UINT64_MAX && shown >= requested;
 }
 
+// Retry optional repeat failures while the host remains static. A temporary
+// error must not disable low-framerate compensation indefinitely.
+class RepeatRetryPolicy
+{
+  public:
+    uint64_t deadline(uint64_t requested) const
+    {
+        return std::max(requested, retry_after_us_);
+    }
+    void failed(uint64_t now_us)
+    {
+        const unsigned shift = std::min(failures_, 6u);
+        const uint64_t delay = std::min<uint64_t>(250000, UINT64_C(5000) << shift);
+        retry_after_us_ = now_us + delay;
+        failures_ = std::min(failures_ + 1u, 7u);
+    }
+    void succeeded()
+    {
+        retry_after_us_ = 0;
+        failures_ = 0;
+    }
+    unsigned failures() const
+    {
+        return failures_;
+    }
+
+  private:
+    uint64_t retry_after_us_{};
+    unsigned failures_{};
+};
+
 // PS5 adapter for timestamp-driven VRR playout. Inspired by Nonary's
 // separation of source cadence, presentation floors and bounded scheduling:
 // https://github.com/Nonary/moonlight-qt/tree/master/app/streaming/video/ffmpeg-renderers/pacer
@@ -436,6 +467,8 @@ class VrrRepeatPolicy
     void presented(uint64_t submitted)
     {
         ++stats.pictures;
+        last_picture_at_ = submitted;
+        last_was_picture_ = true;
         advance(submitted);
         if (!low_)
             gap_ = false;
@@ -449,10 +482,19 @@ class VrrRepeatPolicy
     {
         return next_;
     }
+    // Leave time for the next actual source frame before the first idle
+    // duplicate. In particular 16 ms is too early for a 60 FPS sender.
+    uint64_t idle_deadline() const
+    {
+        return !low_ && last_was_picture_
+                   ? std::max(next_, last_picture_at_ + period_ + UINT64_C(1500))
+                   : next_;
+    }
     void repeated(uint64_t submitted)
     {
         ++stats.repeats;
         gap_ = true;
+        last_was_picture_ = false;
         advance(submitted);
     }
     uint64_t interval() const
@@ -499,7 +541,8 @@ class VrrRepeatPolicy
         // Sparse capture lowers scanout cadence; fresh motion restores it.
         copies_ = unsigned((period_ + kSingleScanoutLimitUs - 1) / kSingleScanoutLimitUs);
         low_ = copies_ > 1;
-        interval_ = low_ ? std::clamp<uint64_t>(period_ / copies_, 8333, 20000) : 20000;
+        // Stay inside a ~60-120 Hz idle grid rather than 20 ms / 50 Hz.
+        interval_ = low_ ? std::clamp<uint64_t>(period_ / copies_, 8333, 16000) : 16000;
     }
     void advance(uint64_t submitted)
     {
@@ -522,11 +565,11 @@ class VrrRepeatPolicy
     }
     uint64_t period_{16666}, last_pts_{}, samples_{}, next_{}, interval_{20000};
     uint64_t scanned_count_{}, scanned_at_{}, submitted_at_{}, fast_samples_{}, fast_sum_{},
-        moving_period_{16666}, nominal_period_{16666};
+        moving_period_{16666}, nominal_period_{16666}, last_picture_at_{};
     uint64_t candidate_sum_{}, candidate_min_{}, candidate_max_{};
     uint32_t last_frame_number_{};
     unsigned copies_{1};
-    bool low_{}, gap_{};
+    bool low_{}, gap_{}, last_was_picture_{};
 };
 
 // A rejected VRR request is fixed-refresh pacing. The selected mode stays

@@ -12,6 +12,7 @@
 #include "moonlight_stream.hpp"
 #include "native_agc_present.hpp"
 #include "native_modules.hpp"
+#include "presentation_preferences.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -271,6 +272,7 @@ int main()
     bool first_start = true;
     unsigned streams = 0;
     unsigned launcher_failures = 0;
+    bool awaiting_display_handoff = false;
     for (;;)
     {
         launcher::Selection selection;
@@ -291,16 +293,23 @@ int main()
             prosperolight_release_splash();
             (void)sceSystemServiceHideSplashScreen();
             // The display can refuse while the television changes mode.
-            if (++launcher_failures < 3)
+            ++launcher_failures;
+            // Do not add latency to successful launches; allow a failed reopen
+            // after HFR/HDR/VRR an extra bounded settling attempt.
+            const unsigned retry_limit = awaiting_display_handoff ? 4u : 3u;
+            if (launcher_failures < retry_limit)
             {
-                Log("[PL] main: the launcher could not run; trying again");
-                sceKernelUsleep(2000000);
+                const unsigned delay_ms =
+                    awaiting_display_handoff && launcher_failures == 1 ? 500u : 2000u;
+                Log("[PL] main: launcher reopen failed; retry after display settle");
+                sceKernelUsleep(delay_ms * 1000u);
                 continue;
             }
             Log("[PL] main: the launcher could not run; waiting to be closed");
             KeepProcessAlive();
         }
         launcher_failures = 0;
+        awaiting_display_handoff = false;
 
         // Give the launcher's display teardown one final display interval
         // before the stream opens the display for itself.
@@ -342,8 +351,10 @@ int main()
         Log(line);
         const int stream_result = moonlight_stream_run(&options, &metrics);
         std::snprintf(stream_error, sizeof(stream_error), "%s", metrics.error);
-        const bool mode_changed =
-            selection.stream_fps > MOONLIGHT_STREAM_FPS_60 || selection.hdr_enabled != 0;
+        const bool mode_changed = selection.stream_fps > MOONLIGHT_STREAM_FPS_60 ||
+                                  selection.hdr_enabled != 0 ||
+                                  moonlight::presentation_mode() == 2u;
+        awaiting_display_handoff = mode_changed;
         const unsigned settle_ms = mode_changed ? PROSPEROLIGHT_HFR_SETTLE_MS : 100;
         std::snprintf(line, sizeof(line),
                       "[PL] main: stream %u ended result=%d frames=%u; display settles %u ms",

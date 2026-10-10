@@ -43,6 +43,13 @@ Use fixed bitrates throughout: 1080p PyroWave **200 Mbps**, HEVC/H.264 **20 Mbps
 
 ## Expected results
 
+Outside low-rate compensation, the first idle VRR repeat waits for the next source interval plus 1.5 ms,
+so it cannot preempt the next expected 60 FPS picture. Subsequent watchdog repeats
+target a 16 ms interval (~62.5 Hz); fitted low-rate compensation uses its own
+source-derived interval. Temporary VideoOut and Vulkan acquire
+errors retry with capped backoff (5-250 ms) even if the host is static.
+Verify recovery without moving the mouse to trigger a fresh capture frame.
+
 With successful variable output, a **stable incoming source** of 30–59 FPS uses two scanouts per source picture (30→60, 40→80, 45→90, 48→96, 49→98, 50→100, 51→102 Hz). 60–120 FPS uses one. A 1% timestamp tolerance prevents nominal 60 FPS drifting to 2× due to clock rounding. At sparse ~16 FPS desktop capture the factor can rise to four (~64 Hz). These are scheduler targets, not guarantees of the TV's reported frequency.
 
 Initialization and static→motion recovery must converge to the same rate/factor. Allow the short cadence-learning window; there must be no persistent 60 FPS ceiling when input is 90/120, no large sustained stale growth in steady motion, no crash/hang, and no visible transition flicker. Source frames are repeated, not interpolated.

@@ -1204,7 +1204,11 @@ int native_agc_scanout_counter(uint64_t *count, uint64_t *argument)
 int native_agc_repeat_frame(void)
 {
     if (!presenter.ready || !presenter.frame_number || presenter.pending_marker)
-        return 0;
+        return 1; // No flip submitted; retry without advancing the cadence.
+    // A previous timed-out repeat may still be queued in VideoOut.
+    const int pending = sceVideoOutIsFlipPending(presenter.video);
+    if (pending != 0)
+        return pending > 0 ? 1 : pending;
     uint64_t before[16] = {}, after[16] = {};
     int result = sceVideoOutGetFlipStatus(presenter.video, before);
     if (result != 0)
