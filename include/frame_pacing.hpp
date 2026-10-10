@@ -513,10 +513,25 @@ class VrrRepeatPolicy
     // Source-vs-output timing is considered feedback only if an actual unique
     // frame (not a retained copy) was submitted in variable-output mode.
     void observe_output_feedback(uint32_t frame_number, uint64_t pts, uint64_t ready_us,
-                                 uint64_t submitted_us, bool variable_output)
+                                 uint64_t observed_us, bool variable_output,
+                                 uint64_t requested_us = 0)
     {
-        spacing_feedback_.observe(frame_number, pts, ready_us, submitted_us,
-                                  variable_output && profile_ != 0);
+        spacing_feedback_.observe(frame_number, pts, ready_us, observed_us,
+                                  variable_output && profile_ != 0, requested_us);
+    }
+    // A flip was overtaken before confirmed display. Do not reuse stale
+    // timing history as evidence for additional buffering.
+    void invalidate_output_feedback()
+    {
+        spacing_feedback_.reset_epoch();
+    }
+    uint64_t feedback_ambiguous() const
+    {
+        return spacing_feedback_.ambiguous();
+    }
+    uint64_t feedback_epoch_resets() const
+    {
+        return spacing_feedback_.epoch_resets();
     }
     uint64_t feedback_misses() const
     {

@@ -123,13 +123,15 @@ struct OutputTrace
                 "PyroWave VRR scheduler: period_us=%llu pictures=%llu repeats=%llu "
                 "wait_us=%llu late_max_us=%llu submission_gap_max_us=%llu source_fps=%u "
                 "repeat_factor=%u interval_us=%llu profile=%u vrr_reserve_us=%llu "
-                "feedback_misses=%llu",
+                "feedback_misses=%llu feedback_ambiguous=%llu feedback_epochs=%llu",
                 (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
                 (unsigned long long)vrr.stats.repeats, (unsigned long long)vrr.stats.wait_total_us,
                 (unsigned long long)vrr.stats.late_max_us, (unsigned long long)vrr.stats.gap_max_us,
                 vrr.source_rate(), vrr.repeat_factor(), (unsigned long long)vrr.interval(),
                 moonlight::vrr_profile(), (unsigned long long)vrr.playout_reserve_us(),
-                (unsigned long long)vrr.feedback_misses());
+                (unsigned long long)vrr.feedback_misses(),
+                (unsigned long long)vrr.feedback_ambiguous(),
+                (unsigned long long)vrr.feedback_epoch_resets());
         else
             log_line("PyroWave pacing result: mode=%u period_us=%llu reserve_us=%llu "
                      "submissions=%llu "
@@ -183,6 +185,7 @@ struct PacingWait
     uint64_t frame_dequeued_us{};
     moonlight::Ps5ReadinessEstimator *readiness{};
     bool repeat{};
+    bool cancelled{}; // Stop requested after acquiring swapchain image.
     uint64_t minimum_deadline{};
 };
 
@@ -301,6 +304,14 @@ void wait_prepared_frame(void *context)
             lock.lock();
         }
     }
+    if (!s.running)
+    {
+        // The Vulkan renderer already acquired a swapchain image. The caller
+        // must still present/drain it before destroying its semaphores; do not
+        // report that abandoned deadline as a successful unique frame.
+        wait.cancelled = true;
+        return;
+    }
     const uint64_t submitted = now_us();
     s.decisions.record(wait.frame->number, wait.frame->presentation_us, submitted, deadline,
                        wait.repeat ? "repeat-submit" : "submit");
@@ -353,16 +364,16 @@ void *worker(void *)
     {
         bool valid{};
         uint32_t number{};
-        uint64_t pts{}, ready{}, requested_argument{};
+        uint64_t pts{}, ready{}, requested_argument{}, requested_at_us{};
     } pending_feedback;
     const auto observe_feedback = [&](const auto &output)
     {
         if (output.available && pending_feedback.valid &&
             output.shown == pending_feedback.requested_argument)
         {
-            vrr_repeats.observe_output_feedback(pending_feedback.number, pending_feedback.pts,
-                                                pending_feedback.ready, now_us(),
-                                                ps5_vrr_output_active());
+            vrr_repeats.observe_output_feedback(
+                pending_feedback.number, pending_feedback.pts, pending_feedback.ready, now_us(),
+                ps5_vrr_output_active(), pending_feedback.requested_at_us);
             pending_feedback.valid = false;
         }
     };
@@ -437,6 +448,11 @@ void *worker(void *)
                     repeat_wait.readiness = &readiness;
                     const auto repeated_timing =
                         s.backend->present(wait_prepared_frame, &repeat_wait, true, true);
+                    if (repeat_wait.cancelled)
+                    {
+                        lock.lock();
+                        break; // Acquired image drained by backend; stop the worker.
+                    }
                     if (repeated_timing.repeat_skipped)
                     {
                         ++skipped_repeats;
@@ -576,6 +592,12 @@ void *worker(void *)
             wait.previous_request = s.backend->requested();
             const uint64_t preparation_started = now_us();
             auto timing = s.backend->present(wait_prepared_frame, &wait, paced);
+            if (wait.cancelled)
+            {
+                s.decisions.record(frame.number, frame.presentation_us, now_us(), 0,
+                                   "shutdown-present-drained");
+                break; // Acquired WSI image was still released by vkQueuePresent.
+            }
             preparation_lead.observe(
                 uint64_t(std::max(0.0, timing.acquire_ms + timing.record_ms + timing.submit_ms +
                                            timing.prepared_wait_ms) *
@@ -590,8 +612,10 @@ void *worker(void *)
             vrr_repeats.presented(actual_submit);
             // Consume previous completion before replacing its unique-frame evidence.
             observe_feedback(ps5_presentation_stats());
-            pending_feedback = {true, uint32_t(frame.number), frame.presentation_us, wait.ready_us,
-                                s.backend->requested()};
+            if (pending_feedback.valid)
+                vrr_repeats.invalidate_output_feedback();
+            pending_feedback = {true,          uint32_t(frame.number), frame.presentation_us,
+                                wait.ready_us, s.backend->requested(), actual_submit};
             if (finished - preparation_started > 50000 || preparation_started - dequeued > 50000)
             {
                 ++stall_count;

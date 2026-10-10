@@ -2406,6 +2406,7 @@ static void *video_present_thread(void *context)
     bool first_picture = true;
     unsigned failures = 0;
     uint64_t last_scanout_us = 0, repeated = 0;
+    uint64_t unique_request_us = 0; // Last submitted real flip, not idle repeats.
     // Deferred repeats retry with bounded backoff, even on a static desktop.
     moonlight::RepeatRetryPolicy repeat_retry;
     uint64_t failed_repeats = 0;
@@ -2443,7 +2444,8 @@ static void *video_present_thread(void *context)
             if (native_agc_vrr_active())
                 LOGI("Native VRR scheduler: period_us=%llu pictures=%llu repeats=%llu wait_us=%llu "
                      "late_max_us=%llu submission_gap_max_us=%llu source_fps=%u repeat_factor=%u "
-                     "interval_us=%llu profile=%u vrr_reserve_us=%llu feedback_misses=%llu",
+                     "interval_us=%llu profile=%u vrr_reserve_us=%llu feedback_misses=%llu "
+                     "feedback_ambiguous=%llu feedback_epochs=%llu",
                      (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
                      (unsigned long long)vrr.stats.repeats,
                      (unsigned long long)vrr.stats.wait_total_us,
@@ -2451,7 +2453,9 @@ static void *video_present_thread(void *context)
                      (unsigned long long)vrr.stats.gap_max_us, vrr.source_rate(),
                      vrr.repeat_factor(), (unsigned long long)vrr.interval(),
                      moonlight::vrr_profile(), (unsigned long long)vrr.playout_reserve_us(),
-                     (unsigned long long)vrr.feedback_misses());
+                     (unsigned long long)vrr.feedback_misses(),
+                     (unsigned long long)vrr.feedback_ambiguous(),
+                     (unsigned long long)vrr.feedback_epoch_resets());
         }
     } vrr_summary{vrr_repeats};
 
@@ -2480,7 +2484,7 @@ static void *video_present_thread(void *context)
             // VideoOut. Observation time is not a physical HDMI timestamp.
             vrr_repeats.observe_output_feedback(uint32_t(current.frame), current.pts_us,
                                                 current.ready_us, last_scanout_us,
-                                                native_agc_vrr_active());
+                                                native_agc_vrr_active(), unique_request_us);
             uint64_t count = 0, argument = 0;
             if (native_agc_scanout_counter(&count, &argument) == 0)
             {
@@ -2619,8 +2623,9 @@ static void *video_present_thread(void *context)
         }
         if (submit_presentation(state, current) == 0)
         {
-            decisions.record(current.frame, current.pts_us, monotonic_us(), 0, "submit");
-            vrr_repeats.presented(monotonic_us());
+            unique_request_us = monotonic_us();
+            decisions.record(current.frame, current.pts_us, unique_request_us, 0, "submit");
+            vrr_repeats.presented(unique_request_us);
             flip_pending = true;
             continue;
         }

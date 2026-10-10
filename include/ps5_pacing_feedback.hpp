@@ -125,33 +125,71 @@ class Ps5SpacingFeedback
     void configure(unsigned profile)
     {
         *this = Ps5SpacingFeedback{};
-        cap_ = profile == 0 ? 0 : profile == 1 ? 8000 : 16000;
+        cap_ = profile == 0 ? 0u : profile == 1 ? 8000u : 16000u;
     }
-    void observe(uint32_t frame, uint64_t source_us, uint64_t ready_us, uint64_t actual_submit_us,
-                 bool eligible)
+
+    // A capture gap, lost confirmation or new timestamp epoch invalidates the
+    // previous timing distribution. Lifetime counters remain available for logs.
+    void reset_epoch()
     {
-        if (!eligible || !frame || !source_us || !ready_us || !actual_submit_us)
+        continuity_ = false;
+        consecutive_ = 0;
+        reserve_us_ = 0;
+        last_frame_ = 0;
+        last_source_ = last_ready_ = last_observed_ = last_requested_ = 0;
+        ++epoch_resets_;
+    }
+
+    // observed_us is CPU time when VideoOut completion was noticed, not HDMI
+    // scanout. requested_us records when the *same unique* flip was requested.
+    // Older tests and adapters may omit requested_us; those use the less
+    // informative source/ready/completion evidence without inventing a value.
+    void observe(uint32_t frame, uint64_t source_us, uint64_t ready_us, uint64_t observed_us,
+                 bool eligible, uint64_t requested_us = 0)
+    {
+        if (!eligible || !frame || !source_us || !ready_us || !observed_us ||
+            observed_us < ready_us ||
+            (requested_us && (requested_us < ready_us || requested_us > observed_us)))
         {
-            continuity_ = false;
+            reset_epoch();
             return;
         }
-        if (continuity_ && frame == last_frame_ + 1 && source_us > last_source_ &&
-            ready_us >= last_ready_ && actual_submit_us >= last_submit_)
+        const bool consecutive = continuity_ && frame == last_frame_ + 1u &&
+                                 source_us > last_source_ && ready_us >= last_ready_ &&
+                                 observed_us >= last_observed_;
+        if (continuity_ && !consecutive)
+            reset_epoch();
+        if (consecutive)
         {
             const uint64_t source_delta = source_us - last_source_;
             const uint64_t ready_delta = ready_us - last_ready_;
-            const uint64_t actual_delta = actual_submit_us - last_submit_;
-            if (source_delta >= 6000 && source_delta <= 100000 && ready_delta < 200000 &&
-                actual_delta < 200000)
+            const uint64_t observed_delta = observed_us - last_observed_;
+            if (source_delta < 6000 || source_delta > 100000 || ready_delta >= 200000 ||
+                observed_delta >= 200000)
+            {
+                reset_epoch();
+            }
+            else
             {
                 ++observations_;
                 const uint64_t extra_ready =
                     ready_delta > source_delta ? ready_delta - source_delta : 0;
                 const uint64_t extra_output =
-                    actual_delta > source_delta ? actual_delta - source_delta : 0;
-                // A one-off host stutter does not create feedback since the
-                // source PTS itself advanced by the longer interval.
-                const bool attributable = extra_ready >= 1250 && extra_output >= 1250;
+                    observed_delta > source_delta ? observed_delta - source_delta : 0;
+                const bool request_evidence =
+                    requested_us && last_requested_ && requested_us >= last_requested_;
+                const uint64_t request_delta =
+                    request_evidence ? requested_us - last_requested_ : 0;
+                const uint64_t extra_request =
+                    request_delta > source_delta ? request_delta - source_delta : 0;
+                // Feedback is *not* learned from sampling jitter alone.
+                // 750 us excludes tiny CPU scheduling noise; 3000 us is a
+                // conservative maximum unexplained completion-poll interval.
+                const bool attribution_ok =
+                    !request_evidence ||
+                    (extra_request >= 750 && observed_delta <= request_delta + 3000);
+                const bool attributable =
+                    extra_ready >= 1250 && extra_output >= 1250 && attribution_ok;
                 if (attributable)
                 {
                     ++misses_;
@@ -161,21 +199,18 @@ class Ps5SpacingFeedback
                 }
                 else
                 {
+                    if (!attribution_ok && extra_ready >= 1250 && extra_output >= 1250)
+                        ++ambiguous_;
                     consecutive_ = 0;
-                    // Slow, bounded release. Recovery after a hitch is not an
-                    // excuse to add delay for the rest of a long LAN session.
                     reserve_us_ -= std::min<uint64_t>(reserve_us_, 40);
                 }
             }
-            else
-                consecutive_ = 0;
         }
-        else
-            consecutive_ = 0;
         last_frame_ = frame;
         last_source_ = source_us;
         last_ready_ = ready_us;
-        last_submit_ = actual_submit_us;
+        last_observed_ = observed_us;
+        last_requested_ = requested_us;
         continuity_ = true;
     }
     uint64_t reserve_us() const
@@ -190,11 +225,20 @@ class Ps5SpacingFeedback
     {
         return observations_;
     }
+    uint64_t ambiguous() const
+    {
+        return ambiguous_;
+    }
+    uint64_t epoch_resets() const
+    {
+        return epoch_resets_;
+    }
 
   private:
     uint32_t last_frame_{};
-    uint64_t last_source_{}, last_ready_{}, last_submit_{};
+    uint64_t last_source_{}, last_ready_{}, last_observed_{}, last_requested_{};
     uint64_t reserve_us_{}, cap_{8000}, misses_{}, observations_{};
+    uint64_t ambiguous_{}, epoch_resets_{};
     unsigned consecutive_{};
     bool continuity_{};
 };
