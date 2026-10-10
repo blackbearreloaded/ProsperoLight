@@ -12,6 +12,9 @@
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cxx=$(command -v "${HOST_CXX:-clang++}")
+# With USE_CCACHE=1 the objects are compiled through ccache; the link is not.
+compile=$cxx
+[[ ${USE_CCACHE:-0} == 0 ]] || compile="ccache $cxx"
 build="$root/build/launcher-host"
 kit="$root/third_party/ps5-homebrew-ui"
 mkdir -p "$build/obj"
@@ -32,7 +35,7 @@ flags="-std=c++20 -O2 -Wall -Wextra -DGL_GLEXT_PROTOTYPES=1 -I$root/src -I$root/
         relative=${source#"$root/"}
         object="$build/obj/${relative//\//_}.o"
         objects+=("$object")
-        printf '%s: %s\n\t@%s %s -MD -MF %s.d -c %s -o %s\n' "$object" "$source" "$cxx" "$flags" \
+        printf '%s: %s\n\t@%s %s -MD -MF %s.d -c %s -o %s\n' "$object" "$source" "$compile" "$flags" \
             "$object" "$source" "$object"
     done
     printf '%s: %s\n\t@%s %s -lEGL -lGL -lm -lpthread -o %s\n' "$build/launcher_host" \

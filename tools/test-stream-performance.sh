@@ -9,6 +9,13 @@ mkdir -p "$out"
 common="$root/third_party/moonlight-common-c"
 cc=${HOST_CC:-clang}
 cxx=${HOST_CXX:-clang++}
+# With USE_CCACHE=1 the C objects, Opus included, are compiled through ccache.
+compile=("$cc")
+opus_launcher=()
+if [[ ${USE_CCACHE:-0} != 0 ]]; then
+    compile=(ccache "$cc")
+    opus_launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache)
+fi
 for simd in 0 1; do
     variant="$out/$simd"
     mkdir -p "$variant"
@@ -16,14 +23,14 @@ for simd in 0 1; do
         "-I$root/platform/ps5" "-DPROSPEROLIGHT_FEC_SIMD=$simd"
         -include "$root/platform/ps5/ps5_fec_cpu.h")
     for file in rs deps/obl/oblas_common deps/obl/oblas_lite; do
-        "$cc" -std=c11 "${flags[@]}" -c "$common/nanors/$file.c" -o "$variant/$(basename "$file").o"
+        "${compile[@]}" -std=c11 "${flags[@]}" -c "$common/nanors/$file.c" -o "$variant/$(basename "$file").o"
     done
     "$cxx" -std=c++20 "${flags[@]}" "$root/tests/test_fec_dispatch.cpp" "$variant"/*.o -o "$variant/fec"
     "$variant/fec" | tee "$variant/fec.txt"
     disabled=ON
     [[ "$simd" == 0 ]] || disabled=OFF
     cmake -S "$root/third_party/opus" -B "$variant/opus" \
-        -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$cc" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$cc" "${opus_launcher[@]}" \
         -DOPUS_BUILD_SHARED_LIBRARY=OFF -DOPUS_BUILD_TESTING=ON -DOPUS_BUILD_PROGRAMS=OFF \
         -DOPUS_DISABLE_INTRINSICS="$disabled" -DOPUS_X86_MAY_HAVE_AVX2=OFF \
         -DOPUS_X86_PRESUME_AVX2=OFF -DOPUS_X86_PRESUME_SSE4_1=OFF > "$variant/opus-config.log"

@@ -876,10 +876,13 @@ class ToolTests(unittest.TestCase):
         self.assertIn('sha256sum -c "$(basename "${checksums[0]}")"', workflow)
         self.assertIn('assets=("release/$ARCHIVE" "release/$CHECKSUM")', workflow)
         # A release that already has a ZIP is never changed; one without gets the two files.
-        self.assertNotIn("--clobber", workflow)
+        # (The snapshot job replaces its own file in the build-cache release, nothing else.)
+        release = workflow.split("\n  release:\n", 1)[1]
+        self.assertNotIn("--clobber", release)
         self.assertNotIn("delete-asset", workflow)
         self.assertNotIn("gh release edit", workflow)
-        self.assertEqual(workflow.count("gh release upload"), 1)
+        self.assertEqual(release.count("gh release upload"), 1)
+        self.assertEqual(workflow.count("gh release upload"), 2)
         self.assertIn("--json assets --jq '.assets[].name'", workflow)
         self.assertIn("::warning title=Release files not from this run::", workflow)
         self.assertIn('awk -v version="$GITHUB_REF_NAME"', workflow)

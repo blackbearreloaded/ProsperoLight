@@ -57,6 +57,13 @@ if [[ ${1:-} == --ensure && -f "$output/options" && $(<"$output/options") == "$o
     exit 0
 fi
 [[ "$output" == "$root/build/stream-deps" ]] || exit 1
+# With USE_CCACHE=1 the three builds below compile through ccache.
+compile=("$cc")
+opus_launcher=()
+if [[ ${USE_CCACHE:-0} != 0 ]]; then
+    compile=(ccache "$cc")
+    opus_launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache)
+fi
 rm -rf -- "$output"
 mkdir -p "$output/obj"
 cp -a -- "$mbedtls" "$mbedtls_build"
@@ -65,7 +72,7 @@ config='-DMBEDTLS_CONFIG_FILE="mbedtls_ps5_config.h"'
 make_config='-DMBEDTLS_CONFIG_FILE=\"mbedtls_ps5_config.h\"'
 make -C "$mbedtls_build" clean >/dev/null
 make -C "$mbedtls_build" lib \
-    CC="$cc" AR="$ar" \
+    CC="${compile[*]}" AR="$ar" \
     CFLAGS="-O2 -ffunction-sections -fdata-sections $make_config -I$root/platform/ps5" \
     WARNING_CFLAGS='-Wall -Wextra -Wno-unused-parameter' >/dev/null
 cp "$mbedtls_build/library/libmbedcrypto.a" "$output/libmbedcrypto.a"
@@ -76,7 +83,7 @@ opus_disable_intrinsics=ON
 [[ "$opus_simd" == 0 ]] || opus_disable_intrinsics=OFF
 cmake -S "$opus" -B "$opus_build" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER="$cc" \
+    -DCMAKE_C_COMPILER="$cc" "${opus_launcher[@]}" \
     -DCMAKE_AR="$ar" \
     -DCMAKE_RANLIB="$sdk/bin/llvm-ranlib" \
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
@@ -137,7 +144,7 @@ for source in "${sources[@]}"; do
             -D__AVX512VL__ -D__GFNI__
         )
     fi
-    "$cc" "${flags[@]}" "${source_flags[@]}" "${includes[@]}" -c "$source" -o "$object"
+    "${compile[@]}" "${flags[@]}" "${source_flags[@]}" "${includes[@]}" -c "$source" -o "$object"
     objects+=("$object")
     index=$((index + 1))
 done

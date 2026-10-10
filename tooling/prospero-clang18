@@ -19,7 +19,7 @@ if [ -z "$compiler" ]; then
     exit 2
 fi
 
-exec "$compiler" \
+set -- \
     -target x86_64-sie-ps5 \
     -fvisibility-nodllstorageclass=default \
     -isysroot "$sdk_root" \
@@ -27,3 +27,8 @@ exec "$compiler" \
     -isystem "$sdk_root/target/include" \
     -fno-stack-protector -fno-plt -femulated-tls \
     "$@"
+
+if [ "${USE_CCACHE:-0}" != 0 ]; then
+    exec ccache "$compiler" "$@"
+fi
+exec "$compiler" "$@"
