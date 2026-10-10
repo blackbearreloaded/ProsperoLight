@@ -8,6 +8,12 @@ prepare_pyrowave_build() {
     export PS5_PAYLOAD_SDK="$PS5_VULKAN_ROOT/.deps/native/ps5-payload-sdk"
     export PS5_MESA_FORK="$deps/PS5_Mesa" PS5_PAYLOADSDK_FORK="$deps/PS5_PayloadSDK"
     bash "$PS5_VULKAN_ROOT/tools/setup-native-dependencies.sh"
+    # With USE_CCACHE=1 the RADV and PyroWave compiles go through ccache.
+    local launcher=()
+    if [[ ${USE_CCACHE:-0} != 0 ]]; then
+        export MESON="$root/tools/pyrowave/meson-ccache.sh"
+        launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+    fi
     bash "$PS5_VULKAN_ROOT/tools/build-radv.sh" release
     local staged="$PS5_VULKAN_ROOT/.deps/work/radv-src" patch
     # Reconstruct only our generated WSI source from the pinned fork before
@@ -27,7 +33,7 @@ prepare_pyrowave_build() {
     printf '%s\n' "$hash" > "$stamp"
     cmake -S "$root/tools/pyrowave" -B "$root/build/pyrowave" -G Ninja \
         -DDEPS_ROOT="$deps" -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_TOOLCHAIN_FILE="$root/tools/pyrowave/toolchain.cmake"
+        -DCMAKE_TOOLCHAIN_FILE="$root/tools/pyrowave/toolchain.cmake" "${launcher[@]}"
     cmake --build "$root/build/pyrowave" --target pyrowave-c -j "${BUILD_JOBS:-4}"
     mapfile -t pyrowave_archives < "$root/build/pyrowave/archives.txt"
     pyrowave_cflags=("-I$deps/pyrowave" "-I$deps/Granite/third_party/volk" \

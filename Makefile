@@ -89,7 +89,10 @@ HOST_TEST_CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -Wpedantic -Werror \
 	-ffunction-sections -fdata-sections
 HOST_TEST_LDFLAGS ?= -Wl,--gc-sections
 GTEST_ARGS ?=
-export FEC_SIMD OPUS_SIMD PYROWAVE
+# 1 sends the C and C++ compiles through ccache, which must then be installed.
+USE_CCACHE ?= 0
+HOST_CCACHE := $(if $(filter-out 0,$(USE_CCACHE)),ccache)
+export FEC_SIMD OPUS_SIMD PYROWAVE USE_CCACHE
 export APP_DEFINITIONS APP_INCLUDE_PATHS APP_STATIC_ARCHIVES APP_IMPORT_STUBS APP_RUNTIME_MODULES
 export PS5_OPENGL_PREFIX
 export PACBREW_PACKAGES PACBREW_INCLUDE_PATHS PACBREW_STATIC_ARCHIVES
@@ -184,10 +187,10 @@ $(HOST_UNIT_TEST): tests/test_prosperolight.cpp include/moonlight_config.hpp \
 	@printf '%s\n' '==> [test-unit] Compiling the host-native GoogleTest binary'
 	@mkdir -p -- $(@D)
 	@gtest=$$(bash tools/setup-test-dependencies.sh); \
-		$(HOST_CXX) -std=c++20 -O2 -pthread \
+		$(HOST_CCACHE) $(HOST_CXX) -std=c++20 -O2 -pthread \
 			-isystem "$$gtest/googletest/include" -I"$$gtest/googletest" \
 			-c "$$gtest/googletest/src/gtest-all.cc" -o $(@D)/gtest-all.o; \
-		$(HOST_CXX) -std=c++20 -O2 -pthread \
+		$(HOST_CCACHE) $(HOST_CXX) -std=c++20 -O2 -pthread \
 			-isystem "$$gtest/googletest/include" -I"$$gtest/googletest" \
 			-c "$$gtest/googletest/src/gtest_main.cc" -o $(@D)/gtest-main.o; \
 		$(HOST_CXX) $(HOST_TEST_CXXFLAGS) -pthread -Iinclude \
@@ -372,6 +375,7 @@ help:
 	  'make undeploy PS5_HOST=<address>  Remove this title from /data/homebrew' \
 	  'Build variables:     APP_DEFINITIONS, APP_INCLUDE_PATHS, APP_STATIC_ARCHIVES, APP_RUNTIME_MODULES' \
 	  'PacBrew variables:   PACBREW_PACKAGES, PACBREW_INCLUDE_PATHS, PACBREW_STATIC_ARCHIVES' \
+	  'Build speed:         USE_CCACHE=1 compiles through ccache' \
 	  'Diagnostics:         LAN_TELEMETRY=1 enables the optional port-8767 development sink' \
 	  'Deploy variables:    FTP_PORT=2121, DEPLOY_DRY_RUN=0|1' \
 	  'Local defaults:      Copy .env.example to the ignored .env file' \

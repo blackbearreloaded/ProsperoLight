@@ -21,7 +21,7 @@ checked=0
 for file in "${repository_files[@]}"; do
     [[ -f $file ]] || continue
     case "$file" in
-        vendor/*|third_party/*|assets/*|ui/*)
+        vendor/*|third_party/*|assets/*|ui/*|.github/ISSUE_TEMPLATE/*)
             continue
             ;;
         *.c|*.cc|*.cpp|*.h|*.hpp|*.ld|*.py|*.ps1|*.sh|*.yml|*.yaml|Makefile|.clang-format|.clang-tidy|.env.example)
