@@ -979,6 +979,7 @@ static native_agc_presenter_t presenter = {
     .overlay_kind = 0,
     .hdr = 0,
     .ready = 0,
+    .stream_receipt = 0,
 };
 static uint8_t agc_initialized;
 static std::atomic<int> hud_enabled = 1;

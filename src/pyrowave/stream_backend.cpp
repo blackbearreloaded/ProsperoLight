@@ -21,6 +21,12 @@
 #include <mutex>
 #include <pthread.h>
 
+#ifndef PROSPEROLIGHT_FLIP_POLL_US
+#define PROSPEROLIGHT_FLIP_POLL_US 500
+#endif
+static_assert(PROSPEROLIGHT_FLIP_POLL_US >= 100 && PROSPEROLIGHT_FLIP_POLL_US <= 2000,
+              "Scanout polling must match the native presentation bounds");
+
 extern "C" int wsi_ps5_release_videoout(void);
 namespace prosperolight::pyrowave
 {
@@ -202,7 +208,8 @@ void wait_prepared_frame(void *context)
                 std::unique_lock<std::mutex> lock(s.mutex);
                 if (!s.running)
                     return;
-                s.wake.wait_for(lock, std::chrono::microseconds(1000), [&] { return !s.running; });
+                s.wake.wait_for(lock, std::chrono::microseconds(PROSPEROLIGHT_FLIP_POLL_US),
+                                [&] { return !s.running; });
             }
             if (now_us() - started > 100000)
                 fail("Paced previous scanout did not complete within 100ms");
@@ -268,8 +275,9 @@ void *worker(void *)
     ScanoutTrace scanout_trace("pyrowave", mode);
     uint64_t repeat_argument = 0;
     log_line("PyroWave pacing: mode=%u requested_fps=%u selected_refresh_x100=%u "
-             "source_clock=1 variable_output=%u",
-             mode, s.fps, refresh, ps5_vrr_output_active() ? 1u : 0u);
+             "source_clock=1 variable_output=%u flip_poll_us=%u",
+             mode, s.fps, refresh, ps5_vrr_output_active() ? 1u : 0u,
+             unsigned(PROSPEROLIGHT_FLIP_POLL_US));
     uint64_t last = now_us(), incoming = 0, decoded = 0, shown = 0, bytes = 0;
     double decode_ms = 0, render_ms = 0;
     uint64_t samples = 0;
@@ -313,7 +321,7 @@ void *worker(void *)
                     if (!moonlight::idle_repeat_ready(s.backend->requested(), output.shown,
                                                       output.available))
                     {
-                        s.wake.wait_for(lock, std::chrono::microseconds(1000),
+                        s.wake.wait_for(lock, std::chrono::microseconds(PROSPEROLIGHT_FLIP_POLL_US),
                                         [&] { return !s.running || !s.queue.empty(); });
                         continue;
                     }
