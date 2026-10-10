@@ -1,6 +1,6 @@
 /*
- * ps5-native-app-boilerplate / ProsperoLight - Bounded source-clock presentation timing.
- * Copyright (C) 2026 BlackBearReloaded
+ * ps5-native-app-boilerplate / ProsperoLight - Bounded source-clock
+ * presentation timing. Copyright (C) 2026 BlackBearReloaded
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #pragma once
@@ -295,7 +295,8 @@ inline bool variable_after_peg(bool released, uint32_t peg)
 
 // Fixed refresh tolerates two missing source periods before idle repetition.
 // VRR repeats are timed from observed scanout completion, never GPU completion.
-// Aim near a 60 Hz floor with submission lead, without filling every 120 Hz slot.
+// Aim near a 60 Hz floor with submission lead, without filling every 120 Hz
+// slot.
 inline uint64_t idle_scanout_delay_us(unsigned fps, unsigned refresh_x100, bool vrr_active,
                                       bool repeating)
 {
@@ -351,7 +352,8 @@ class VrrRepeatPolicy
         else
         {
             // Dropped client frames must not look like a slower host cadence.
-            // Frame numbers count transmitted pictures, including ones skipped locally.
+            // Frame numbers count transmitted pictures, including ones skipped
+            // locally.
             const uint32_t frames = frame_number && last_frame_number_
                                         ? uint32_t(frame_number - last_frame_number_)
                                         : 1;
@@ -365,9 +367,13 @@ class VrrRepeatPolicy
                 samples_ = candidate_sum_ = candidate_min_ = candidate_max_ = 0;
             }
             // A mixed static/moving segment is not a new source cadence.
-            // Restart on a >25% interval spread; confirmation requires 200 ms
+            // Allow capture-clock quantization (90 FPS may alternate 8/16 ms).
+            // Confirmation requires 200 ms
             // of homogeneous sender time, not a wall-clock timeout or burst.
-            if (!samples_ || delta * 4 < candidate_max_ * 3 || delta * 3 > candidate_min_ * 4)
+            const bool quantized = frame_number != 0;
+            if (!samples_ ||
+                (quantized ? delta * 21 < candidate_max_ * 10 || delta * 10 > candidate_min_ * 21
+                           : delta * 4 < candidate_max_ * 3 || delta * 3 > candidate_min_ * 4))
             {
                 samples_ = 0;
                 candidate_sum_ = 0;
@@ -375,8 +381,8 @@ class VrrRepeatPolicy
             }
             candidate_min_ = std::min(candidate_min_, delta);
             candidate_max_ = std::max(candidate_max_, delta);
-            candidate_sum_ += delta;
-            ++samples_;
+            candidate_sum_ += delta * (frames && frames < 120 ? frames : 1);
+            samples_ += frames && frames < 120 ? frames : 1;
             if (samples_ >= 8 && candidate_sum_ >= 200000)
             {
                 period_ = std::clamp<uint64_t>(candidate_sum_ / samples_, 8333, 250000);

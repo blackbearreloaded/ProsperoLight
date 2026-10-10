@@ -296,6 +296,12 @@ int main() {
         assert(!dropped.compensating());
     }
 
+    moonlight::VrrRepeatPolicy quantized;
+    quantized.reset(90);
+    for (uint32_t frame=1; frame<601; frame+=(frame%3==1 ? 1 : 2))
+        quantized.observe_picture(uint64_t(frame)*4/3*1000000/120, frame);
+    assert(quantized.source_rate()>=88 && quantized.source_rate()<=92);
+
     // Fixed 90 on 120 must alternate 1/1/2 refresh intervals rather than
     // rounding every source frame to two refreshes (the 60 FPS regression).
     moonlight::FramePacing fractional;
