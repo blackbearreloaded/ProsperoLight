@@ -307,7 +307,7 @@ int main() {
     // Exhaust every Custom FPS, cold start and recovery from a static host.
     // Both adapters pass original frame numbers to this same policy.
     for (unsigned rate=30; rate<=120; ++rate) {
-        unsigned expected = rate < 50 ? 2 : 1;
+        unsigned expected = rate < 60 ? 2 : 1;
         for (bool sparse_start : {false,true}) for (bool skipped : {false,true}) {
             moonlight::VrrRepeatPolicy custom;
             custom.reset(rate);
@@ -331,7 +331,7 @@ int main() {
         }
     }
     // Real capture jitter around 49--51 must not toggle the LFC factor.
-    for (unsigned rate : {49u,50u,51u}) {
+    for (unsigned rate : {49u,50u,51u,59u,60u,61u}) {
         moonlight::VrrRepeatPolicy jitter;
         jitter.reset(rate);
         uint64_t pts=100000;
@@ -340,15 +340,41 @@ int main() {
             // Alternating sustained +3%/-3% windows crossed the old threshold.
             pts += (1000000/rate) * (frame/16%2 ? 103 : 97)/100;
             jitter.observe_picture(pts,frame);
-            assert(jitter.repeat_factor()==(rate<50?2u:1u));
+            assert(jitter.repeat_factor()==(rate<60?2u:1u));
         }
     }
-    // Clock rounding near the 50 FPS boundary must not trigger 2x repetition.
+    // Low-rate motion also recovers from a sparse desktop in three intervals.
+    for (unsigned rate : {30u,45u,49u,50u,51u,59u}) {
+        moonlight::VrrRepeatPolicy recovery;
+        recovery.reset(rate);
+        uint64_t pts=100000;
+        uint32_t frame=1;
+        for (int n=0;n<32;++n) { pts+=62500; recovery.observe_picture(pts,frame++); }
+        for (int n=0;n<3;++n) { pts+=1000000/rate; recovery.observe_picture(pts,frame++); }
+        assert(recovery.source_rate()==rate);
+        assert(recovery.repeat_factor()==2);
+    }
+    // Low-rate motion uses integral duplication, with headroom before each
+    // fresh picture; there is no 20 ms single-scanout watchdog race at 50/51.
+    for (unsigned rate : {49u,50u,51u}) {
+        moonlight::VrrRepeatPolicy low_motion;
+        low_motion.reset(rate);
+        for (unsigned frame=1;frame<=600;++frame) {
+            const uint64_t pts=uint64_t(frame)*1000000/rate;
+            const uint64_t submitted=1000000+pts+(frame%2 ? 1000 : 0);
+            low_motion.picture(pts,submitted);
+            assert(low_motion.repeat_factor()==2);
+            assert(low_motion.interval()<11000);
+            assert(low_motion.target_refresh_x100()==rate*200 ||
+                   low_motion.target_refresh_x100()==rate*200+1);
+        }
+    }
+    // Nominal 50 FPS stays in 2x repetition despite timestamp rounding.
     moonlight::VrrRepeatPolicy tolerance;
     tolerance.reset(50);
     for (uint32_t frame=1;frame<100;++frame)
         tolerance.observe_picture(uint64_t(frame)*20040,frame);
-    assert(tolerance.repeat_factor()==1);
+    assert(tolerance.repeat_factor()==2);
 
     // Fixed 90 on 120 must alternate 1/1/2 refresh intervals rather than
     // rounding every source frame to two refreshes (the 60 FPS regression).

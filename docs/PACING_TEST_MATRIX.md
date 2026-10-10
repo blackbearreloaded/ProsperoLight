@@ -43,7 +43,7 @@ Use fixed bitrates throughout: 1080p PyroWave **200 Mbps**, HEVC/H.264 **20 Mbps
 
 ## Expected results
 
-With successful variable output, a **stable incoming source** of 30–49 FPS uses two scanouts per source picture (30→60, 40→80, 45→90, 48→96, 49→98 Hz). 50–120 FPS uses one. A 1% timestamp tolerance prevents nominal 50 FPS drifting to 2× due to clock rounding. At sparse ~16 FPS desktop capture the factor can rise to four (~64 Hz). These are scheduler targets, not guarantees of the TV's reported frequency.
+With successful variable output, a **stable incoming source** of 30–59 FPS uses two scanouts per source picture (30→60, 40→80, 45→90, 48→96, 49→98, 50→100, 51→102 Hz). 60–120 FPS uses one. A 1% timestamp tolerance prevents nominal 60 FPS drifting to 2× due to clock rounding. At sparse ~16 FPS desktop capture the factor can rise to four (~64 Hz). These are scheduler targets, not guarantees of the TV's reported frequency.
 
 Initialization and static→motion recovery must converge to the same rate/factor. Allow the short cadence-learning window; there must be no persistent 60 FPS ceiling when input is 90/120, no large sustained stale growth in steady motion, no crash/hang, and no visible transition flicker. Source frames are repeated, not interpolated.
 

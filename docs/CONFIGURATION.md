@@ -243,6 +243,6 @@ The removed local app close setting is not reused.
 
 ### Custom FPS and low-rate VRR compensation
 
-PyroWave and native H.264/HEVC pass original source frame numbers to the same VRR cadence estimator. Local drops do not become a falsely slower source rate. Initial and fitted source cadence use one repeat-factor calculation: a target of at least 50 Hz with 1% timestamp tolerance. Stable 30–49 FPS therefore uses two scanouts per picture; stable 50–120 uses one. Sparse desktop capture can use higher integral factors. These are scheduling targets, not interpolated frames or proof of physical HDMI frequency. Fixed Paced keeps 60 Hz for requested FPS ≤60 and 120 Hz above 60, with fractional refresh-slot placement for non-divisible source rates.
+PyroWave and native H.264/HEVC pass original source frame numbers to the same VRR cadence estimator. Local drops do not become a falsely slower source rate. Initial and fitted source cadence use one repeat-factor calculation: a target of at least 60 Hz with 1% timestamp tolerance. Stable 30–59 FPS therefore uses two scanouts per picture; stable 60–120 uses one. Sparse desktop capture can use higher integral factors. These are scheduling targets, not interpolated frames or proof of physical HDMI frequency. Fixed Paced keeps 60 Hz for requested FPS ≤60 and 120 Hz above 60, with fractional refresh-slot placement for non-divisible source rates.
 
 See [the repeatable test matrix](PACING_TEST_MATRIX.md) for the dependency-free host scene, automatic FTP session collector, boundary cases and hardware-validation limits.

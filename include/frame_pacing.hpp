@@ -358,7 +358,8 @@ class VrrRepeatPolicy
                                         ? uint32_t(frame_number - last_frame_number_)
                                         : 1;
             const uint64_t delta = (pts - last_pts_) / (frames && frames < 120 ? frames : 1);
-            if (delta >= 6000 && delta <= kSingleScanoutLimitUs)
+            if (delta >= 6000 &&
+                (delta <= kSingleScanoutLimitUs || stable_period(delta) == nominal_period_))
             {
                 ++fast_samples_;
                 fast_sum_ += delta;
@@ -477,9 +478,9 @@ class VrrRepeatPolicy
 
   private:
     // One decision for initialization, fitted cadence, and sparse recovery.
-    // Target >=50 Hz, with 1% clock tolerance so nominal 50/100 FPS does
+    // Target >=60 Hz, with 1% clock tolerance so nominal 60/120 FPS does
     // not oscillate between repetition factors due to timestamp rounding.
-    static constexpr uint64_t kSingleScanoutLimitUs = 20200;
+    static constexpr uint64_t kSingleScanoutLimitUs = 16833;
     uint64_t stable_period(uint64_t measured) const
     {
         // Capture timestamps jitter across the LFC boundary even during motion.

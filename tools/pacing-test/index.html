@@ -12,6 +12,7 @@ body{margin:0;background:#102030;color:#fff;font:18px system-ui}main{padding:24p
 <label>FPS <input id="fps" type="number" min="30" max="120" step="1" value="45"></label>
 <label>Режим <select id="mode"><option>Paced+VRR</option><option>Paced</option><option>Unpaced</option></select></label>
 <label>HDR <input id="hdr" type="checkbox"></label><label>VSync <input id="vsync" type="checkbox" checked></label>
+<p>В новом билде при Paced+VRR цель вывода во время движения: 49 FPS → 98 Гц, 50 → 100 Гц, 51 → 102 Гц. Кадры повторяются, новые промежуточные изображения не создаются. На статике частота может отличаться.</p>
 <p>90 секунд: разогрев 10 → движение 20 → статика 20 → движение 20 → четыре фазы по 5 секунд. На статике изображение полностью заморожено, включая счётчики. Движение зависит от времени, а не от числа кадров браузера. Это тест вывода, не HDR-калибровка.</p>
 <button id="start">Начать в полном экране</button><button id="save" disabled>Скачать JSON прогона</button>
 <p>После завершения отчёт автоматически отправляется на сервер. Дождитесь надписи «Отчёт сохранён на сервере». Escape завершает прогон. После окончания также нажмите Escape, чтобы выйти из полного экрана. Не переключайте приложения и не открывайте меню PS5 во время теста.</p><pre id="result"></pre>
