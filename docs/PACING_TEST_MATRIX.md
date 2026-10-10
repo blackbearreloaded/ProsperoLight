@@ -45,10 +45,12 @@ Use fixed bitrates throughout: 1080p PyroWave **200 Mbps**, HEVC/H.264 **20 Mbps
 
 With successful variable output, a **stable incoming source** of 30–49 FPS uses two scanouts per source picture (30→60, 40→80, 45→90, 48→96, 49→98 Hz). 50–120 FPS uses one. A 1% timestamp tolerance prevents nominal 50 FPS drifting to 2× due to clock rounding. At sparse ~16 FPS desktop capture the factor can rise to four (~64 Hz). These are scheduler targets, not guarantees of the TV's reported frequency.
 
-Initialization and static→motion recovery must converge to the same rate/factor. Allow the short cadence-learning window; there must be no persistent 60 FPS ceiling when input is 90/120, no continuously growing stale counter in steady motion, no crash/hang, and no visible transition flicker. Source frames are repeated, not interpolated.
+Initialization and static→motion recovery must converge to the same rate/factor. Allow the short cadence-learning window; there must be no persistent 60 FPS ceiling when input is 90/120, no large sustained stale growth in steady motion, no crash/hang, and no visible transition flicker. Source frames are repeated, not interpolated.
 
 Paced uses fixed nominal 60 Hz for FPS ≤60, 120 Hz for FPS >60. Non-divisible source rates naturally occupy alternating refresh counts (e.g. 45 FPS on 60 Hz). This is expected and is not evidence of a decoding failure. Paced+VRR requests a 120 Hz-capable mode and then schedules variable flips; if the API refuses VRR it uses fixed-output pacing. With system VRR disabled, also record the TV's actual fixed refresh: API receipts alone do not prove physical VRR.
 
 Compare **unique pictures**, repetitions, and network losses separately. Native `shown` telemetry counts unique pictures; PyroWave's live `shown` includes repeats. Do not compare total shown counts directly. Shared `VRR cadence` receipts report source FPS, repetition factor and target refresh for both backends. CSV files contain software counter observations; they are not a calibrated HDMI measurement. Ignore the first warm-up window when estimating steady intervals, but retain transition outliers in the report.
 
 Automated host regression tests cover every integer Custom FPS from 30 to 120, including recovery from sparse input and locally skipped frames. They validate scheduling calculations, not firmware/TV acceptance. The hardware matrix above remains necessary.
+
+Small losses from a requested 120 FPS versus nominal 119.88 Hz, source jitter or decoder load must not be mistaken for the former ~60 FPS scheduling cap. Record their rate and cause instead of requiring absolutely zero discarded pictures.
