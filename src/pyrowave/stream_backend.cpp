@@ -355,6 +355,17 @@ void *worker(void *)
         uint32_t number{};
         uint64_t pts{}, ready{}, requested_argument{};
     } pending_feedback;
+    const auto observe_feedback = [&](const auto &output)
+    {
+        if (output.available && pending_feedback.valid &&
+            output.shown == pending_feedback.requested_argument)
+        {
+            vrr_repeats.observe_output_feedback(pending_feedback.number, pending_feedback.pts,
+                                                pending_feedback.ready, now_us(),
+                                                ps5_vrr_output_active());
+            pending_feedback.valid = false;
+        }
+    };
     bool repeating = false;
     moonlight::RepeatRetryPolicy repeat_retry;
     uint64_t skipped_repeats = 0;
@@ -378,6 +389,7 @@ void *worker(void *)
                     // Observe the last WSI flip argument before scheduling an
                     // idle repeat; queued source frames must drain first.
                     const auto output = ps5_presentation_stats();
+                    observe_feedback(output);
                     if (output.available)
                         scanout_trace.observe(output.flip_count, output.shown, now_us(),
                                               output.shown == repeat_argument);
@@ -576,6 +588,8 @@ void *worker(void *)
             repeat_retry.succeeded();
             const uint64_t actual_submit = wait.submit_us ? wait.submit_us : finished;
             vrr_repeats.presented(actual_submit);
+            // Consume previous completion before replacing its unique-frame evidence.
+            observe_feedback(ps5_presentation_stats());
             pending_feedback = {true, uint32_t(frame.number), frame.presentation_us, wait.ready_us,
                                 s.backend->requested()};
             if (finished - preparation_started > 50000 || preparation_started - dequeued > 50000)
@@ -605,13 +619,7 @@ void *worker(void *)
             {
                 scanout_trace.observe(counters.flip_count, counters.shown, now_us(),
                                       counters.shown == repeat_argument);
-                if (pending_feedback.valid && counters.shown == pending_feedback.requested_argument)
-                {
-                    vrr_repeats.observe_output_feedback(
-                        pending_feedback.number, pending_feedback.pts, pending_feedback.ready,
-                        now_us(), ps5_vrr_output_active());
-                    pending_feedback.valid = false;
-                }
+                observe_feedback(counters);
             }
             if (!counters.available)
             {
