@@ -247,4 +247,4 @@ PyroWave and native H.264/HEVC pass original source frame numbers to the same VR
 
 See [the repeatable test matrix](PACING_TEST_MATRIX.md) for the dependency-free host scene, automatic FTP session collector, boundary cases and hardware-validation limits.
 
-For requested 30–59 FPS, Paced+VRR holds the negotiated duplicated scanout grid across sparse capture (50→100 Hz, 51→102 Hz), repeating retained pictures in empty slots. This reduces frequency changes that may provoke OLED brightness flicker. The source estimator still reports incoming cadence. Repeat factor in sparse capture is an approximate number of scanouts per incoming picture, not new interpolated frames.
+Paced+VRR adapts to incoming source cadence at every requested FPS. Stable 51 FPS uses about 102 Hz; sparse 16 FPS capture uses about 64 Hz, with retained pictures filling the repeat slots. The requested FPS does not pin sparse output to its moving refresh rate. Frequency changes may produce brightness flicker on some displays. Repeats do not interpolate new frames. PyroWave prepares both fresh and retained pictures before their presentation deadlines.

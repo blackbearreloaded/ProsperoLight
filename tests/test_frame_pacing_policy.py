@@ -360,23 +360,26 @@ int main() {
         // Real sparse capture must still lower the estimated source rate.
         for (int n=0;n<40;++n) {pts+=62500;spikes.observe_picture(pts,frame++);}
         assert(spikes.source_rate()==16);
-        if(rate>=60) assert(spikes.repeat_factor()==4);
-        else assert(spikes.target_refresh_x100()>=rate*200 && spikes.target_refresh_x100()<=rate*200+1);
+        assert(spikes.repeat_factor()==4);
+        assert(spikes.target_refresh_x100()==6400);
         for (int n=0;n<3;++n) {pts+=1000000/rate;spikes.observe_picture(pts,frame++);}
         assert(spikes.source_rate()==rate);
         assert(spikes.repeat_factor()==(rate<60?2u:1u));
     }
-    // A sparse desktop and moving frame fitting must share the same low-FPS
-    // scanout clock: gamma must not swing between ~64 and ~100 Hz.
-    for (unsigned rate : {30u,45u,49u,50u,51u,59u}) {
-        moonlight::VrrRepeatPolicy constant;
-        constant.reset(rate);
-        const auto interval=constant.interval();
-        const auto refresh=constant.target_refresh_x100();
+    // All requested rates adapt to sparse capture and recover to their
+    // negotiated cadence; low requested FPS must not pin the HDMI grid.
+    for (unsigned rate : {30u,45u,49u,50u,51u,59u,60u,90u,120u}) {
+        moonlight::VrrRepeatPolicy adaptive_grid;
+        adaptive_grid.reset(rate);
         uint64_t pts=100000;uint32_t frame=1;
+        adaptive_grid.observe_picture(pts,frame++);
         for(int cycle=0;cycle<4;++cycle) {
-            for(int n=0;n<40;++n) {pts+=62500;constant.observe_picture(pts,frame++);assert(constant.interval()==interval && constant.target_refresh_x100()==refresh);}
-            for(int n=0;n<80;++n) {pts+=1000000/rate;constant.observe_picture(pts,frame++);assert(constant.interval()==interval && constant.target_refresh_x100()==refresh);}
+            for(int n=0;n<40;++n) {pts+=62500;adaptive_grid.observe_picture(pts,frame++);}
+            assert(adaptive_grid.interval()==15625);
+            assert(adaptive_grid.target_refresh_x100()==6400);
+            for(int n=0;n<80;++n) {pts+=1000000/rate;adaptive_grid.observe_picture(pts,frame++);}
+            assert(adaptive_grid.source_rate()==rate);
+            assert(adaptive_grid.repeat_factor()==(rate<60?2u:1u));
         }
     }
     // Low-rate motion also recovers from a sparse desktop in three intervals.
