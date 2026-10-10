@@ -358,16 +358,16 @@ class VrrRepeatPolicy
                                         ? uint32_t(frame_number - last_frame_number_)
                                         : 1;
             const uint64_t delta = (pts - last_pts_) / (frames && frames < 120 ? frames : 1);
-            if (delta >= 6000 &&
-                (delta <= kSingleScanoutLimitUs || stable_period(delta) == nominal_period_))
+            if (delta >= 6000 && delta <= nominal_period_ * 105 / 100)
             {
                 ++fast_samples_;
                 fast_sum_ += delta;
             }
             else
                 fast_samples_ = fast_sum_ = 0;
-            // Motion detection is deliberately separate from rate fitting.
-            if (low_ && fast_samples_ >= 3)
+            // Fast recovery is only for a genuinely sparse source, not integral
+            // duplication during normal 30--59 FPS motion.
+            if (period_ > nominal_period_ * 125 / 100 && fast_samples_ >= 3)
             {
                 gap_ = false;
                 period_ =
@@ -375,6 +375,7 @@ class VrrRepeatPolicy
                 moving_period_ = period_;
                 update_repeat_policy();
                 samples_ = candidate_sum_ = candidate_min_ = candidate_max_ = 0;
+                fast_samples_ = fast_sum_ = 0;
             }
             // A mixed static/moving segment is not a new source cadence.
             // Allow capture-clock quantization (90 FPS may alternate 8/16 ms).
@@ -484,10 +485,13 @@ class VrrRepeatPolicy
     uint64_t stable_period(uint64_t measured) const
     {
         // Capture timestamps jitter across the LFC boundary even during motion.
-        // Anchor near the negotiated cadence; genuine sparse rates still fit.
+        // Negotiated FPS is an upper bound: short capture bursts cannot speed
+        // up the scanout grid. Genuine slower/sparse rates still fit.
         const uint64_t difference =
             measured > nominal_period_ ? measured - nominal_period_ : nominal_period_ - measured;
-        return difference * 100 <= nominal_period_ * 5 ? nominal_period_ : measured;
+        return measured < nominal_period_ || difference * 100 <= nominal_period_ * 5
+                   ? nominal_period_
+                   : measured;
     }
     void update_repeat_policy()
     {

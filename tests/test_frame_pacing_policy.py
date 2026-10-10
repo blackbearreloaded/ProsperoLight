@@ -343,6 +343,27 @@ int main() {
             assert(jitter.repeat_factor()==(rate<60?2u:1u));
         }
     }
+    // Console traces: three short source intervals made 51 look like 56/60.
+    // A negotiated maximum must not be exceeded by fitting or fast recovery.
+    for (unsigned rate : {49u,50u,51u,59u,60u,61u,90u,120u}) {
+        moonlight::VrrRepeatPolicy spikes;
+        spikes.reset(rate);
+        uint64_t pts=100000;
+        uint32_t frame=1;
+        spikes.observe_picture(pts,frame++);
+        for (unsigned n=0;n<600;++n) {
+            pts += n%40<4 ? 1000000/rate*85/100 : 1000000/rate;
+            spikes.observe_picture(pts,frame++);
+            assert(spikes.source_rate()==rate);
+            assert(spikes.repeat_factor()==(rate<60?2u:1u));
+        }
+        // Real sparse capture must still lower the estimated source rate.
+        for (int n=0;n<40;++n) {pts+=62500;spikes.observe_picture(pts,frame++);}
+        assert(spikes.source_rate()==16 && spikes.repeat_factor()==4);
+        for (int n=0;n<3;++n) {pts+=1000000/rate;spikes.observe_picture(pts,frame++);}
+        assert(spikes.source_rate()==rate);
+        assert(spikes.repeat_factor()==(rate<60?2u:1u));
+    }
     // Low-rate motion also recovers from a sparse desktop in three intervals.
     for (unsigned rate : {30u,45u,49u,50u,51u,59u}) {
         moonlight::VrrRepeatPolicy recovery;
