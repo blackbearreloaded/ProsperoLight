@@ -105,13 +105,13 @@ struct OutputTrace
     ~OutputTrace()
     {
         if (ps5_vrr_output_active())
-            log_line("PyroWave VRR scheduler: period_us=%llu pictures=%llu repeats=%llu "
-                     "wait_us=%llu late_max_us=%llu submission_gap_max_us=%llu",
-                     (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
-                     (unsigned long long)vrr.stats.repeats,
-                     (unsigned long long)vrr.stats.wait_total_us,
-                     (unsigned long long)vrr.stats.late_max_us,
-                     (unsigned long long)vrr.stats.gap_max_us);
+            log_line(
+                "PyroWave VRR scheduler: period_us=%llu pictures=%llu repeats=%llu "
+                "wait_us=%llu late_max_us=%llu submission_gap_max_us=%llu",
+                (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
+                (unsigned long long)vrr.stats.repeats, (unsigned long long)vrr.stats.wait_total_us,
+                (unsigned long long)vrr.stats.late_max_us, (unsigned long long)vrr.stats.gap_max_us,
+                vrr.source_rate(), vrr.repeat_factor(), (unsigned long long)vrr.interval());
         else
             log_line("PyroWave pacing result: mode=%u period_us=%llu reserve_us=%llu "
                      "submissions=%llu "
@@ -262,6 +262,7 @@ void *worker(void *)
     const bool paced = mode != 0;
     moonlight::VrrRepeatPolicy vrr_repeats;
     vrr_repeats.reset(s.fps);
+    unsigned cadence_rate = s.fps, cadence_copies = vrr_repeats.repeat_factor();
     OutputTrace trace(pacer, vrr_repeats, mode, s.fps);
     ScanoutTrace scanout_trace("pyrowave", mode);
     uint64_t repeat_argument = 0;
@@ -416,6 +417,16 @@ void *worker(void *)
                 pacer.resume(now_us());
                 log_line("PyroWave VRR recovery: source_fps=%u phase_resume=1",
                          vrr_repeats.source_rate());
+            }
+            if (ps5_vrr_output_active() && (cadence_rate != vrr_repeats.source_rate() ||
+                                            cadence_copies != vrr_repeats.repeat_factor()))
+            {
+                cadence_rate = vrr_repeats.source_rate();
+                cadence_copies = vrr_repeats.repeat_factor();
+                log_line("PyroWave VRR cadence: source_fps=%u repeat_factor=%u "
+                         "target_refresh_x100=%u interval_us=%llu",
+                         cadence_rate, cadence_copies, vrr_repeats.target_refresh_x100(),
+                         (unsigned long long)vrr_repeats.interval());
             }
             PacingWait wait{&s, &pacer, &frame, mode, refresh};
             wait.vrr = &vrr_repeats;

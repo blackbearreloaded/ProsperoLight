@@ -2424,6 +2424,7 @@ static void *video_present_thread(void *context)
     } decision_lifetime(state, &decisions);
     moonlight::VrrRepeatPolicy vrr_repeats;
     vrr_repeats.reset(state->stream_fps);
+    unsigned cadence_rate = state->stream_fps, cadence_copies = vrr_repeats.repeat_factor();
     struct VrrSummary
     {
         const moonlight::VrrRepeatPolicy &vrr;
@@ -2431,12 +2432,14 @@ static void *video_present_thread(void *context)
         {
             if (native_agc_vrr_active())
                 LOGI("Native VRR scheduler: period_us=%llu pictures=%llu repeats=%llu wait_us=%llu "
-                     "late_max_us=%llu submission_gap_max_us=%llu",
+                     "late_max_us=%llu submission_gap_max_us=%llu source_fps=%u repeat_factor=%u "
+                     "interval_us=%llu",
                      (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
                      (unsigned long long)vrr.stats.repeats,
                      (unsigned long long)vrr.stats.wait_total_us,
                      (unsigned long long)vrr.stats.late_max_us,
-                     (unsigned long long)vrr.stats.gap_max_us);
+                     (unsigned long long)vrr.stats.gap_max_us, vrr.source_rate(),
+                     vrr.repeat_factor(), (unsigned long long)vrr.interval());
         }
     } vrr_summary{vrr_repeats};
 
@@ -2557,7 +2560,18 @@ static void *video_present_thread(void *context)
             first_picture = false;
         }
         const bool was_compensating = vrr_repeats.compensating();
-        vrr_repeats.observe_picture(current.pts_us);
+        vrr_repeats.observe_picture(current.pts_us, uint32_t(current.frame));
+        if (native_agc_vrr_active() && (cadence_rate != vrr_repeats.source_rate() ||
+                                        cadence_copies != vrr_repeats.repeat_factor()))
+        {
+            cadence_rate = vrr_repeats.source_rate();
+            cadence_copies = vrr_repeats.repeat_factor();
+            LOGI("Native VRR cadence: source_fps=%u repeat_factor=%u target_refresh_x100=%u "
+                 "interval_us=%llu",
+                 cadence_rate, cadence_copies, vrr_repeats.target_refresh_x100(),
+                 (unsigned long long)vrr_repeats.interval());
+        }
+
         if (native_agc_vrr_active() && was_compensating && !vrr_repeats.compensating())
         {
             stream_pacer.resume(monotonic_us());

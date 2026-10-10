@@ -1,0 +1,100 @@
+<!doctype html>
+<!-- ps5-native-app-boilerplate - ProsperoLight repeatable host motion scene.
+Copyright (C) 2026 BlackBearReloaded
+SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="ru"><meta charset="utf-8"><title>ProsperoLight pacing test</title>
+<style>
+body{margin:0;background:#102030;color:#fff;font:18px system-ui}main{padding:24px;max-width:1000px;margin:auto}label{display:inline-block;margin:8px}input,select,button{font:inherit;padding:8px}button{margin:12px 8px 12px 0}canvas{display:none;width:100vw;height:100vh}body.running main{display:none}body.running canvas{display:block;cursor:none}pre{white-space:pre-wrap}p{line-height:1.5}
+</style>
+<main><h1>Проверка плавности ProsperoLight</h1>
+<p>Откройте эту страницу на транслируемом экране ПК. Она не меняет настройки PS5 или хоста: значения ниже — метки прогона. Выберите такие же настройки в ProsperoLight. Для 120 FPS экран ПК должен обновляться не реже 120 Гц; браузер должен оставаться на переднем плане.</p>
+<label>Кодек <select id="codec"><option>PyroWave</option><option>HEVC</option><option>H.264</option></select></label>
+<label>FPS <input id="fps" type="number" min="30" max="120" step="1" value="45"></label>
+<label>Режим <select id="mode"><option>Paced+VRR</option><option>Paced</option><option>Unpaced</option></select></label>
+<label>HDR <input id="hdr" type="checkbox"></label><label>VSync <input id="vsync" type="checkbox" checked></label>
+<p>90 секунд: разогрев 10 → движение 20 → статика 20 → движение 20 → четыре фазы по 5 секунд. На статике изображение полностью заморожено, включая счётчики. Движение зависит от времени, а не от числа кадров браузера. Это тест вывода, не HDR-калибровка.</p>
+<button id="start">Начать в полном экране</button><button id="save" disabled>Скачать JSON прогона</button>
+<p>Escape завершает прогон. После окончания также нажмите Escape, чтобы выйти из полного экрана. Не переключайте приложения и не открывайте меню PS5 во время теста.</p><pre id="result"></pre>
+</main><canvas id="scene" width="3840" height="2160"></canvas>
+<script>
+'use strict';
+const stages = [
+  {name:'Разогрев',duration:10,motion:true},
+  {name:'Движение A',duration:20,motion:true},
+  {name:'Статика A',duration:20,motion:false},
+  {name:'Движение B',duration:20,motion:true},
+  {name:'Движение C',duration:5,motion:true},
+  {name:'Статика B',duration:5,motion:false},
+  {name:'Движение D',duration:5,motion:true},
+  {name:'Статика C',duration:5,motion:false}
+];
+function phaseAt(seconds) {
+  let start=0;
+  for(let index=0;index<stages.length;index++) {
+    const stage=stages[index];
+    if(seconds<start+stage.duration) return {...stage,index,start};
+    start+=stage.duration;
+  }
+  return null;
+}
+const canvas=document.getElementById('scene'),ctx=canvas.getContext('2d',{alpha:false});
+const pattern=document.createElement('canvas');pattern.width=3840;pattern.height=2160;
+const tiles=pattern.getContext('2d');
+for(let y=0;y<2160;y+=180) for(let x=0;x<3840;x+=192) {
+  tiles.fillStyle=((x/192+y/180)%2)?'#294860':'#426783';
+  tiles.fillRect(x,y,192,180);tiles.strokeStyle='#acd3ea';tiles.strokeRect(x,y,192,180);
+}
+let running=false,began=0,lastPhase=-1,previous=0,report=null;
+function draw(seconds,phase) {
+  const t=phase.motion?seconds:phase.start;
+  const offset=(t*240)%3840;
+  ctx.drawImage(pattern,-offset,0);ctx.drawImage(pattern,3840-offset,0);
+  ctx.fillStyle='#ffdf70';ctx.fillRect((t*960)%4000-160,420,160,1300);
+  ctx.fillStyle='#091420';ctx.fillRect(0,0,3840,300);
+  ctx.fillStyle='white';ctx.font='64px sans-serif';
+  ctx.fillText(phase.name+' | '+report.settings.codec+' '+report.settings.fps+' FPS '+report.settings.mode,80,110);
+  ctx.font='48px sans-serif';
+  ctx.fillText('HDR '+report.settings.hdr+' | VSync '+report.settings.vsync+' | '+(phase.motion?'Движение':'Изображение полностью заморожено'),80,195);
+  if(phase.motion) ctx.fillText('t = '+seconds.toFixed(2)+' s',80,270);
+}
+function finish(aborted) {
+  if(!running) return;
+  running=false;report.aborted=aborted;report.ended_utc=new Date().toISOString();
+  const ordered=report.raf_intervals_ms.slice().sort((a,b)=>a-b);
+  report.browser_refresh_hz=ordered.length?1000/ordered[Math.floor(ordered.length/2)]:0;
+  if(report.browser_refresh_hz<report.settings.fps*.95)
+    report.warnings.push('Частота браузера ниже запрошенных FPS. Этот прогон не подтверждает вывод на полной частоте.');
+  report.warnings.push('Тайминги JSON относятся к браузеру ПК; вывод PS5 проверяется по отдельным логам.');
+  document.body.classList.remove('running');
+  document.getElementById('save').disabled=false;
+  document.getElementById('result').textContent=JSON.stringify({aborted,settings:report.settings,browser_refresh_hz:report.browser_refresh_hz,warnings:report.warnings},null,2);
+}
+function tick(now) {
+  if(!running) return;
+  if(previous&&report.raf_intervals_ms.length<30000) report.raf_intervals_ms.push(now-previous);
+  previous=now;
+  const seconds=(now-began)/1000,phase=phaseAt(seconds);
+  if(!phase) {finish(false);return;}
+  if(phase.index!==lastPhase) {
+    lastPhase=phase.index;report.transitions.push({index:phase.index,name:phase.name,expected_s:phase.start,observed_s:seconds,utc:new Date().toISOString()});
+    draw(seconds,phase);
+  } else if(phase.motion) draw(seconds,phase);
+  requestAnimationFrame(tick);
+}
+async function start() {
+  const fps=Number(document.getElementById('fps').value);
+  if(!Number.isInteger(fps)||fps<30||fps>120) {alert('FPS: целое число от 30 до 120');return;}
+  report={schema:1,started_utc:new Date().toISOString(),user_agent:navigator.userAgent,host_viewport:{width:innerWidth,height:innerHeight,device_pixel_ratio:devicePixelRatio},settings:{codec:document.getElementById('codec').value,fps,mode:document.getElementById('mode').value,hdr:document.getElementById('hdr').checked,vsync:document.getElementById('vsync').checked},stages,transitions:[],raf_intervals_ms:[],warnings:[]};
+  try {await document.documentElement.requestFullscreen();} catch(e) {report.warnings.push('Полный экран недоступен: '+e.message);}
+  document.body.classList.add('running');document.getElementById('save').disabled=true;
+  running=true;began=performance.now();previous=0;lastPhase=-1;requestAnimationFrame(tick);
+}
+document.getElementById('start').onclick=start;
+document.getElementById('save').onclick=()=>{
+  if(!report) return;
+  const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));
+  const link=document.createElement('a');link.href=url;link.download='pacing-'+report.settings.codec+'-'+report.settings.fps+'-'+report.started_utc.replace(/[:.]/g,'-')+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+document.addEventListener('fullscreenchange',()=>{if(running&&!document.fullscreenElement) finish(true);});
+document.addEventListener('visibilitychange',()=>{if(running&&document.hidden) report.warnings.push('Браузер скрывался во время теста');});
+</script></html>

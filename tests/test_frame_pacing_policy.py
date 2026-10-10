@@ -145,11 +145,11 @@ int main() {
     }
     assert(!adaptive.compensating());
     assert(adaptive.interval()==20000);
-    // Threshold jitter retains the previous compensation decision.
+    // The fitted repeat factor cannot depend on the starting rate.
     moonlight::VrrRepeatPolicy boundary;
     boundary.reset(60);
     for(int f=1;f<40;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
-    assert(!boundary.compensating());
+    assert(boundary.compensating());
     boundary.reset(30);
     for(int f=1;f<40;f++) boundary.picture(uint64_t(f)*20500,1000000+uint64_t(f)*20500);
     assert(boundary.compensating());
@@ -301,6 +301,39 @@ int main() {
     for (uint32_t frame=1; frame<601; frame+=(frame%3==1 ? 1 : 2))
         quantized.observe_picture(uint64_t(frame)*4/3*1000000/120, frame);
     assert(quantized.source_rate()>=88 && quantized.source_rate()<=92);
+
+    // Exhaust every Custom FPS, cold start and recovery from a static host.
+    // Both adapters pass original frame numbers to this same policy.
+    for (unsigned rate=30; rate<=120; ++rate) {
+        unsigned expected = rate < 50 ? 2 : 1;
+        for (bool sparse_start : {false,true}) for (bool skipped : {false,true}) {
+            moonlight::VrrRepeatPolicy custom;
+            custom.reset(rate);
+            uint64_t pts=100000;
+            uint32_t frame=1;
+            custom.observe_picture(pts,frame);
+            if (sparse_start)
+                for (int n=0;n<32;++n) {
+                    pts+=62500; custom.observe_picture(pts,++frame);
+                }
+            const auto origin=pts;
+            const auto origin_frame=frame;
+            for (unsigned n=1;n<=rate*2;n+=skipped?2:1) {
+                pts=origin+uint64_t(n)*1000000/rate;
+                custom.observe_picture(pts,origin_frame+n);
+            }
+            assert(custom.source_rate()==rate);
+            assert(custom.repeat_factor()==expected);
+            assert(custom.compensating()==(expected>1));
+            if(expected>1) assert(custom.interval()>=8333 && custom.interval()<=20000);
+        }
+    }
+    // Clock rounding near the 50 FPS boundary must not trigger 2x repetition.
+    moonlight::VrrRepeatPolicy tolerance;
+    tolerance.reset(50);
+    for (uint32_t frame=1;frame<100;++frame)
+        tolerance.observe_picture(uint64_t(frame)*20040,frame);
+    assert(tolerance.repeat_factor()==1);
 
     // Fixed 90 on 120 must alternate 1/1/2 refresh intervals rather than
     // rounding every source frame to two refreshes (the 60 FPS regression).

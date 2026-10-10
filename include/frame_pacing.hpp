@@ -339,14 +339,14 @@ class VrrRepeatPolicy
     {
         *this = VrrRepeatPolicy{};
         period_ = UINT64_C(1000000) / std::max(1u, fps);
-        low_ = period_ > 22000;
         moving_period_ = period_;
+        update_repeat_policy();
     }
     void observe_picture(uint64_t pts, uint32_t frame_number = 0)
     {
         if (!pts || !last_pts_ || pts <= last_pts_ || pts - last_pts_ >= 1000000)
         {
-            samples_ = fast_samples_ = 0;
+            samples_ = fast_samples_ = fast_sum_ = 0;
             candidate_sum_ = candidate_min_ = candidate_max_ = 0;
         }
         else
@@ -358,12 +358,20 @@ class VrrRepeatPolicy
                                         ? uint32_t(frame_number - last_frame_number_)
                                         : 1;
             const uint64_t delta = (pts - last_pts_) / (frames && frames < 120 ? frames : 1);
-            fast_samples_ = delta >= 6000 && delta < 18500 ? fast_samples_ + 1 : 0;
+            if (delta >= 6000 && delta <= kSingleScanoutLimitUs)
+            {
+                ++fast_samples_;
+                fast_sum_ += delta;
+            }
+            else
+                fast_samples_ = fast_sum_ = 0;
             // Motion detection is deliberately separate from rate fitting.
             if (low_ && fast_samples_ >= 3)
             {
-                low_ = gap_ = false;
-                period_ = moving_period_;
+                gap_ = false;
+                period_ = std::clamp<uint64_t>(fast_sum_ / fast_samples_, 8333, 250000);
+                moving_period_ = period_;
+                update_repeat_policy();
                 samples_ = candidate_sum_ = candidate_min_ = candidate_max_ = 0;
             }
             // A mixed static/moving segment is not a new source cadence.
@@ -381,25 +389,20 @@ class VrrRepeatPolicy
             }
             candidate_min_ = std::min(candidate_min_, delta);
             candidate_max_ = std::max(candidate_max_, delta);
-            candidate_sum_ += delta * (frames && frames < 120 ? frames : 1);
+            candidate_sum_ += pts - last_pts_;
             samples_ += frames && frames < 120 ? frames : 1;
             if (samples_ >= 8 && candidate_sum_ >= 200000)
             {
                 period_ = std::clamp<uint64_t>(candidate_sum_ / samples_, 8333, 250000);
-                if (period_ > 22000)
-                    low_ = true;
-                else if (period_ < 18500)
-                {
-                    low_ = false;
+                update_repeat_policy();
+                if (!low_)
                     moving_period_ = period_;
-                }
                 samples_ = candidate_sum_ = candidate_min_ = candidate_max_ = 0;
             }
         }
         last_pts_ = pts;
         last_frame_number_ = frame_number;
-        const uint64_t copies = low_ ? (period_ + 19999) / 20000 : 1;
-        interval_ = low_ ? std::clamp<uint64_t>(period_ / copies, 8333, 20000) : 20000;
+        update_repeat_policy();
     }
     void scanned(uint64_t count, uint64_t observed)
     {
@@ -456,6 +459,14 @@ class VrrRepeatPolicy
     {
         return low_;
     }
+    unsigned repeat_factor() const
+    {
+        return copies_;
+    }
+    unsigned target_refresh_x100() const
+    {
+        return unsigned(UINT64_C(100000000) * copies_ / period_);
+    }
     unsigned source_rate() const
     {
         return static_cast<unsigned>(
@@ -463,6 +474,16 @@ class VrrRepeatPolicy
     }
 
   private:
+    // One decision for initialization, fitted cadence, and sparse recovery.
+    // Target >=50 Hz, with 1% clock tolerance so nominal 50/100 FPS does
+    // not oscillate between repetition factors due to timestamp rounding.
+    static constexpr uint64_t kSingleScanoutLimitUs = 20200;
+    void update_repeat_policy()
+    {
+        copies_ = unsigned((period_ + kSingleScanoutLimitUs - 1) / kSingleScanoutLimitUs);
+        low_ = copies_ > 1;
+        interval_ = low_ ? std::clamp<uint64_t>(period_ / copies_, 8333, 20000) : 20000;
+    }
     void advance(uint64_t submitted)
     {
         // Counter completion authorizes another flip. Its observation time is
@@ -483,10 +504,11 @@ class VrrRepeatPolicy
             next_ = submitted + interval_;
     }
     uint64_t period_{16666}, last_pts_{}, samples_{}, next_{}, interval_{20000};
-    uint64_t scanned_count_{}, scanned_at_{}, submitted_at_{}, fast_samples_{},
+    uint64_t scanned_count_{}, scanned_at_{}, submitted_at_{}, fast_samples_{}, fast_sum_{},
         moving_period_{16666};
     uint64_t candidate_sum_{}, candidate_min_{}, candidate_max_{};
     uint32_t last_frame_number_{};
+    unsigned copies_{1};
     bool low_{}, gap_{};
 };
 
