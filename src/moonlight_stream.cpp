@@ -2237,9 +2237,15 @@ static bool wait_presentation_deadline(native_renderer_state_t *state,
     const bool fixed =
         native_agc_vsync_active() && (stream_presentation_mode == 1 || !native_agc_vrr_active());
     const uint64_t started = monotonic_us();
+    // The latest ready successor can justify catching up within VideoOut's
+    // refresh ceiling. Never accelerate a lone frame or an idle watchdog.
+    pthread_mutex_lock(&state->lock);
+    const bool successor_queued = state->mailbox.full;
+    pthread_mutex_unlock(&state->lock);
+    const uint64_t queue_age_us = started > item.ready_us ? started - item.ready_us : 0;
     const uint64_t deadline =
         native_agc_vrr_active()
-            ? vrr.picture_target(started)
+            ? vrr.picture_target(started, successor_queued, queue_age_us)
             : stream_pacer.target(
                   item.frame, item.pts_us, started, fixed ? refresh : 0,
                   fixed ? state->last_present_us : 0, fixed ? 0 : refresh,
@@ -2425,6 +2431,9 @@ static void *video_present_thread(void *context)
     } decision_lifetime(state, &decisions);
     moonlight::VrrRepeatPolicy vrr_repeats;
     vrr_repeats.reset(state->stream_fps);
+    uint32_t vrr_width = 0, vrr_height = 0, vrr_refresh = 0;
+    native_agc_output_status(&vrr_width, &vrr_height, &vrr_refresh);
+    vrr_repeats.configure(moonlight::vrr_profile(), vrr_refresh);
     unsigned cadence_rate = state->stream_fps, cadence_copies = vrr_repeats.repeat_factor();
     struct VrrSummary
     {
@@ -2434,13 +2443,15 @@ static void *video_present_thread(void *context)
             if (native_agc_vrr_active())
                 LOGI("Native VRR scheduler: period_us=%llu pictures=%llu repeats=%llu wait_us=%llu "
                      "late_max_us=%llu submission_gap_max_us=%llu source_fps=%u repeat_factor=%u "
-                     "interval_us=%llu",
+                     "interval_us=%llu profile=%u vrr_reserve_us=%llu feedback_misses=%llu",
                      (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
                      (unsigned long long)vrr.stats.repeats,
                      (unsigned long long)vrr.stats.wait_total_us,
                      (unsigned long long)vrr.stats.late_max_us,
                      (unsigned long long)vrr.stats.gap_max_us, vrr.source_rate(),
-                     vrr.repeat_factor(), (unsigned long long)vrr.interval());
+                     vrr.repeat_factor(), (unsigned long long)vrr.interval(),
+                     moonlight::vrr_profile(), (unsigned long long)vrr.playout_reserve_us(),
+                     (unsigned long long)vrr.feedback_misses());
         }
     } vrr_summary{vrr_repeats};
 
@@ -2465,6 +2476,11 @@ static void *video_present_thread(void *context)
             }
             flip_pending = false;
             last_scanout_us = monotonic_us();
+            // Learn only after the unique flip is reported complete by
+            // VideoOut. Observation time is not a physical HDMI timestamp.
+            vrr_repeats.observe_output_feedback(uint32_t(current.frame), current.pts_us,
+                                                current.ready_us, last_scanout_us,
+                                                native_agc_vrr_active());
             uint64_t count = 0, argument = 0;
             if (native_agc_scanout_counter(&count, &argument) == 0)
             {
@@ -2489,6 +2505,10 @@ static void *video_present_thread(void *context)
             const uint64_t repeat_deadline = repeat_retry.deadline(vrr_repeats.idle_deadline());
             if (now >= repeat_deadline)
             {
+                // Decode can publish during the timed wait. A fresh picture
+                // always beats an optional LFC duplicate.
+                if (state->mailbox.full)
+                    break;
                 pthread_mutex_unlock(&state->lock);
                 const uint64_t repeat_submitted = monotonic_us();
                 const int result = native_agc_repeat_frame();
@@ -2570,6 +2590,7 @@ static void *video_present_thread(void *context)
         }
         const bool was_compensating = vrr_repeats.compensating();
         vrr_repeats.observe_picture(current.pts_us, uint32_t(current.frame));
+        vrr_repeats.observe_readiness(current.pts_us, current.ready_us, uint32_t(current.frame));
         if (native_agc_vrr_active() && (cadence_rate != vrr_repeats.source_rate() ||
                                         cadence_copies != vrr_repeats.repeat_factor()))
         {

@@ -1,6 +1,7 @@
 #include "app_storage.hpp"
 #include "frame_cadence.hpp"
 #include "frame_pacing.hpp"
+#include "ps5_pacing_feedback.hpp"
 #include "scanout_trace.hpp"
 #include "pacing_decision_trace.hpp"
 #include "lan_http_report.hpp"
@@ -61,6 +62,13 @@ std::unique_ptr<Session> session;
 void (*error_callback)(int) = nullptr;
 std::atomic<uint64_t> presented_count{0};
 std::atomic<bool> hdr_active{false}, hdr_known{false}, requested_hdr{false};
+// moonlight-common-c queries this on its UDP receiver, not the renderer.
+// A single atomic deadline snapshot prevents lock inversion with the queue.
+moonlight::Ps5ReceiveDeadline receive_deadline;
+uint64_t pyrowave_receive_deadline(uint32_t rtp)
+{
+    return receive_deadline.lookup(rtp, LiGetMicroseconds());
+}
 bool selected_vsync = true, selected_tv_safe = true;
 std::mutex error_mutex;
 char last_error[192]{};
@@ -114,11 +122,14 @@ struct OutputTrace
             log_line(
                 "PyroWave VRR scheduler: period_us=%llu pictures=%llu repeats=%llu "
                 "wait_us=%llu late_max_us=%llu submission_gap_max_us=%llu source_fps=%u "
-                "repeat_factor=%u interval_us=%llu",
+                "repeat_factor=%u interval_us=%llu profile=%u vrr_reserve_us=%llu "
+                "feedback_misses=%llu",
                 (unsigned long long)vrr.period(), (unsigned long long)vrr.stats.pictures,
                 (unsigned long long)vrr.stats.repeats, (unsigned long long)vrr.stats.wait_total_us,
                 (unsigned long long)vrr.stats.late_max_us, (unsigned long long)vrr.stats.gap_max_us,
-                vrr.source_rate(), vrr.repeat_factor(), (unsigned long long)vrr.interval());
+                vrr.source_rate(), vrr.repeat_factor(), (unsigned long long)vrr.interval(),
+                moonlight::vrr_profile(), (unsigned long long)vrr.playout_reserve_us(),
+                (unsigned long long)vrr.feedback_misses());
         else
             log_line("PyroWave pacing result: mode=%u period_us=%llu reserve_us=%llu "
                      "submissions=%llu "
@@ -166,6 +177,11 @@ struct PacingWait
     uint64_t ready_us{}, submit_us{};
     moonlight::VrrRepeatPolicy *vrr{};
     uint64_t previous_request{};
+    bool successor_queued{};
+    uint64_t frame_queue_age_us{};
+    uint64_t frame_queued_us{};
+    uint64_t frame_dequeued_us{};
+    moonlight::Ps5ReadinessEstimator *readiness{};
     bool repeat{};
     uint64_t minimum_deadline{};
 };
@@ -176,10 +192,29 @@ void wait_prepared_frame(void *context)
     auto &s = *wait.session;
     const uint64_t started = now_us();
     wait.ready_us = started;
+    // Paced modes observe GPU-prepared service. Unpaced does not wait for
+    // this fence, so its callback is not readiness evidence.
+    if (wait.mode != 0 && !wait.repeat && wait.readiness && wait.frame_dequeued_us)
+        wait.readiness->observe(wait.frame_dequeued_us, started);
     if (wait.mode == 0)
     {
         wait.submit_us = started;
         return;
+    }
+    if (!wait.repeat && ps5_vrr_output_active())
+    {
+        // GPU prepared fence has completed; this is true presentation
+        // readiness. Decoder ingress/packet arrival is not GPU readiness.
+        wait.vrr->observe_readiness(wait.frame->presentation_us, started,
+                                    uint32_t(wait.frame->number));
+        // Capture freshly queued successors at the actual decision point,
+        // rather than using the queue snapshot before GPU preparation.
+        {
+            std::lock_guard<std::mutex> lock(s.mutex);
+            wait.successor_queued = !s.queue.empty();
+        }
+        if (wait.frame_queued_us && started > wait.frame_queued_us)
+            wait.frame_queue_age_us = started - wait.frame_queued_us;
     }
     const uint64_t display_period = wait.refresh ? UINT64_C(100000000) / wait.refresh : 0;
     const uint64_t nominal = wait.pacer->stats.period_us;
@@ -222,11 +257,28 @@ void wait_prepared_frame(void *context)
     // repeat and create an additional 30-50 ms transition gap.
     const uint64_t pacing_deadline =
         ps5_vrr_output_active()
-            ? wait.vrr->picture_target(now_us())
-            : wait.pacer->target(wait.frame->number, wait.frame->presentation_us, started,
-                                 selected_vsync ? wait.refresh : 0,
-                                 fractional_fixed ? flip_anchor : 0);
+            ? (wait.repeat ? wait.minimum_deadline
+                           : wait.vrr->picture_target(now_us(), wait.successor_queued,
+                                                      wait.frame_queue_age_us))
+            : wait.pacer->target(
+                  wait.frame->number, wait.frame->presentation_us, started,
+                  selected_vsync ? wait.refresh : 0, fractional_fixed ? flip_anchor : 0, 0,
+                  // Fixed HFR: learn a bounded renderer lead
+                  // rather than always assuming exactly 1 ms.
+                  wait.readiness
+                      ? std::clamp<uint64_t>(wait.readiness->percentile_us() / 4, 250, 2000)
+                      : 1000);
     const uint64_t deadline = std::max(pacing_deadline, wait.minimum_deadline);
+    if (!wait.repeat && wait.frame && wait.readiness)
+    {
+        // Convert the PS5 CLOCK_MONOTONIC target to LiGetMicroseconds time
+        // right here. The existing patched common-c callback will only
+        // shorten an already incomplete *noncritical* PyroWave frame.
+        const uint64_t sampled_mono = now_us();
+        const uint64_t sampled_li = LiGetMicroseconds();
+        receive_deadline.publish(wait.frame->rtp_timestamp, deadline, sampled_mono, sampled_li,
+                                 wait.readiness->percentile_us(), true);
+    }
     s.decisions.record(wait.frame->number, wait.frame->presentation_us, now_us(), deadline,
                        wait.repeat ? "repeat-target" : "target");
     std::unique_lock<std::mutex> lock(s.mutex);
@@ -273,6 +325,9 @@ void *worker(void *)
     const bool paced = mode != 0;
     moonlight::VrrRepeatPolicy vrr_repeats;
     vrr_repeats.reset(s.fps);
+    vrr_repeats.configure(moonlight::vrr_profile(), refresh);
+    moonlight::VrrPreparationLead preparation_lead;
+    moonlight::Ps5ReadinessEstimator readiness;
     unsigned cadence_rate = s.fps, cadence_copies = vrr_repeats.repeat_factor();
     OutputTrace trace(pacer, vrr_repeats, mode, s.fps);
     ScanoutTrace scanout_trace("pyrowave", mode);
@@ -291,6 +346,15 @@ void *worker(void *)
     uint64_t stall_count = 0, last_stall_log = 0;
     uint64_t last_scanout_us = 0, last_picture_us = 0, repeated = 0;
     uint64_t last_observed_picture = 0;
+    // Hold at most one unique frame for confirmed-flip feedback. If several
+    // frames arrive before a poll, skip evidence instead of assigning a
+    // wrong display time to earlier pictures.
+    struct PendingFeedback
+    {
+        bool valid{};
+        uint32_t number{};
+        uint64_t pts{}, ready{}, requested_argument{};
+    } pending_feedback;
     bool repeating = false;
     moonlight::RepeatRetryPolicy repeat_retry;
     uint64_t skipped_repeats = 0;
@@ -338,8 +402,11 @@ void *worker(void *)
                     const uint64_t current = now_us();
                     // Prepare retained planes before their display slot, just like a
                     // fresh picture. GPU preparation must not shift repeat flips.
+                    const uint64_t lead =
+                        std::max<uint64_t>(preparation_lead.lead_us(),
+                                           std::min<uint64_t>(6000, readiness.percentile_us() / 2));
                     const uint64_t prepare_deadline =
-                        repeat_deadline > 1000 ? repeat_deadline - 1000 : repeat_deadline;
+                        repeat_deadline > lead ? repeat_deadline - lead : repeat_deadline;
                     if (current < prepare_deadline)
                     {
                         s.wake.wait_for(lock, std::chrono::microseconds(prepare_deadline - current),
@@ -355,6 +422,7 @@ void *worker(void *)
                     repeat_wait.minimum_deadline = repeat_deadline;
                     repeat_wait.vrr = &vrr_repeats;
                     repeat_wait.previous_request = s.backend->requested();
+                    repeat_wait.readiness = &readiness;
                     const auto repeated_timing =
                         s.backend->present(wait_prepared_frame, &repeat_wait, true, true);
                     if (repeated_timing.repeat_skipped)
@@ -369,6 +437,11 @@ void *worker(void *)
                         lock.lock();
                         continue;
                     }
+                    preparation_lead.observe(uint64_t(
+                        std::max(0.0, repeated_timing.acquire_ms + repeated_timing.record_ms +
+                                          repeated_timing.submit_ms +
+                                          repeated_timing.prepared_wait_ms) *
+                        1000));
                     repeat_retry.succeeded();
                     repeat_argument = s.backend->requested();
                     last_scanout_us = now_us();
@@ -420,6 +493,28 @@ void *worker(void *)
             }
 
             const uint64_t dequeued = now_us();
+            // Unpaced never waits for a stale image when an actual successor
+            // arrived after the first latest-picture selection. Skip work
+            // before PyroWave parsing/GPU submission, not after acquiring WSI.
+            if (!paced)
+            {
+                std::lock_guard<std::mutex> lock(s.mutex);
+                if (!s.queue.empty())
+                {
+                    ++s.stale;
+                    s.decisions.record(frame.number, frame.rtp_timestamp, now_us(), 0,
+                                       "drop-unpaced-superseded");
+                    continue;
+                }
+            }
+            // A successor is a real queued picture, not an inferred future tick.
+            bool successor_queued = false;
+            {
+                std::lock_guard<std::mutex> lock(s.mutex);
+                successor_queued = !s.queue.empty();
+            }
+            const uint64_t frame_queue_age_us =
+                dequeued > frame.queued_us ? dequeued - frame.queued_us : 0;
             s.decisions.record(frame.number, frame.rtp_timestamp, dequeued, 0, "dequeue");
             frame.presentation_us = source_clock.update(frame.rtp_timestamp, frame.presentation_us);
             PyroWaveFraming::Frame parsed;
@@ -441,6 +536,8 @@ void *worker(void *)
             s.backend->update_hud(nullptr, native_agc_hud_enabled() != 0);
             const bool was_compensating = vrr_repeats.compensating();
             vrr_repeats.observe_picture(frame.presentation_us, uint32_t(frame.number));
+            // Readiness is recorded after GPU preparation in
+            // wait_prepared_frame(), not at network queue insertion.
             if (ps5_vrr_output_active() && was_compensating && !vrr_repeats.compensating())
             {
                 pacer.resume(now_us());
@@ -459,16 +556,28 @@ void *worker(void *)
             }
             PacingWait wait{&s, &pacer, &frame, mode, refresh};
             wait.vrr = &vrr_repeats;
+            wait.successor_queued = successor_queued;
+            wait.frame_queue_age_us = frame_queue_age_us;
+            wait.frame_queued_us = frame.queued_us;
+            wait.frame_dequeued_us = dequeued;
+            wait.readiness = &readiness;
             wait.previous_request = s.backend->requested();
             const uint64_t preparation_started = now_us();
             auto timing = s.backend->present(wait_prepared_frame, &wait, paced);
+            preparation_lead.observe(
+                uint64_t(std::max(0.0, timing.acquire_ms + timing.record_ms + timing.submit_ms +
+                                           timing.prepared_wait_ms) *
+                         1000));
             const uint64_t finished = now_us();
             last_scanout_us = finished;
             repeating = repeating && last_picture_us &&
                         finished - last_picture_us > UINT64_C(1500000) / s.fps;
             last_picture_us = finished;
             repeat_retry.succeeded();
-            vrr_repeats.presented(wait.submit_us ? wait.submit_us : finished);
+            const uint64_t actual_submit = wait.submit_us ? wait.submit_us : finished;
+            vrr_repeats.presented(actual_submit);
+            pending_feedback = {true, uint32_t(frame.number), frame.presentation_us, wait.ready_us,
+                                s.backend->requested()};
             if (finished - preparation_started > 50000 || preparation_started - dequeued > 50000)
             {
                 ++stall_count;
@@ -493,8 +602,17 @@ void *worker(void *)
             ++samples;
             counters = ps5_presentation_stats();
             if (counters.available)
+            {
                 scanout_trace.observe(counters.flip_count, counters.shown, now_us(),
                                       counters.shown == repeat_argument);
+                if (pending_feedback.valid && counters.shown == pending_feedback.requested_argument)
+                {
+                    vrr_repeats.observe_output_feedback(
+                        pending_feedback.number, pending_feedback.pts, pending_feedback.ready,
+                        now_us(), ps5_vrr_output_active());
+                    pending_feedback.valid = false;
+                }
+            }
             if (!counters.available)
             {
                 record_error("VideoOut presentation counters unavailable");
@@ -646,6 +764,7 @@ void start()
 {
     if (!session)
         return;
+    receive_deadline.clear();
     session->running = true;
     int result = pthread_create(&session->worker, nullptr, worker, nullptr);
     session->started = result == 0;
@@ -661,6 +780,7 @@ void stop()
         session->running = false;
         session->queue.clear();
     }
+    receive_deadline.clear();
     session->wake.notify_all();
     if (session->started)
     {
@@ -768,6 +888,11 @@ void prepare_callbacks(void (*on_error)(int), bool vsync, bool tv_safe)
     hdr_active = false;
     error_callback = on_error;
     presented_count = 0;
+    receive_deadline.clear();
+    // The patched moonlight-common-c callback is registered before
+    // LiStartConnection(). Unpaced explicitly disables deadline pressure.
+    LiSetVideoReassemblyDeadlineCallback(
+        moonlight::presentation_mode() == 0 ? nullptr : pyrowave_receive_deadline);
     video_callbacks = {};
     video_callbacks.setup = setup;
     video_callbacks.start = start;

@@ -136,6 +136,64 @@ int main() {
     assert(retry.failures()<=7);
     retry.succeeded();
     assert(retry.failures()==0 && retry.deadline(0)==0);
+    // 119.88 Hz output floor; cap genuine fresh frames without a fictitious
+    // 120.00 Hz capability. LFC leaves deadline headroom for delayed frames.
+    moonlight::VrrRepeatPolicy hfr;
+    hfr.reset(120);
+    hfr.configure(1,11988);
+    assert(hfr.display_floor_us()>=8342);
+    hfr.presented(1000000);
+    assert(hfr.picture_target(1001000)>=1000000+hfr.display_floor_us());
+    for(unsigned fps : {16u,20u,30u,35u,40u,50u,51u}) {
+        moonlight::VrrRepeatPolicy lfc;
+        lfc.reset(fps);
+        lfc.configure(1,11988);
+        assert(lfc.compensating());
+        assert(lfc.interval()>=lfc.display_floor_us());
+        assert(lfc.interval()<=16000);
+        lfc.presented(1000000);
+        auto last=uint64_t(1000000);
+        // Until the next source picture arrives, a repeat must not violate
+        // the watchdog, nor send faster than the VideoOut 119.88 Hz floor.
+        for(unsigned i=0;i<lfc.repeat_factor()+1;i++) {
+            auto due=lfc.idle_deadline();
+            assert(due>=last+lfc.display_floor_us());
+            assert(due<=last+16000 || due==lfc.deadline());
+            lfc.repeated(due);
+            last=due;
+        }
+    }
+    moonlight::VrrRepeatPolicy slow;
+    slow.reset(30);
+    slow.configure(1,11988);
+    assert(slow.repeat_factor()==3); // 30 -> 90: room for a genuine 33 ms frame
+    slow.presented(1000000);
+    slow.repeated(slow.idle_deadline());
+    slow.repeated(slow.idle_deadline());
+    assert(slow.idle_deadline()>=1033333);
+    moonlight::VrrRepeatPolicy catchup;
+    catchup.reset(60);
+    catchup.configure(0,11988);
+    catchup.presented(1000000);
+    const auto ordinary=catchup.picture_target(1005000);
+    const auto recovery=catchup.picture_target(1005000,true,40000);
+    assert(recovery<ordinary && recovery>=1005000);
+    moonlight::VrrReadinessReserve readiness;
+    readiness.configure(1);
+    for(uint32_t i=1;i<70;i++) {
+        const uint64_t pt=uint64_t(i)*16666;
+        const uint64_t ready=pt+(i%3==0?3500:0);
+        readiness.observe(pt,ready,i);
+    }
+    assert(readiness.reserve_us()<=8000);
+    readiness.configure(0);
+    assert(readiness.reserve_us()==0);
+    moonlight::VrrPreparationLead lead;
+    assert(lead.lead_us()==1000);
+    lead.observe(3600);
+    assert(lead.lead_us()==4100);
+    for(int i=0;i<32;i++) lead.observe(400);
+    assert(lead.lead_us()==1000);
     // VRR: capture/arrival jitter around normal 60/120 FPS must not
     // schedule a duplicate ahead of the next real picture.
     for(unsigned rate: {60u,120u}) {
@@ -150,7 +208,7 @@ int main() {
             assert(!v.compensating());
         }
     }
-    // Sparse 16 FPS enters integral 4x compensation, then recovers to
+    // Sparse 16 FPS enters integral 5x compensation, then recovers to
     // normal 60 FPS after a source-cadence window. No catch-up bursts.
     moonlight::VrrRepeatPolicy adaptive;
     adaptive.reset(60);
@@ -160,12 +218,12 @@ int main() {
         adaptive.picture(pts,1000000+pts);
     }
     assert(adaptive.compensating());
-    assert(adaptive.interval()==15625);
-    assert(adaptive.source_rate()==16 && adaptive.repeat_factor()==4);
-    assert(adaptive.target_refresh_x100()==6400);
+    assert(adaptive.interval()>=8342 && adaptive.interval()<=16000);
+    assert(adaptive.source_rate()==16 && adaptive.repeat_factor()==5);
+    assert(adaptive.target_refresh_x100()==8000);
     const auto first_repeat=adaptive.deadline();
     adaptive.repeated(first_repeat+200);
-    assert(adaptive.deadline()==first_repeat+15625);
+    assert(adaptive.deadline()==first_repeat+adaptive.interval());
     adaptive.repeated(first_repeat+1000000);
     assert(adaptive.deadline()>first_repeat+1000000);
     for(int f=0;f<24;f++) {
@@ -254,7 +312,7 @@ int main() {
     mixed.presented(1000000);
     mixed.scanned(1,1000000);
     auto moving_target=mixed.picture_target(1000100);
-    assert(moving_target==1008333);
+    assert(moving_target==1000000+mixed.display_floor_us());
     mixed.presented(moving_target);
     // Real stable rate changes still fit after a homogeneous source window.
     for(int f=0;f<30;f++) {
@@ -273,11 +331,11 @@ int main() {
         const uint64_t completed=submitted+1200;
         polled.scanned(f,completed);
         const auto target=polled.picture_target(completed);
-        assert(target==submitted+8333);
+        assert(target==submitted+polled.display_floor_us());
         submitted=target;
         polled.presented(submitted);
     }
-    assert(submitted==1999960);
+    assert(submitted==1000000+120*polled.display_floor_us());
     // Reproduce frame 813: a repeat submitted at zero is detected only
     // ~10 ms later, but the ready picture must use the original 16 ms slot.
     moonlight::VrrRepeatPolicy late_repeat;
@@ -334,7 +392,7 @@ int main() {
     // Exhaust every Custom FPS, cold start and recovery from a static host.
     // Both adapters pass original frame numbers to this same policy.
     for (unsigned rate=30; rate<=120; ++rate) {
-        unsigned expected = rate < 60 ? 2 : 1;
+        unsigned expected = rate < 38 ? 3 : rate < 60 ? 2 : 1;
         for (bool sparse_start : {false,true}) for (bool skipped : {false,true}) {
             moonlight::VrrRepeatPolicy custom;
             custom.reset(rate);
@@ -387,8 +445,8 @@ int main() {
         // Real sparse capture must still lower the estimated source rate.
         for (int n=0;n<40;++n) {pts+=62500;spikes.observe_picture(pts,frame++);}
         assert(spikes.source_rate()==16);
-        assert(spikes.repeat_factor()==4);
-        assert(spikes.target_refresh_x100()==6400);
+        assert(spikes.repeat_factor()==5);
+        assert(spikes.target_refresh_x100()==8000);
         for (int n=0;n<3;++n) {pts+=1000000/rate;spikes.observe_picture(pts,frame++);}
         assert(spikes.source_rate()==rate);
         assert(spikes.repeat_factor()==(rate<60?2u:1u));
@@ -402,11 +460,11 @@ int main() {
         adaptive_grid.observe_picture(pts,frame++);
         for(int cycle=0;cycle<4;++cycle) {
             for(int n=0;n<40;++n) {pts+=62500;adaptive_grid.observe_picture(pts,frame++);}
-            assert(adaptive_grid.interval()==15625);
-            assert(adaptive_grid.target_refresh_x100()==6400);
+            assert(adaptive_grid.interval()==12500);
+            assert(adaptive_grid.target_refresh_x100()==8000);
             for(int n=0;n<80;++n) {pts+=1000000/rate;adaptive_grid.observe_picture(pts,frame++);}
             assert(adaptive_grid.source_rate()==rate);
-            assert(adaptive_grid.repeat_factor()==(rate<60?2u:1u));
+            assert(adaptive_grid.repeat_factor()==(rate<38?3u:rate<60?2u:1u));
         }
     }
     // Low-rate motion also recovers from a sparse desktop in three intervals.
@@ -418,7 +476,7 @@ int main() {
         for (int n=0;n<32;++n) { pts+=62500; recovery.observe_picture(pts,frame++); }
         for (int n=0;n<3;++n) { pts+=1000000/rate; recovery.observe_picture(pts,frame++); }
         assert(recovery.source_rate()==rate);
-        assert(recovery.repeat_factor()==2);
+        assert(recovery.repeat_factor()==(rate<38?3u:2u));
     }
     // Low-rate motion uses integral duplication, with headroom before each
     // fresh picture; there is no 20 ms single-scanout watchdog race at 50/51.

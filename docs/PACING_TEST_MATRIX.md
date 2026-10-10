@@ -41,6 +41,76 @@ Start with **A49, A50, A51 for all three codecs**: nine runs, about 14 minutes p
 
 Use fixed bitrates throughout: 1080p PyroWave **200 Mbps**, HEVC/H.264 **20 Mbps**; 4K PyroWave **500 Mbps**, HEVC **80 Mbps**. These are test conditions, not general quality recommendations. Avoid H.264 4K120 in the primary pacing matrix: its known decoder load can obscure presentation problems. Test it separately if investigating decoder performance.
 
+## PS5 predictive readiness and receive-deadline feedback (v3)
+
+v3 reuses the existing PyroWave-only moonlight-common-c extension
+`LiSetVideoReassemblyDeadlineCallback`. The renderer publishes a bounded
+source-RTP-to-LiGetMicroseconds deadline, subtracting learned p95 dequeue-to-
+GPU-prepared service. The receiver reads one atomic snapshot; no locks, queue
+access or allocations. Unknown, stale, unpaced, or discontinuous RTP periods
+return 0, so the original 1ms packet-silence rule stays in force. The existing
+common-c patch still requires the final packet plus all critical data and never
+permits synthesizing missing H.264/HEVC reference chains. This is a targeted
+late-partial-frame path, NOT permission to drop packets on a clean wired LAN.
+
+For variable output, only consecutive unique frames with *both* delayed
+readiness and delayed presentation supply additional spacing-based reserve.
+Host/game FPS changes, retained LFC frames, and fixed-VSync wait cannot train
+this model. Feedback attack is 250us per qualifying sample after three
+consecutive misses; release is 40us per clean sample. Effective VRR reserve is
+the max of source/readiness learning and attributable output feedback, clamped
+to the configured Low Latency/Balanced/Smooth ceiling. Renderer readiness
+p95 also informs fractional fixed HFR submissions without adding VRR playout
+buffer to Paced. Unpaced retains zero intentional wait and discards a frame
+that was overtaken in the PyroWave queue before GPU ingest.
+
+Regression: 4K120, 90/120 fixed Paced, 50/51 LFC, low FPS static,
+late partial PyroWave blocks, 30min stable wired LAN, controlled UDP jitter,
+VRR enabled/disabled and delayed GPU decode. Verify critical detail remains
+intact; a premature partial-frame release is worse than 1 ms latency.
+
+## Source-clock smoothing and PS5-specific GPU feedback
+
+The second-phase PS5 adaptation derives VRR target time from **source PTS
+increments mapped onto a local monotonic clock**, not `ready_us + reserve`.
+A small phase tracker corrects sustained clock drift but refuses to learn an
+isolated late frame as a new timeline. This is closer to Nonary's source-clock
+playout architecture and actually smooths early arrivals, rather than adding
+constant latency to every picture. GPU readiness for PyroWave is measured
+only in the post-fence pre-Present callback; packet arrival cannot be used as
+that measurement. LFC and fixed Paced paths retain their scanout ceilings.
+
+The PyroWave timing worker also rechecks queued successors at the actual
+presentation decision instead of relying on the earlier dequeue snapshot.
+For retained images its preparation lead now tracks a bounded p90 instead of
+letting one outlier demand 6ms for the next 32 frames. These changes are
+host-tested; true HDMI jitter, GPU scanout and PS5 system release transitions
+still require the manual PS5 matrix below.
+
+## New PS5 VRR timing profiles and arbitration
+
+Paced+VRR exposes **Low Latency / Balanced (default) / Smooth**. The profile
+is stored independently of the existing presentation mode and only affects
+active VRR; Unpaced and fixed-refresh Paced remain unchanged. It controls
+readiness-jitter reserve and first-repeat arbitration grace, not the source
+capture FPS or HDR/HFR mode. Reserve grows gradually only after repeated
+positive source-to-ready jitter; it decays as the signal stabilizes.
+
+The scheduler limits fresh submissions to the selected ~119.88 Hz VideoOut
+ceiling and uses controlled catch-up only when an actual newer picture is
+queued. For LFC, a small extra repeat factor is permitted so the last
+watchdog repeat does not collide with the predicted unique frame: e.g.
+30 FPS may use 90 Hz rather than 60 Hz, sparse 16 FPS may use ~80 Hz. The
+first duplicate near the predicted next frame is delayed within a 16 ms
+watchdog. Each frame still contains the same image until the host sends a
+new one; this is **not interpolation**.
+
+Test with 30/35/40/50/51/60/90/120 FPS, especially new unique frames
+0.3-3 ms late after an LFC interval. Compare `repeat`, `repeat-skipped`,
+`target` and flip-count traces. Run PyroWave and native decode, all profiles,
+TV VRR on/off, 4K HDR and long static desktop. The Linux host tests do not
+replace testing real HDMI VRR transitions on PS5 firmware 6.02/13.60.
+
 ## Expected results
 
 Outside low-rate compensation, the first idle VRR repeat waits for the next source interval plus 1.5 ms,
@@ -50,7 +120,7 @@ source-derived interval. Temporary VideoOut and Vulkan acquire
 errors retry with capped backoff (5-250 ms) even if the host is static.
 Verify recovery without moving the mouse to trigger a fresh capture frame.
 
-With successful variable output, a **stable incoming source** of 30–59 FPS uses two scanouts per source picture (30→60, 40→80, 45→90, 48→96, 49→98, 50→100, 51→102 Hz). 60–120 FPS uses one. A 1% timestamp tolerance prevents nominal 60 FPS drifting to 2× due to clock rounding. At sparse ~16 FPS desktop capture the factor can rise to four (~64 Hz). These are scheduler targets, not guarantees of the TV's reported frequency.
+With successful variable output, **30–59 FPS uses integral LFC repetition** when necessary (30→90, 40→80, 45→90, 48→96, 49→98, 50→100, 51→102 Hz are representative examples). 60–120 FPS uses one source presentation whenever possible. A 1% timestamp tolerance prevents nominal 60 FPS drifting to 2× due to clock rounding. At sparse ~16 FPS desktop capture the factor can rise to four (~64 Hz). These are scheduler targets, not guarantees of the TV's reported frequency.
 
 Initialization and static→motion recovery must converge to the same rate/factor. Allow the short cadence-learning window; there must be no persistent 60 FPS ceiling when input is 90/120, no large sustained stale growth in steady motion, no crash/hang, and no visible transition flicker. Source frames are repeated, not interpolated.
 

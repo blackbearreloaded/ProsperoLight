@@ -87,6 +87,7 @@ enum FormId
     kCores,
     kChroma,
     kPacing,
+    kVrrTiming,
     kLogging,
     kDebugLog,
     kUiSound,
@@ -520,6 +521,10 @@ void View::build()
         .add_choice(kPacing, i18n::tr("Frame pacing"),
                     {i18n::tr("Unpaced"), i18n::tr("Paced"), i18n::tr("Paced+VRR")}, 0)
         .description = i18n::tr("Smooth frame timing; VRR uses fixed refresh if unavailable.");
+    form_
+        .add_choice(kVrrTiming, i18n::tr("VRR timing"),
+                    {i18n::tr("Low Latency"), i18n::tr("Balanced"), i18n::tr("Smooth")}, 1)
+        .description = i18n::tr("VRR only: latency or smoothness.");
     form_.add_header(i18n::tr("Decoder"));
     form_
         .add_choice(kPipeline, i18n::tr("Pipeline"),
@@ -937,6 +942,8 @@ void View::sync_settings_from_config()
                      static_cast<float>(config.bitrate_mbps));
     form_.set_slider(kBitrate, static_cast<float>(config.bitrate_mbps));
     form_.set_choice(kPacing, static_cast<int>(moonlight::presentation_mode()));
+    form_.set_choice(kVrrTiming, static_cast<int>(moonlight::vrr_profile()));
+    form_.row(kVrrTiming)->disabled = moonlight::presentation_mode() != 2;
     form_.set_toggle(kLogging, prosperolight_logs_enabled() != 0);
     form_.set_toggle(kDebugLog, prosperolight_debug_enabled() == 1);
     form_.set_toggle(kUiSound, prosperolight::ui_sound_enabled());
@@ -1039,6 +1046,12 @@ void View::apply_setting(int id)
     case kPacing:
         if (!moonlight::save_presentation_mode(static_cast<unsigned>(form_.choice_index(kPacing))))
             toasts_.push(ui::StatusKind::danger, i18n::tr("Could not save frame pacing"),
+                         i18n::tr("Try again."));
+        sync_settings_from_config();
+        return;
+    case kVrrTiming:
+        if (!moonlight::save_vrr_profile(static_cast<unsigned>(form_.choice_index(kVrrTiming))))
+            toasts_.push(ui::StatusKind::danger, i18n::tr("Could not save VRR timing"),
                          i18n::tr("Try again."));
         sync_settings_from_config();
         return;

@@ -5,7 +5,11 @@
  */
 #pragma once
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include "ps5_vrr_timeline.hpp"
+#include "ps5_pacing_feedback.hpp"
 
 namespace moonlight
 {
@@ -345,6 +349,111 @@ class RepeatRetryPolicy
     unsigned failures_{};
 };
 
+// A PS5-bounded readiness model. Unlike adding a fixed queue delay, this
+// reserves time only when source-to-ready intervals show recurring positive
+// jitter. The buffer gradually decays when delivery becomes stable. This is
+// intentionally simpler than Nonary's full OS-dependent feedback controller.
+class VrrReadinessReserve
+{
+  public:
+    void configure(unsigned profile)
+    {
+        *this = VrrReadinessReserve{};
+        profile_ = std::min(profile, 2u);
+        cap_ = profile_ == 0 ? 0u : profile_ == 1 ? 8000u : 16000u;
+    }
+    void observe(uint64_t pts, uint64_t ready, uint32_t frame_number)
+    {
+        if (!pts || !ready)
+            return;
+        if (last_pts_ && last_ready_ && pts > last_pts_ && ready >= last_ready_ &&
+            (!frame_number || !last_frame_number_ || frame_number == last_frame_number_ + 1u))
+        {
+            const uint64_t source_delta = pts - last_pts_;
+            const uint64_t ready_delta = ready - last_ready_;
+            if (source_delta >= 6000 && source_delta <= 50000 && ready_delta <= 100000)
+            {
+                const uint64_t late = ready_delta > source_delta ? ready_delta - source_delta : 0;
+                samples_[next_] = std::min<uint64_t>(late, 16000);
+                next_ = (next_ + 1u) % samples_.size();
+                count_ = std::min<size_t>(count_ + 1u, samples_.size());
+                if (count_ >= 12 && cap_)
+                {
+                    auto ordered = samples_;
+                    const std::size_t percentile = profile_ == 2 ? 95u : 90u;
+                    const std::size_t index = (count_ - 1u) * percentile / 100u;
+                    std::nth_element(ordered.begin(), ordered.begin() + index,
+                                     ordered.begin() + count_);
+                    const uint64_t selected = ordered[index];
+                    const uint64_t target =
+                        std::min<uint64_t>(cap_, selected > 500 ? selected - 500 : 0);
+                    if (target > reserve_us_)
+                        reserve_us_ = std::min(target, reserve_us_ + 250);
+                    else if (reserve_us_ > target)
+                        reserve_us_ -= std::min<uint64_t>(reserve_us_ - target, 50);
+                }
+            }
+            else
+                clear_window();
+        }
+        else if (last_pts_)
+            clear_window();
+        last_pts_ = pts;
+        last_ready_ = ready;
+        last_frame_number_ = frame_number;
+    }
+    uint64_t reserve_us() const
+    {
+        return reserve_us_;
+    }
+
+  private:
+    void clear_window()
+    {
+        samples_.fill(0);
+        next_ = count_ = 0;
+        // A source discontinuity must not carry old latency into the new scene.
+        reserve_us_ = 0;
+    }
+    std::array<uint64_t, 32> samples_{};
+    std::size_t next_{}, count_{};
+    uint64_t last_pts_{}, last_ready_{}, reserve_us_{};
+    uint32_t last_frame_number_{};
+    uint64_t cap_{};
+    unsigned profile_{1};
+};
+
+// Adaptive preparation lead for PS5 Vulkan; use bounded recent maximum and
+// never infer HDMI timing from the GPU completion fence.
+class VrrPreparationLead
+{
+  public:
+    void observe(uint64_t cost_us)
+    {
+        samples_[index_] = std::min<uint64_t>(cost_us + 500, 6000);
+        index_ = (index_ + 1) % samples_.size();
+        count_ = std::min(count_ + 1u, samples_.size());
+    }
+    uint64_t lead_us() const
+    {
+        if (count_ == 0)
+            return 1000;
+        // React immediately at startup; later use p90 rather than one
+        // exceptional GPU stall holding a 6 ms lead for 32 frames.
+        if (count_ < 8)
+            return std::max<uint64_t>(
+                1000, *std::max_element(samples_.begin(), samples_.begin() + count_));
+        auto copy = samples_;
+        const size_t rank = (count_ - 1) * 90 / 100;
+        std::nth_element(copy.begin(), copy.begin() + rank, copy.begin() + count_);
+        return std::max<uint64_t>(1000, copy[rank]);
+    }
+
+  private:
+    std::array<uint64_t, 32> samples_{};
+    size_t index_{}, count_{};
+};
+
 // PS5 adapter for timestamp-driven VRR playout. Inspired by Nonary's
 // separation of source cadence, presentation floors and bounded scheduling:
 // https://github.com/Nonary/moonlight-qt/tree/master/app/streaming/video/ffmpeg-renderers/pacer
@@ -371,7 +480,51 @@ class VrrRepeatPolicy
         *this = VrrRepeatPolicy{};
         period_ = UINT64_C(1000000) / std::max(1u, fps);
         moving_period_ = nominal_period_ = period_;
+        reserve_.configure(profile_);
         update_repeat_policy();
+    }
+    void configure(unsigned profile, unsigned display_refresh_x100 = 11988)
+    {
+        profile_ = std::min(profile, 2u);
+        reserve_.configure(profile_);
+        spacing_feedback_.configure(profile_);
+        // PS5 HFR uses nominal 119.88 Hz. Do not derive a VRR ceiling from
+        // the momentary current scanout rate (which can temporarily be 60 Hz).
+        // WSI may round 119.88 Hz to 120.00. Never assume the rounded
+        // value allows a faster scanout than the PS5 VideoOut HFR mode.
+        const unsigned ceiling_x100 = std::min(display_refresh_x100, 11988u);
+        if (ceiling_x100 >= 10000)
+            display_floor_us_ = (UINT64_C(100000000) + ceiling_x100 - 1) / ceiling_x100;
+        else
+            display_floor_us_ = 8342; // Conservative PS5 HFR fallback.
+        update_repeat_policy();
+    }
+    void observe_readiness(uint64_t pts, uint64_t ready, uint32_t frame_number = 0)
+    {
+        reserve_.observe(pts, ready, frame_number);
+        // Use a source-referenced local monotonic timeline: adding reserve to
+        // each arrival timestamp alone increases latency without smoothing.
+        timeline_.observe(pts, ready);
+    }
+    uint64_t playout_reserve_us() const
+    {
+        return std::max(reserve_.reserve_us(), spacing_feedback_.reserve_us());
+    }
+    // Source-vs-output timing is considered feedback only if an actual unique
+    // frame (not a retained copy) was submitted in variable-output mode.
+    void observe_output_feedback(uint32_t frame_number, uint64_t pts, uint64_t ready_us,
+                                 uint64_t submitted_us, bool variable_output)
+    {
+        spacing_feedback_.observe(frame_number, pts, ready_us, submitted_us,
+                                  variable_output && profile_ != 0);
+    }
+    uint64_t feedback_misses() const
+    {
+        return spacing_feedback_.misses();
+    }
+    uint64_t display_floor_us() const
+    {
+        return display_floor_us_;
     }
     void observe_picture(uint64_t pts, uint32_t frame_number = 0)
     {
@@ -451,18 +604,37 @@ class VrrRepeatPolicy
     {
         return low_ || gap_;
     }
-    uint64_t picture_target(uint64_t ready) const
+    // Controlled catch-up: accelerate only if a newer picture really is
+    // queued and this frame is already older than one source period.
+    // Otherwise keep source cadence; do not chase arrival jitter with bursts.
+    uint64_t picture_target(uint64_t ready, bool successor_queued = false,
+                            uint64_t queue_age_us = 0) const
     {
+        // Only an active VRR profile gains source-referenced intentional
+        // reserve. Catch-up cancels it when a newer frame is actually queued.
+        const uint64_t reserve = successor_queued ? 0 : playout_reserve_us();
+        const uint64_t earliest = timeline_.target(ready, reserve);
+        if (!submitted_at_)
+            return earliest;
         if (!grid_active())
-            return std::max(ready, submitted_at_
-                                       ? submitted_at_ +
-                                             std::max<uint64_t>(8333, moving_period_ * 98 / 100)
-                                       : ready);
-        uint64_t target =
-            std::max(next_, submitted_at_ ? submitted_at_ + interval_ * 95 / 100 : ready);
-        // A prepared image just late for its slot uses it immediately. Rounding
-        // to the following slot would create a double-length scanout gap.
-        return std::max(target, ready);
+        {
+            uint64_t spacing = std::max(display_floor_us_, moving_period_ * 98 / 100);
+            if (successor_queued && queue_age_us > period_ && spacing > display_floor_us_)
+            {
+                const uint64_t excess = std::min(queue_age_us - period_, period_);
+                const uint64_t available = spacing - display_floor_us_;
+                const uint64_t recovery = available * excess / std::max<uint64_t>(1, period_);
+                spacing -= recovery;
+            }
+            return std::max(earliest, submitted_at_ + spacing);
+        }
+        // LFC grid: the current real picture can consume the next repeat
+        // slot, but a fresh frame never has to wait through an extra period.
+        const uint64_t floor = submitted_at_ + display_floor_us_;
+        const uint64_t next_slot = successor_queued && queue_age_us > period_
+                                       ? floor
+                                       : std::max(next_, submitted_at_ + interval_ * 95 / 100);
+        return std::max(earliest, std::max(next_slot, floor));
     }
     void presented(uint64_t submitted)
     {
@@ -482,13 +654,23 @@ class VrrRepeatPolicy
     {
         return next_;
     }
-    // Leave time for the next actual source frame before the first idle
-    // duplicate. In particular 16 ms is too early for a 60 FPS sender.
+    // Give the next unique frame a small arrival grace without violating
+    // the 60 Hz LFC watchdog. On low rates, select enough repeats to leave
+    // some headroom before the last expected source interval (e.g. 30->90).
     uint64_t idle_deadline() const
     {
-        return !low_ && last_was_picture_
-                   ? std::max(next_, last_picture_at_ + period_ + UINT64_C(1500))
-                   : next_;
+        if (!last_picture_at_ || !submitted_at_)
+            return next_;
+        const uint64_t grace = profile_ == 0 ? 750 : profile_ == 1 ? 1500 : 2500;
+        const uint64_t expected = last_picture_at_ + period_;
+        if (!low_ && last_was_picture_)
+            return std::max(next_, expected + grace);
+        if (!low_ || next_ > expected + grace || next_ + grace < expected)
+            return next_;
+        // Watchdog remains no more than 16 ms after the last repeat;
+        // if the source is absent we must eventually send the same surface.
+        const uint64_t watchdog = submitted_at_ + UINT64_C(16000);
+        return std::min(std::max(next_, expected + grace), watchdog);
     }
     void repeated(uint64_t submitted)
     {
@@ -511,7 +693,8 @@ class VrrRepeatPolicy
     }
     unsigned target_refresh_x100() const
     {
-        return unsigned(UINT64_C(100000000) * copies_ / period_);
+        return unsigned(std::min<uint64_t>(UINT64_C(100000000) * copies_ / period_,
+                                           UINT64_C(100000000) / display_floor_us_));
     }
     unsigned source_rate() const
     {
@@ -541,8 +724,15 @@ class VrrRepeatPolicy
         // Sparse capture lowers scanout cadence; fresh motion restores it.
         copies_ = unsigned((period_ + kSingleScanoutLimitUs - 1) / kSingleScanoutLimitUs);
         low_ = copies_ > 1;
-        // Stay inside a ~60-120 Hz idle grid rather than 20 ms / 50 Hz.
-        interval_ = low_ ? std::clamp<uint64_t>(period_ / copies_, 8333, 16000) : 16000;
+        // Minimum 60 Hz repetition leaves zero slack at exact 30 FPS: a
+        // repeat at 33.33 ms would steal a real frame arriving at 33.5 ms.
+        // Use an additional LFC copy where the 120 Hz ceiling permits it.
+        // 30->90, 35->105, 40->80, 50->100; sparse 16->80.
+        while (low_ && copies_ < 32 && period_ / copies_ > 13500 &&
+               period_ / (copies_ + 1u) >= display_floor_us_)
+            ++copies_;
+        interval_ =
+            low_ ? std::clamp<uint64_t>(period_ / copies_, display_floor_us_, 16000) : 16000;
     }
     void advance(uint64_t submitted)
     {
@@ -563,7 +753,12 @@ class VrrRepeatPolicy
         else
             next_ = submitted + interval_;
     }
-    uint64_t period_{16666}, last_pts_{}, samples_{}, next_{}, interval_{20000};
+    uint64_t period_{16666}, last_pts_{}, samples_{}, next_{}, interval_{16000};
+    uint64_t display_floor_us_{8342};
+    unsigned profile_{1};
+    VrrReadinessReserve reserve_{};
+    VrrSourceTimeline timeline_{};
+    Ps5SpacingFeedback spacing_feedback_{};
     uint64_t scanned_count_{}, scanned_at_{}, submitted_at_{}, fast_samples_{}, fast_sum_{},
         moving_period_{16666}, nominal_period_{16666}, last_picture_at_{};
     uint64_t candidate_sum_{}, candidate_min_{}, candidate_max_{};
